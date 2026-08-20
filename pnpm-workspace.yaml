@@ -6,6 +6,7 @@ packages:
 catalogMode: prefer
 
 catalog:
+  "@effect/tsgo": 0.36.5
   "@types/node": ^24
   effect: 4.0.0-rc.110
   typescript: ^7.0.2

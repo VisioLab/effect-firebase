@@ -1,3 +1,4 @@
+import { recommended } from "@effect/tsgo/oxlint-presets";
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
@@ -6,6 +7,7 @@ export default defineConfig({
   },
   fmt: {},
   lint: {
+    extends: [recommended],
     jsPlugins: [{ name: "vite-plus", specifier: "vite-plus/oxlint-plugin" }],
     rules: { "vite-plus/prefer-vite-plus-imports": "error" },
     options: { typeAware: true, typeCheck: true },
