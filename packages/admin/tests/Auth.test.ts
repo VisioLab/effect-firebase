@@ -1,4 +1,4 @@
-import { assert, describe, it } from "@effect/vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as Admin from "firebase-admin/app";
 import * as App from "../src/App.ts";
@@ -13,7 +13,7 @@ describe("Auth", () => {
     Effect.gen(function* () {
       const auth = yield* Auth.Auth;
       const app = yield* auth.use((auth) => auth.app);
-      assert.strictEqual(app.name, "auth");
+      expect(app.name).toBe("auth");
     }).pipe(Effect.provide(layer)),
   );
 
@@ -24,9 +24,9 @@ describe("Auth", () => {
       // The SDK rejects an empty uid before it goes anywhere near the network.
       const error = yield* Effect.flip(auth.getUser(""));
 
-      assert.strictEqual(error._tag, "AuthError");
-      assert.strictEqual(error.code, "auth/invalid-uid");
-      assert.strictEqual(error.message, 'Failed to get the user ""');
+      expect(error._tag).toBe("AuthError");
+      expect(error.code).toBe("auth/invalid-uid");
+      expect(error.message).toBe('Failed to get the user ""');
     }).pipe(Effect.provide(layer)),
   );
 
@@ -40,9 +40,9 @@ describe("Auth", () => {
         }),
       );
 
-      assert.strictEqual(error._tag, "AuthError");
-      assert.strictEqual(error.code, undefined);
-      assert.strictEqual((error.cause as Error).message, "boom");
+      expect(error._tag).toBe("AuthError");
+      expect(error.code).toBeUndefined();
+      expect((error.cause as Error).message).toBe("boom");
     }).pipe(Effect.provide(layer)),
   );
 
@@ -58,7 +58,7 @@ describe("Auth", () => {
         Auth.layer.pipe(Layer.provide(Layer.succeed(App.App, deleted))),
       ).pipe(Effect.catchDefect(Effect.succeed));
 
-      assert.strictEqual((defect as Admin.FirebaseError).code, "app/app-deleted");
+      expect((defect as Admin.FirebaseError).code).toBe("app/app-deleted");
     }),
   );
 });
