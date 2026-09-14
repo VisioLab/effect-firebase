@@ -11,13 +11,13 @@
   "sideEffects": [],
   "exports": {
     ".": "./src/index.ts",
-    "./FirebaseApp": "./src/FirebaseApp.ts",
+    "./App": "./src/App.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "exports": {
       ".": "./dist/index.mjs",
-      "./FirebaseApp": "./dist/FirebaseApp.mjs",
+      "./App": "./dist/App.mjs",
       "./package.json": "./package.json"
     },
     "access": "public"

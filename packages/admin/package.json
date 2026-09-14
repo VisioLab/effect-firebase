@@ -29,13 +29,13 @@
   "sideEffects": [],
   "exports": {
     ".": "./src/index.ts",
-    "./AdminApp": "./src/AdminApp.ts",
+    "./App": "./src/App.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "exports": {
       ".": "./dist/index.mjs",
-      "./AdminApp": "./dist/AdminApp.mjs",
+      "./App": "./dist/App.mjs",
       "./package.json": "./package.json"
     },
     "access": "public",
@@ -49,6 +49,7 @@
     "prepublishOnly": "vp run build"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:",
     "@types/node": "^26.1.1",
     "effect": "catalog:",
     "effect-firebase": "workspace:^",

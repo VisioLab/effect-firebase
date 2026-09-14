@@ -2,8 +2,8 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   pack: {
-    // One entry per top-level module, so consumers can reach `AdminApp` as
-    // `@effect-firebase/admin/AdminApp` without loading the whole barrel.
+    // One entry per top-level module, so consumers can reach `App` as
+    // `@effect-firebase/admin/App` without loading the whole barrel.
     entry: ["src/*.ts"],
     unbundle: true,
     sourcemap: true,
