@@ -2,7 +2,9 @@ import { defineConfig } from "vite-plus";
 
 export default defineConfig({
   pack: {
-    entry: ["src/index.ts"],
+    // One entry per top-level module, so consumers can reach `FirebaseApp` as
+    // `effect-firebase/FirebaseApp` without loading the whole barrel.
+    entry: ["src/*.ts"],
     // Keep one output file per source module instead of one bundle, so
     // consumers only pull in what they import and stack traces stay readable.
     unbundle: true,
@@ -13,11 +15,4 @@ export default defineConfig({
     // sibling packages typecheck without a build step first.
     exports: { devExports: true },
   },
-  lint: {
-    options: {
-      typeAware: true,
-      typeCheck: true,
-    },
-  },
-  fmt: {},
 });

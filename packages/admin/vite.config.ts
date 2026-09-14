@@ -14,11 +14,4 @@ export default defineConfig({
     // sibling packages typecheck without a build step first.
     exports: { devExports: true },
   },
-  lint: {
-    options: {
-      typeAware: true,
-      typeCheck: true,
-    },
-  },
-  fmt: {},
 });
