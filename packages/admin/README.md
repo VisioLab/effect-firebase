@@ -17,16 +17,29 @@ const program = Effect.gen(function* () {
   yield* Effect.log(`Running against ${app.name}`);
 });
 
-program.pipe(Effect.provide(App.layer));
+program.pipe(Effect.provide(App.layer()));
 ```
 
-`layer` initializes the app the way the Admin SDK does by default, from
-`FIREBASE_CONFIG` and application default credentials. Use `layerOptions` -
-which also takes an optional `name` - to configure it explicitly:
+`layer` mirrors `initializeApp(options, name)`. Called with no arguments it
+initializes the app the way the Admin SDK does by default, from
+`FIREBASE_CONFIG` and application default credentials; pass either argument to
+configure it:
 
 ```ts
-App.layerOptions({ projectId: "my-project", name: "secondary" });
+App.layer({ projectId: "my-project" }, "secondary");
+App.layer(undefined, "secondary"); // default behaviour, under a name
 ```
 
-An app that is already registered under the same name is adopted rather than
-initialized, and is left alone when the scope closes.
+An app that is already registered under the same name is left alone when the
+scope closes rather than deleted. Reusing it that way is narrow, though: the
+Admin SDK rejects auto-init against explicit options, and rejects reuse outright
+when either side carries a credential or an `httpAgent` - which covers the usual
+`initializeApp({ credential: cert(...) })` host setup. To pick up an app the host
+initialized, provide it directly:
+
+```ts
+import { getApp } from "firebase-admin/app";
+import { Layer } from "effect";
+
+const AppLive = Layer.succeed(App.App, getApp());
+```

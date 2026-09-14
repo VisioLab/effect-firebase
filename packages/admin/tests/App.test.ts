@@ -11,7 +11,7 @@ describe("App", () => {
     Effect.gen(function* () {
       yield* Effect.scoped(
         Effect.gen(function* () {
-          const app = yield* App.make({ projectId: "demo-owned", name: "owned" });
+          const app = yield* App.make({ projectId: "demo-owned" }, "owned");
           assert.strictEqual(app.name, "owned");
           assert.isTrue(isRegistered("owned"));
         }),
@@ -25,7 +25,7 @@ describe("App", () => {
     Effect.gen(function* () {
       const app = yield* App.App;
       assert.strictEqual(app.name, defaultAppName);
-    }).pipe(Effect.provide(App.layer)),
+    }).pipe(Effect.provide(App.layer())),
   );
 
   it.effect("adopts an app that was initialized elsewhere and leaves it alive", () =>
@@ -34,7 +34,7 @@ describe("App", () => {
 
       yield* Effect.scoped(
         Effect.gen(function* () {
-          const app = yield* App.make({ projectId: "demo-adopted", name: "adopted" });
+          const app = yield* App.make({ projectId: "demo-adopted" }, "adopted");
           assert.strictEqual(app, existing);
         }),
       );
@@ -49,7 +49,7 @@ describe("App", () => {
       const existing = Admin.initializeApp({ projectId: "demo-conflict" }, "conflict");
 
       const error = yield* Effect.flip(
-        Effect.scoped(App.make({ projectId: "other-project", name: "conflict" })),
+        Effect.scoped(App.make({ projectId: "other-project" }, "conflict")),
       );
 
       assert.strictEqual(error._tag, "AppError");
