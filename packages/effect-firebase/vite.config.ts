@@ -9,7 +9,9 @@ export default defineConfig({
     dts: {
       tsgo: true,
     },
-    exports: true,
+    // Resolve to source inside the workspace and to dist on publish, so
+    // sibling packages typecheck without a build step first.
+    exports: { devExports: true },
   },
   lint: {
     options: {
