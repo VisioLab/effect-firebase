@@ -1,4 +1,4 @@
 /**
  * @since 0.0.0
  */
-export * as FirebaseApp from "./FirebaseApp.ts";
+export * as App from "./App.ts";

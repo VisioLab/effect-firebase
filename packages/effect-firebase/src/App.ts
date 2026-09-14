@@ -9,11 +9,9 @@ import { Context } from "effect";
  * @category models
  * @since 0.0.0
  */
-export interface FirebaseApp {
+export interface App {
   /** `"[DEFAULT]"` unless the app was initialized under a name. */
   readonly name: string;
-  /** The project the app talks to. */
-  readonly projectId: string;
 }
 
 /**
@@ -22,7 +20,7 @@ export interface FirebaseApp {
  * @category services
  * @since 0.0.0
  */
-export const FirebaseApp = Context.Service<FirebaseApp>("effect-firebase/FirebaseApp");
+export const App = Context.Service<App>("effect-firebase/App");
 
 /**
  * The name Firebase gives an app that was initialized without an explicit one.
