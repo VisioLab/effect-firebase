@@ -22,7 +22,7 @@ export interface FirebaseApp {
  * @category services
  * @since 0.0.0
  */
-export const FirebaseApp = Context.Service<FirebaseApp>("~effect-firebase/FirebaseApp");
+export const FirebaseApp = Context.Service<FirebaseApp>("effect-firebase/FirebaseApp");
 
 /**
  * The name Firebase gives an app that was initialized without an explicit one.

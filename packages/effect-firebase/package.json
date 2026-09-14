@@ -10,10 +10,16 @@
   "type": "module",
   "sideEffects": [],
   "exports": {
-    ".": "./dist/index.mjs",
+    ".": "./src/index.ts",
+    "./FirebaseApp": "./src/FirebaseApp.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
+    "exports": {
+      ".": "./dist/index.mjs",
+      "./FirebaseApp": "./dist/FirebaseApp.mjs",
+      "./package.json": "./package.json"
+    },
     "access": "public"
   },
   "scripts": {

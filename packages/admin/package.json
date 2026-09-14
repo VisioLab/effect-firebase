@@ -1,0 +1,65 @@
+{
+  "name": "@effect-firebase/admin",
+  "version": "0.0.0",
+  "description": "Firebase Admin SDK implementation of the effect-firebase services.",
+  "keywords": [
+    "effect",
+    "firebase",
+    "firebase-admin",
+    "typescript"
+  ],
+  "homepage": "https://github.com/Kaeldehta/effect-firebase",
+  "bugs": {
+    "url": "https://github.com/Kaeldehta/effect-firebase/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Kaeldehta/effect-firebase.git",
+    "directory": "packages/admin"
+  },
+  "files": [
+    "src/**/*.ts",
+    "dist/**/*.mjs",
+    "dist/**/*.mjs.map",
+    "dist/**/*.d.mts",
+    "dist/**/*.d.mts.map"
+  ],
+  "type": "module",
+  "sideEffects": [],
+  "exports": {
+    ".": "./src/index.ts",
+    "./AdminApp": "./src/AdminApp.ts",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": "./dist/index.mjs",
+      "./AdminApp": "./dist/AdminApp.mjs",
+      "./package.json": "./package.json"
+    },
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "test": "vp test",
+    "check": "vp check",
+    "prepublishOnly": "vp run build"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "effect": "catalog:",
+    "effect-firebase": "workspace:^",
+    "firebase-admin": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "peerDependencies": {
+    "effect": "catalog:",
+    "effect-firebase": "workspace:^",
+    "firebase-admin": "catalog:"
+  }
+}
