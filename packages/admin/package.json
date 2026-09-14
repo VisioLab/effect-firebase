@@ -30,12 +30,14 @@
   "exports": {
     ".": "./src/index.ts",
     "./App": "./src/App.ts",
+    "./Auth": "./src/Auth.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "exports": {
       ".": "./dist/index.mjs",
       "./App": "./dist/App.mjs",
+      "./Auth": "./dist/Auth.mjs",
       "./package.json": "./package.json"
     },
     "access": "public",

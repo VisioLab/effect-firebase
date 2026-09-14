@@ -1,4 +1,4 @@
-import { assert, describe, it } from "@effect/vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 import { defaultAppName } from "effect-firebase/App";
 import * as Admin from "firebase-admin/app";
@@ -12,19 +12,19 @@ describe("App", () => {
       yield* Effect.scoped(
         Effect.gen(function* () {
           const app = yield* App.make({ projectId: "demo-owned" }, "owned");
-          assert.strictEqual(app.name, "owned");
-          assert.isTrue(isRegistered("owned"));
+          expect(app.name).toBe("owned");
+          expect(isRegistered("owned")).toBe(true);
         }),
       );
 
-      assert.isFalse(isRegistered("owned"));
+      expect(isRegistered("owned")).toBe(false);
     }),
   );
 
   it.effect("initializes the default app from the environment", () =>
     Effect.gen(function* () {
       const app = yield* App.App;
-      assert.strictEqual(app.name, defaultAppName);
+      expect(app.name).toBe(defaultAppName);
     }).pipe(Effect.provide(App.layer())),
   );
 
@@ -35,11 +35,11 @@ describe("App", () => {
       yield* Effect.scoped(
         Effect.gen(function* () {
           const app = yield* App.make({ projectId: "demo-adopted" }, "adopted");
-          assert.strictEqual(app, existing);
+          expect(app).toBe(existing);
         }),
       );
 
-      assert.isTrue(isRegistered("adopted"));
+      expect(isRegistered("adopted")).toBe(true);
       yield* Effect.promise(() => Admin.deleteApp(existing));
     }),
   );
@@ -52,7 +52,7 @@ describe("App", () => {
         Effect.scoped(App.make({ projectId: "other-project" }, "conflict")),
       );
 
-      assert.strictEqual(error._tag, "AppError");
+      expect(error._tag).toBe("AppError");
       yield* Effect.promise(() => Admin.deleteApp(existing));
     }),
   );
