@@ -12,12 +12,16 @@
   "exports": {
     ".": "./src/index.ts",
     "./App": "./src/App.ts",
+    "./Firestore": "./src/Firestore.ts",
+    "./Firestore/Collection": "./src/Firestore/Collection.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "exports": {
       ".": "./dist/index.mjs",
       "./App": "./dist/App.mjs",
+      "./Firestore": "./dist/Firestore.mjs",
+      "./Firestore/Collection": "./dist/Firestore/Collection.mjs",
       "./package.json": "./package.json"
     },
     "access": "public"
@@ -30,6 +34,7 @@
     "prepublishOnly": "vp run build"
   },
   "devDependencies": {
+    "@effect/vitest": "catalog:",
     "@types/node": "^26.1.1",
     "bumpp": "^11.1.0",
     "effect": "catalog:",
