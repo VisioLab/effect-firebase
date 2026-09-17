@@ -74,7 +74,8 @@ const inNanosecondsRange = (n: number): boolean =>
  * @category guards
  * @since 0.0.0
  */
-export const isTimestamp = (u: unknown): u is Timestamp => Predicate.hasProperty(u, TypeId);
+export const isTimestamp = (u: unknown): u is Timestamp =>
+  Predicate.hasProperty(u, TypeId) && u[TypeId] === TypeId && isTimestampLike(u);
 
 /**
  * Whether `u` is shaped like a Firestore timestamp and holds an instant
