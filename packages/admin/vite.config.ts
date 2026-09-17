@@ -8,7 +8,7 @@ export default defineConfig({
     unbundle: true,
     sourcemap: true,
     dts: {
-      tsgo: true,
+      generator: "tsgo",
     },
     // Resolve to source inside the workspace and to dist on publish, so
     // sibling packages typecheck without a build step first.
