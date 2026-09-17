@@ -51,7 +51,6 @@
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",
-    "@types/node": "^26.1.1",
     "@visiolab/effect-firebase": "workspace:^",
     "effect": "catalog:",
     "firebase-admin": "catalog:",
