@@ -1,6 +1,6 @@
 {
   "name": "@visiolab/effect-firebase",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Effect bindings for Firebase.",
   "homepage": "https://github.com/VisioLab/effect-firebase",
   "bugs": {
