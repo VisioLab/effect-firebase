@@ -1,0 +1,33 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      # `effect` and `@effect/*` share a release train and are pinned to the
+      # same rc in the catalog, so they have to move together.
+      effect:
+        patterns:
+          - "effect"
+          - "@effect/*"
+      # `vite` is an alias for `@voidzero-dev/vite-plus-core`; it and
+      # `vite-plus` are released as a matched pair.
+      vite-plus:
+        patterns:
+          - "vite"
+          - "vite-plus"
+          - "@voidzero-dev/*"
+      types:
+        patterns:
+          - "@types/*"
