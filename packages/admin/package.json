@@ -8,14 +8,14 @@
     "firebase-admin",
     "typescript"
   ],
-  "homepage": "https://github.com/Kaeldehta/effect-firebase",
+  "homepage": "https://github.com/VisioLab/effect-firebase",
   "bugs": {
-    "url": "https://github.com/Kaeldehta/effect-firebase/issues"
+    "url": "https://github.com/VisioLab/effect-firebase/issues"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Kaeldehta/effect-firebase.git",
+    "url": "git+https://github.com/VisioLab/effect-firebase.git",
     "directory": "packages/admin"
   },
   "files": [
@@ -40,8 +40,7 @@
       "./Auth": "./dist/Auth.mjs",
       "./package.json": "./package.json"
     },
-    "access": "public",
-    "provenance": true
+    "registry": "https://npm.pkg.github.com"
   },
   "scripts": {
     "build": "vp pack",

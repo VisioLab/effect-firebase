@@ -2,7 +2,16 @@
   "name": "@visiolab/effect-firebase",
   "version": "0.0.0",
   "description": "Effect bindings for Firebase.",
+  "homepage": "https://github.com/VisioLab/effect-firebase",
+  "bugs": {
+    "url": "https://github.com/VisioLab/effect-firebase/issues"
+  },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VisioLab/effect-firebase.git",
+    "directory": "packages/effect-firebase"
+  },
   "files": [
     "dist",
     "src"
@@ -24,7 +33,7 @@
       "./Firestore/Collection": "./dist/Firestore/Collection.mjs",
       "./package.json": "./package.json"
     },
-    "access": "public"
+    "registry": "https://npm.pkg.github.com"
   },
   "scripts": {
     "build": "vp pack",
@@ -36,7 +45,6 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/node": "^26.1.1",
-    "bumpp": "^11.1.0",
     "effect": "catalog:",
     "typescript": "^7.0.2",
     "vite": "catalog:",

@@ -15,8 +15,8 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
     groups:
-      # `effect` and `@effect/*` share a release train and are pinned to the
-      # same rc in the catalog, so they have to move together.
+      # `effect` and `@effect/*` share a release train and carry matching
+      # caret ranges in the catalog, so they have to move together.
       effect:
         patterns:
           - "effect"
