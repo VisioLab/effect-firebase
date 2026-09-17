@@ -11,9 +11,9 @@
 import type { Brand } from "effect";
 import { Equal, Hash, Inspectable, Predicate, Schema } from "effect";
 
-const CollectionTypeId = "~@visiolab/effect-firebase/Firestore/Collection";
-const CollectionReferenceTypeId = "~@visiolab/effect-firebase/Firestore/CollectionReference";
-const DocumentReferenceTypeId = "~@visiolab/effect-firebase/Firestore/DocumentReference";
+const CollectionTypeId = "~@visiolab/effect-firebase/firestore/Collection";
+const CollectionReferenceTypeId = "~@visiolab/effect-firebase/firestore/CollectionReference";
+const DocumentReferenceTypeId = "~@visiolab/effect-firebase/firestore/DocumentReference";
 
 /**
  * A path segment together with the schema of the documents stored under it.

@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { Equal, Hash, HashSet, Schema } from "effect";
-import * as Collection from "../../src/Firestore/Collection.ts";
+import * as Collection from "../../src/firestore/Collection.ts";
 
 const User = Schema.Struct({ name: Schema.String });
 const Post = Schema.Struct({ title: Schema.String });
