@@ -1,0 +1,36 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write # version PR commits, release tags
+  packages: write # publish to npm.pkg.github.com
+  pull-requests: write # open the version PR
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Version or publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: voidzero-dev/setup-vp@9fd26ff49f9b5e6276c2b493da4454ad4527f7f4 # v1.20.0
+        with:
+          node-version: "24"
+          cache: true
+          registry-url: https://npm.pkg.github.com
+
+      # With changesets pending, opens or updates the "Version Packages" PR.
+      # With none pending, publishes — `changeset publish` delegates to pnpm,
+      # which is what rewrites workspace:/catalog: ranges — then tags and
+      # creates a GitHub release per package.
+      - uses: changesets/action@66d7d1ddafddf1ef45f98ee51a7496f9cdadb2f4 # v2.1.2
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
