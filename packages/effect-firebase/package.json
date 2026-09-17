@@ -21,16 +21,16 @@
   "exports": {
     ".": "./src/index.ts",
     "./App": "./src/App.ts",
-    "./Firestore": "./src/Firestore.ts",
-    "./Firestore/Collection": "./src/Firestore/Collection.ts",
+    "./firestore": "./src/firestore/index.ts",
+    "./firestore/Collection": "./src/firestore/Collection.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "exports": {
       ".": "./dist/index.mjs",
       "./App": "./dist/App.mjs",
-      "./Firestore": "./dist/Firestore.mjs",
-      "./Firestore/Collection": "./dist/Firestore/Collection.mjs",
+      "./firestore": "./dist/firestore/index.mjs",
+      "./firestore/Collection": "./dist/firestore/Collection.mjs",
       "./package.json": "./package.json"
     },
     "registry": "https://npm.pkg.github.com"
