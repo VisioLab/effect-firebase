@@ -181,6 +181,14 @@ export type Ancestors<C extends Any> = AncestorsOf<C["~levels"]>;
 export type DocumentSchema<C extends Any> = Leaf<C["~levels"]>[1];
 
 /**
+ * What a document in `C` decodes to.
+ *
+ * @category models
+ * @since 0.0.0
+ */
+export type Document<C extends Any> = DocumentSchema<C>["Type"];
+
+/**
  * A reference to one collection, addressed by the ids of its ancestors.
  *
  * @category models
