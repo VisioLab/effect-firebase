@@ -9,7 +9,7 @@ catalog:
   "@changesets/cli": ^3.0.3
   "@effect/tsgo": 0.45.0
   "@effect/vitest": ^4.0.0-rc.112
-  "@types/node": ^24
+  "@types/node": ^26
   effect: ^4.0.0-rc.112
   firebase-admin: ^14.2.0
   typescript: ^7.0.2
