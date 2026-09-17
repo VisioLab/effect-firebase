@@ -15,19 +15,27 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
     groups:
-      # `effect` and `@effect/*` share a release train and carry matching
-      # caret ranges in the catalog, so they have to move together.
-      effect:
-        patterns:
-          - "effect"
-          - "@effect/*"
       # `vite` is an alias for `@voidzero-dev/vite-plus-core`; it and
-      # `vite-plus` are released as a matched pair.
-      vite-plus:
+      # `vite-plus` are released as a matched pair. `@effect/tsgo` belongs here
+      # rather than with the effect release train: it patches the oxlint and tsc
+      # binaries vite-plus ships and refuses to patch a version it does not know
+      # about, so a tsgo bump is only mergeable alongside the vite-plus bump that
+      # carries a supported oxlint. Listed first so it wins the grouping.
+      toolchain:
         patterns:
           - "vite"
           - "vite-plus"
           - "@voidzero-dev/*"
+          - "@effect/tsgo"
+      # `effect` and `@effect/vitest` share a release train and are coupled
+      # through entrypoints such as `effect/testing/FastCheck`, so they have to
+      # move together.
+      effect:
+        patterns:
+          - "effect"
+          - "@effect/*"
+        exclude-patterns:
+          - "@effect/tsgo"
       types:
         patterns:
           - "@types/*"
