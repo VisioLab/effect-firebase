@@ -72,7 +72,7 @@ export interface Auth {
  * @category services
  * @since 0.0.0
  */
-export const Auth = Context.Service<Auth>("@effect-firebase/admin/Auth");
+export const Auth = Context.Service<Auth>("@visiolab/effect-firebase-admin/Auth");
 
 /**
  * Builds {@link Auth} on top of the {@link App.App} in context.

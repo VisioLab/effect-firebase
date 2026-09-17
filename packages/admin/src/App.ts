@@ -4,7 +4,7 @@
  * @since 0.0.0
  */
 import { Context, Effect, Layer, Schema } from "effect";
-import { defaultAppName } from "effect-firebase/App";
+import { defaultAppName } from "@visiolab/effect-firebase/App";
 import * as Admin from "firebase-admin/app";
 
 /**
@@ -21,7 +21,7 @@ export interface App extends Admin.App {}
  * @category services
  * @since 0.0.0
  */
-export const App = Context.Service<App>("@effect-firebase/admin/App");
+export const App = Context.Service<App>("@visiolab/effect-firebase-admin/App");
 
 /**
  * Raised when an app cannot be initialized.

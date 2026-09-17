@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
-import { defaultAppName } from "effect-firebase/App";
+import { defaultAppName } from "@visiolab/effect-firebase/App";
 import * as Admin from "firebase-admin/app";
 import * as App from "../src/App.ts";
 

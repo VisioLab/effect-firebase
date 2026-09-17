@@ -1,7 +1,7 @@
 {
-  "name": "@effect-firebase/admin",
+  "name": "@visiolab/effect-firebase-admin",
   "version": "0.0.0",
-  "description": "Firebase Admin SDK implementation of the effect-firebase services.",
+  "description": "Firebase Admin SDK implementation of the @visiolab/effect-firebase services.",
   "keywords": [
     "effect",
     "firebase",
@@ -53,16 +53,16 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/node": "^26.1.1",
+    "@visiolab/effect-firebase": "workspace:^",
     "effect": "catalog:",
-    "effect-firebase": "workspace:^",
     "firebase-admin": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },
   "peerDependencies": {
+    "@visiolab/effect-firebase": "workspace:^",
     "effect": "catalog:",
-    "effect-firebase": "workspace:^",
     "firebase-admin": "catalog:"
   }
 }

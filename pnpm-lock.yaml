@@ -249,12 +249,12 @@ importers:
       '@types/node':
         specifier: ^26.1.1
         version: 26.2.0
+      '@visiolab/effect-firebase':
+        specifier: workspace:^
+        version: link:../effect-firebase
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.110
-      effect-firebase:
-        specifier: workspace:^
-        version: link:../effect-firebase
       firebase-admin:
         specifier: 'catalog:'
         version: 14.4.0
