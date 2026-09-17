@@ -23,6 +23,9 @@
     "./App": "./src/App.ts",
     "./firestore": "./src/firestore/index.ts",
     "./firestore/Collection": "./src/firestore/Collection.ts",
+    "./firestore/FirestoreEncoder": "./src/firestore/FirestoreEncoder.ts",
+    "./firestore/FirestoreSchema": "./src/firestore/FirestoreSchema.ts",
+    "./firestore/Timestamp": "./src/firestore/Timestamp.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -31,6 +34,9 @@
       "./App": "./dist/App.mjs",
       "./firestore": "./dist/firestore/index.mjs",
       "./firestore/Collection": "./dist/firestore/Collection.mjs",
+      "./firestore/FirestoreEncoder": "./dist/firestore/FirestoreEncoder.mjs",
+      "./firestore/FirestoreSchema": "./dist/firestore/FirestoreSchema.mjs",
+      "./firestore/Timestamp": "./dist/firestore/Timestamp.mjs",
       "./package.json": "./package.json"
     },
     "registry": "https://npm.pkg.github.com"

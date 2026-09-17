@@ -31,6 +31,8 @@
     ".": "./src/index.ts",
     "./App": "./src/App.ts",
     "./Auth": "./src/Auth.ts",
+    "./firestore": "./src/firestore/index.ts",
+    "./firestore/FirestoreEncoder": "./src/firestore/FirestoreEncoder.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -38,6 +40,8 @@
       ".": "./dist/index.mjs",
       "./App": "./dist/App.mjs",
       "./Auth": "./dist/Auth.mjs",
+      "./firestore": "./dist/firestore/index.mjs",
+      "./firestore/FirestoreEncoder": "./dist/firestore/FirestoreEncoder.mjs",
       "./package.json": "./package.json"
     },
     "registry": "https://npm.pkg.github.com"
