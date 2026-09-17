@@ -1,6 +1,6 @@
-# @effect-firebase/admin
+# @visiolab/effect-firebase-admin
 
-Firebase Admin SDK implementation of the [`effect-firebase`](../effect-firebase) services.
+Firebase Admin SDK implementation of the [`@visiolab/effect-firebase`](../effect-firebase) services.
 
 ## App
 
@@ -9,7 +9,7 @@ initializes the app when the layer is built and deletes it again when the
 layer's scope closes:
 
 ```ts
-import * as App from "@effect-firebase/admin/App";
+import * as App from "@visiolab/effect-firebase-admin/App";
 import { Effect } from "effect";
 
 const program = Effect.gen(function* () {

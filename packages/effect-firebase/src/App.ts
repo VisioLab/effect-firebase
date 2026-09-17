@@ -20,7 +20,7 @@ export interface App {
  * @category services
  * @since 0.0.0
  */
-export const App = Context.Service<App>("effect-firebase/App");
+export const App = Context.Service<App>("@visiolab/effect-firebase/App");
 
 /**
  * The name Firebase gives an app that was initialized without an explicit one.

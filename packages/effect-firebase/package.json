@@ -1,5 +1,5 @@
 {
-  "name": "effect-firebase",
+  "name": "@visiolab/effect-firebase",
   "version": "0.0.0",
   "description": "Effect bindings for Firebase.",
   "license": "MIT",
