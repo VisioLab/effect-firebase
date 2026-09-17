@@ -9,7 +9,11 @@
  * @since 0.0.0
  */
 import type { Brand } from "effect";
-import { Schema } from "effect";
+import { Equal, Hash, Inspectable, Predicate, Schema } from "effect";
+
+const CollectionTypeId = "~effect-firebase/Firestore/Collection";
+const CollectionReferenceTypeId = "~effect-firebase/Firestore/CollectionReference";
+const DocumentReferenceTypeId = "~effect-firebase/Firestore/DocumentReference";
 
 /**
  * A path segment together with the schema of the documents stored under it.
@@ -24,8 +28,7 @@ export type Level = readonly [segment: string, schema: Schema.Top];
  * collection itself.
  *
  * Carrying the whole chain rather than just the collection's own segment is
- * what lets the ids that address a collection, and its parent, stay typed all
- * the way up.
+ * what lets the ids that address a collection stay typed all the way up.
  *
  * @category models
  * @since 0.0.0
@@ -72,24 +75,19 @@ type AncestorsOf<L extends Levels> = L extends readonly [...infer I, Level]
   : [];
 
 /**
- * The collection a chain is nested under, or `undefined` at the root.
+ * The schema of a document id: decodes a string, and brands it so it cannot
+ * address anything else.
  *
- * Inferring the head of a tuple drops its `readonly`, so it goes back on before
- * the chain is handed to `Collection`, which would otherwise hold a chain that
- * no collection can actually have.
+ * `Schema.Codec` leaves its constructor input as the `unknown` that
+ * `Schema.Top` declares, so pinning it to `string` here is what makes minting
+ * an id a compile-time check rather than a runtime throw.
+ *
+ * @category models
+ * @since 0.0.0
  */
-type ParentOf<L extends Levels> = L extends readonly [...infer I, Level]
-  ? Readonly<I> extends infer P extends Levels
-    ? Collection<P>
-    : undefined
-  : undefined;
-
-/** The document a chain is nested under, or `undefined` at the root. */
-type ParentDocumentOf<L extends Levels> = L extends readonly [...infer I, Level]
-  ? Readonly<I> extends infer P extends Levels
-    ? DocumentReference<Collection<P>>
-    : undefined
-  : undefined;
+export interface IdSchema<T extends string> extends Schema.Codec<T, string> {
+  readonly "~type.make.in": string;
+}
 
 /**
  * The definition of a collection: where it lives, how its documents are
@@ -102,7 +100,8 @@ type ParentDocumentOf<L extends Levels> = L extends readonly [...infer I, Level]
  * @category models
  * @since 0.0.0
  */
-export interface Collection<L extends Levels> {
+export interface Collection<L extends Levels> extends Inspectable.Inspectable {
+  readonly [CollectionTypeId]: typeof CollectionTypeId;
   /**
    * The chain this collection was built from.
    *
@@ -115,12 +114,10 @@ export interface Collection<L extends Levels> {
   readonly path: SegmentsOf<L>;
   /** The last segment, which is the collection id Firestore knows it by. */
   readonly segment: Leaf<L>[0];
-  /** Decodes a document id, and brands it so it cannot address anything else. */
-  readonly id: Schema.Codec<IdOf<L>, string>;
+  /** Decodes a document id. */
+  readonly id: IdSchema<IdOf<L>>;
   /** The schema of the documents in this collection. */
   readonly schema: Leaf<L>[1];
-  /** The collection this one is nested under, or `undefined` at the root. */
-  readonly parent: ParentOf<L>;
 
   /**
    * Defines a subcollection of the documents in this collection.
@@ -130,7 +127,6 @@ export interface Collection<L extends Levels> {
   subcollection<const Segment extends string, S extends Schema.Top>(
     segment: Segment,
     schema: S,
-    options?: Options,
   ): Collection<readonly [...L, readonly [Segment, S]]>;
 
   /**
@@ -161,20 +157,6 @@ export interface Collection<L extends Levels> {
 export type Any = Collection<any>;
 
 /**
- * @category models
- * @since 0.0.0
- */
-export interface Options {
-  /**
-   * Decodes a document id. Defaults to any string.
-   *
-   * Whatever is passed is branded with the collection's path on top of its own
-   * checks, so ids stay distinct per collection.
-   */
-  readonly id?: Schema.Codec<string, string> | undefined;
-}
-
-/**
  * The id of a document in `C`.
  *
  * @category models
@@ -199,21 +181,13 @@ export type Ancestors<C extends Any> = AncestorsOf<C["~levels"]>;
 export type DocumentSchema<C extends Any> = Leaf<C["~levels"]>[1];
 
 /**
- * The collection `C` is nested under, or `undefined` when `C` is a root
- * collection.
- *
- * @category models
- * @since 0.0.0
- */
-export type Parent<C extends Any> = ParentOf<C["~levels"]>;
-
-/**
  * A reference to one collection, addressed by the ids of its ancestors.
  *
  * @category models
  * @since 0.0.0
  */
-export interface CollectionReference<C extends Any> {
+export interface CollectionReference<C extends Any> extends Inspectable.Inspectable, Equal.Equal {
+  readonly [CollectionReferenceTypeId]: typeof CollectionReferenceTypeId;
   /** The definition this reference was built from. */
   readonly collection: C;
   /** The ids that address it, from the root down. */
@@ -222,8 +196,6 @@ export interface CollectionReference<C extends Any> {
   readonly id: Leaf<C["~levels"]>[0];
   /** The full path, such as `users/alice/posts`. */
   readonly path: string;
-  /** The document it is nested under, or `undefined` at the root. */
-  readonly parent: ParentDocumentOf<C["~levels"]>;
 
   /**
    * References a document in this collection.
@@ -239,7 +211,8 @@ export interface CollectionReference<C extends Any> {
  * @category models
  * @since 0.0.0
  */
-export interface DocumentReference<C extends Any> {
+export interface DocumentReference<C extends Any> extends Inspectable.Inspectable, Equal.Equal {
+  readonly [DocumentReferenceTypeId]: typeof DocumentReferenceTypeId;
   /** The definition of the collection holding it. */
   readonly collection: C;
   /** The ids addressing that collection, from the root down. */
@@ -252,6 +225,28 @@ export interface DocumentReference<C extends Any> {
   readonly parent: CollectionReference<C>;
 }
 
+/**
+ * @category guards
+ * @since 0.0.0
+ */
+export const isCollection = (u: unknown): u is Any => Predicate.hasProperty(u, CollectionTypeId);
+
+/**
+ * @category guards
+ * @since 0.0.0
+ */
+export const isCollectionReference = (u: unknown): u is CollectionReference<Any> =>
+  Predicate.hasProperty(u, CollectionReferenceTypeId);
+
+/**
+ * @category guards
+ * @since 0.0.0
+ */
+export const isDocumentReference = (u: unknown): u is DocumentReference<Any> =>
+  Predicate.hasProperty(u, DocumentReferenceTypeId);
+
+const encoder = new TextEncoder();
+
 /** Rejects the segments Firestore cannot address, before they reach a path. */
 const validateSegment = (segment: string): void => {
   const reject = (reason: string): never => {
@@ -261,11 +256,10 @@ const validateSegment = (segment: string): void => {
   if (segment.includes("/")) reject('it must not contain "/"');
   if (segment === "." || segment === "..") reject('it must not be "." or ".."');
   if (/^__.*__$/.test(segment)) reject('it must not match "__.*__"');
-  if (new TextEncoder().encode(segment).length > 1500) reject("it must be at most 1500 bytes");
+  if (encoder.encode(segment).length > 1500) reject("it must be at most 1500 bytes");
 };
 
-const brandId = (path: ReadonlyArray<string>, id: Schema.Codec<string, string> | undefined) =>
-  (id ?? Schema.String).pipe(Schema.brand(path.join("/")));
+const brandId = (path: ReadonlyArray<string>) => Schema.String.pipe(Schema.brand(path.join("/")));
 
 /** Interleaves the segments with the ids addressing them: `a/1/b/2/c`. */
 const joinPath = (segments: ReadonlyArray<string>, ancestors: ReadonlyArray<string>): string => {
@@ -283,11 +277,10 @@ const joinPath = (segments: ReadonlyArray<string>, ancestors: ReadonlyArray<stri
  */
 interface CollectionImpl {
   readonly path: ReadonlyArray<string>;
+  readonly segment: string;
   readonly schema: Schema.Top;
   readonly id: Schema.Top;
-  readonly parent: CollectionImpl | undefined;
-  readonly segment: string;
-  subcollection(segment: string, schema: Schema.Top, options?: Options): CollectionImpl;
+  subcollection(segment: string, schema: Schema.Top): CollectionImpl;
   collection(...ancestors: ReadonlyArray<string>): CollectionReferenceImpl;
   doc(...ids: ReadonlyArray<string>): DocumentReferenceImpl;
 }
@@ -297,7 +290,6 @@ interface CollectionReferenceImpl {
   readonly ancestors: ReadonlyArray<string>;
   readonly id: string;
   readonly path: string;
-  readonly parent: DocumentReferenceImpl | undefined;
   doc(id: string): DocumentReferenceImpl;
 }
 
@@ -309,52 +301,62 @@ interface DocumentReferenceImpl {
   readonly parent: CollectionReferenceImpl;
 }
 
-const CollectionProto: ThisType<CollectionImpl> = {
-  get segment(): string {
-    return this.path[this.path.length - 1];
+const CollectionProto = {
+  ...Inspectable.BaseProto,
+  [CollectionTypeId]: CollectionTypeId,
+  toJSON(this: CollectionImpl) {
+    return { _id: "Collection", path: this.path.join("/") };
   },
-  subcollection(segment: string, schema: Schema.Top, options?: Options): CollectionImpl {
+  subcollection(this: CollectionImpl, segment: string, schema: Schema.Top): CollectionImpl {
     validateSegment(segment);
     const path = [...this.path, segment];
-    return makeCollection(path, schema, brandId(path, options?.id), this);
+    return makeCollection(path, schema, brandId(path));
   },
-  collection(...ancestors: ReadonlyArray<string>): CollectionReferenceImpl {
+  collection(this: CollectionImpl, ...ancestors: ReadonlyArray<string>): CollectionReferenceImpl {
     return makeCollectionReference(this, ancestors);
   },
-  doc(...ids: ReadonlyArray<string>): DocumentReferenceImpl {
-    return makeDocumentReference(this, ids.slice(0, -1), ids[ids.length - 1]);
+  doc(this: CollectionImpl, ...ids: ReadonlyArray<string>): DocumentReferenceImpl {
+    const parent = makeCollectionReference(this, ids.slice(0, -1));
+    return makeDocumentReference(parent, ids[ids.length - 1]);
   },
 };
 
+/**
+ * The target is asserted as the prototype rather than as the finished shape, so
+ * that the result type is inferred from the fields below. The return annotation
+ * then catches a field that is missing, misspelled or of the wrong type -
+ * asserting the finished shape up front would check none of the three.
+ */
 const makeCollection = (
   path: ReadonlyArray<string>,
   schema: Schema.Top,
   id: Schema.Top,
-  parent: CollectionImpl | undefined,
 ): CollectionImpl =>
-  Object.assign(Object.create(CollectionProto) as CollectionImpl, { path, schema, id, parent });
+  Object.assign(Object.create(CollectionProto) as typeof CollectionProto, {
+    path,
+    segment: path[path.length - 1],
+    schema,
+    id,
+  });
 
-const CollectionReferenceProto: ThisType<CollectionReferenceImpl> = {
-  get id(): string {
-    return this.collection.segment;
+const CollectionReferenceProto = {
+  ...Inspectable.BaseProto,
+  [CollectionReferenceTypeId]: CollectionReferenceTypeId,
+  toJSON(this: CollectionReferenceImpl) {
+    return { _id: "CollectionReference", path: this.path };
   },
-  get path(): string {
-    return joinPath(this.collection.path, this.ancestors);
+  // The definition is compared by reference: it is written once and named, and
+  // `Equal.equals` would otherwise walk the whole schema behind it.
+  [Equal.symbol](this: CollectionReferenceImpl, that: unknown): boolean {
+    return (
+      isCollectionReference(that) && this.path === that.path && this.collection === that.collection
+    );
   },
-  // The last ancestor id is the id of the document this collection sits under,
-  // and the rest address that document's own collection.
-  get parent(): DocumentReferenceImpl | undefined {
-    const parent = this.collection.parent;
-    return parent === undefined
-      ? undefined
-      : makeDocumentReference(
-          parent,
-          this.ancestors.slice(0, -1),
-          this.ancestors[this.ancestors.length - 1],
-        );
+  [Hash.symbol](this: CollectionReferenceImpl): number {
+    return Hash.combine(Hash.string(this.path), Hash.random(this.collection));
   },
-  doc(id: string): DocumentReferenceImpl {
-    return makeDocumentReference(this.collection, this.ancestors, id);
+  doc(this: CollectionReferenceImpl, id: string): DocumentReferenceImpl {
+    return makeDocumentReference(this, id);
   },
 };
 
@@ -362,29 +364,42 @@ const makeCollectionReference = (
   collection: CollectionImpl,
   ancestors: ReadonlyArray<string>,
 ): CollectionReferenceImpl =>
-  Object.assign(Object.create(CollectionReferenceProto) as CollectionReferenceImpl, {
+  Object.assign(Object.create(CollectionReferenceProto) as typeof CollectionReferenceProto, {
     collection,
     ancestors,
+    id: collection.segment,
+    path: joinPath(collection.path, ancestors),
   });
 
-const DocumentReferenceProto: ThisType<DocumentReferenceImpl> = {
-  get path(): string {
-    return `${joinPath(this.collection.path, this.ancestors)}/${this.id}`;
+const DocumentReferenceProto = {
+  ...Inspectable.BaseProto,
+  [DocumentReferenceTypeId]: DocumentReferenceTypeId,
+  toJSON(this: DocumentReferenceImpl) {
+    return { _id: "DocumentReference", path: this.path };
   },
-  get parent(): CollectionReferenceImpl {
-    return makeCollectionReference(this.collection, this.ancestors);
+  // The definition is compared by reference: it is written once and named, and
+  // `Equal.equals` would otherwise walk the whole schema behind it.
+  [Equal.symbol](this: DocumentReferenceImpl, that: unknown): boolean {
+    return (
+      isDocumentReference(that) && this.path === that.path && this.collection === that.collection
+    );
+  },
+  [Hash.symbol](this: DocumentReferenceImpl): number {
+    return Hash.combine(Hash.string(this.path), Hash.random(this.collection));
   },
 };
 
+/** A document is always built from the collection holding it, which it keeps. */
 const makeDocumentReference = (
-  collection: CollectionImpl,
-  ancestors: ReadonlyArray<string>,
+  parent: CollectionReferenceImpl,
   id: string,
 ): DocumentReferenceImpl =>
-  Object.assign(Object.create(DocumentReferenceProto) as DocumentReferenceImpl, {
-    collection,
-    ancestors,
+  Object.assign(Object.create(DocumentReferenceProto) as typeof DocumentReferenceProto, {
+    collection: parent.collection,
+    ancestors: parent.ancestors,
     id,
+    path: `${parent.path}/${id}`,
+    parent,
   });
 
 /**
@@ -403,14 +418,10 @@ const makeDocumentReference = (
 export const make = <const Segment extends string, S extends Schema.Top>(
   segment: Segment,
   schema: S,
-  options?: Options,
 ): Collection<readonly [readonly [Segment, S]]> => {
   validateSegment(segment);
   const path = [segment];
-  return makeCollection(
-    path,
-    schema,
-    brandId(path, options?.id),
-    undefined,
-  ) as unknown as Collection<readonly [readonly [Segment, S]]>;
+  return makeCollection(path, schema, brandId(path)) as unknown as Collection<
+    readonly [readonly [Segment, S]]
+  >;
 };

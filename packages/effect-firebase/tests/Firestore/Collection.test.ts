@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { Schema } from "effect";
+import { Equal, Hash, HashSet, Schema } from "effect";
 import * as Collection from "../../src/Firestore/Collection.ts";
 
 const User = Schema.Struct({ name: Schema.String });
@@ -7,11 +7,7 @@ const Post = Schema.Struct({ title: Schema.String });
 const Comment = Schema.Struct({ body: Schema.String });
 
 const Users = Collection.make("users", User);
-
 const Posts = Users.subcollection("posts", Post);
-
-Posts.collection(Users.id.make("test"));
-
 const Comments = Posts.subcollection("comments", Comment);
 
 /** A second `posts`, to pin down that ids brand off the path and not the segment. */
@@ -28,8 +24,6 @@ describe("make", () => {
     expect(Comments.path).toEqual(["users", "posts", "comments"]);
     expect(Comments.segment).toBe("comments");
     expect(Comments.schema).toBe(Comment);
-    expect(Comments.parent).toBe(Posts);
-    expect(Users.parent).toBeUndefined();
   });
 
   it("rejects segments Firestore cannot address", () => {
@@ -52,12 +46,6 @@ describe("CollectionReference", () => {
     expect(Posts.collection(alice).id).toBe("posts");
     expect(Posts.collection(alice).ancestors).toEqual([alice]);
   });
-
-  it("walks up to the document it is nested under", () => {
-    expect(Comments.collection(alice, hello).parent?.path).toBe("users/alice/posts/hello");
-    expect(Posts.collection(alice).parent?.path).toBe("users/alice");
-    expect(Users.collection().parent).toBeUndefined();
-  });
 });
 
 describe("DocumentReference", () => {
@@ -74,24 +62,22 @@ describe("DocumentReference", () => {
     expect(comment.collection).toBe(Comments);
   });
 
-  it("walks up through the collection holding it", () => {
+  it("keeps the collection holding it", () => {
     const comment = Comments.doc(alice, hello, first);
     expect(comment.parent.path).toBe("users/alice/posts/hello/comments");
-    expect(comment.parent.parent?.path).toBe("users/alice/posts/hello");
-    expect(comment.parent.parent?.parent.path).toBe("users/alice/posts");
-    expect(Users.doc(alice).parent.parent).toBeUndefined();
+    expect(comment.parent.collection).toBe(Comments);
   });
 
   it("is also reachable from a collection reference", () => {
-    expect(Posts.collection(alice).doc(hello).path).toBe(Posts.doc(alice, hello).path);
+    const posts = Posts.collection(alice);
+    expect(posts.doc(hello).path).toBe(Posts.doc(alice, hello).path);
+    expect(posts.doc(hello).parent).toBe(posts);
   });
 });
 
 describe("ids", () => {
-  it("applies the checks of a custom id schema", () => {
-    const Tenants = Collection.make("tenants", User, { id: Schema.NonEmptyString });
-    expect(Tenants.id.make("acme")).toBe("acme");
-    expect(() => Tenants.id.make("")).toThrow();
+  it("is minted from a string and nothing else", () => {
+    expectTypeOf<Parameters<typeof Users.id.make>[0]>().toEqualTypeOf<string>();
   });
 
   it("brands off the whole path, so a shared segment is not a shared id", () => {
@@ -121,12 +107,74 @@ describe("ids", () => {
 });
 
 describe("extractors", () => {
-  it("recover the schema and the parent from a collection", () => {
+  it("recover the schema of the documents in a collection", () => {
     const schema: Collection.DocumentSchema<typeof Posts> = Post;
-    const parent: Collection.Parent<typeof Posts> = Users;
-    const root: Collection.Parent<typeof Users> = undefined;
     expect(schema).toBe(Post);
-    expect(parent).toBe(Users);
-    expect(root).toBeUndefined();
+  });
+});
+
+describe("guards", () => {
+  it("tell the three apart", () => {
+    const posts = Posts.collection(alice);
+    const post = posts.doc(hello);
+
+    expect(Collection.isCollection(Posts)).toBe(true);
+    expect(Collection.isCollection(posts)).toBe(false);
+    expect(Collection.isCollectionReference(posts)).toBe(true);
+    expect(Collection.isCollectionReference(post)).toBe(false);
+    expect(Collection.isDocumentReference(post)).toBe(true);
+    expect(Collection.isDocumentReference(Posts)).toBe(false);
+    expect(Collection.isCollection({})).toBe(false);
+  });
+});
+
+describe("inspection", () => {
+  it("prints the path rather than the whole definition", () => {
+    expect(Posts.toJSON()).toEqual({ _id: "Collection", path: "users/posts" });
+    expect(Posts.collection(alice).toJSON()).toEqual({
+      _id: "CollectionReference",
+      path: "users/alice/posts",
+    });
+    expect(Posts.doc(alice, hello).toJSON()).toEqual({
+      _id: "DocumentReference",
+      path: "users/alice/posts/hello",
+    });
+    expect(Posts.doc(alice, hello).toString()).toContain("users/alice/posts/hello");
+  });
+});
+
+describe("equality", () => {
+  /** Same path, but documents that decode differently. */
+  const OtherPosts = Users.subcollection("posts", Schema.Struct({ title: Schema.String }));
+
+  it("compares references by where they point", () => {
+    expect(Equal.equals(Posts.doc(alice, hello), Posts.doc(alice, hello))).toBe(true);
+    expect(Equal.equals(Posts.collection(alice), Posts.collection(alice))).toBe(true);
+    expect(Equal.equals(Posts.doc(alice, hello), Posts.doc(alice, Posts.id.make("other")))).toBe(
+      false,
+    );
+  });
+
+  it("does not confuse a collection with a document at the same path", () => {
+    expect(Equal.equals(Posts.collection(alice), Posts.doc(alice, hello))).toBe(false);
+  });
+
+  it("separates references built from different definitions", () => {
+    expect(Equal.equals(Posts.doc(alice, hello), OtherPosts.doc(alice, hello))).toBe(false);
+  });
+
+  it("hashes consistently with equality", () => {
+    expect(Hash.hash(Posts.doc(alice, hello))).toBe(Hash.hash(Posts.doc(alice, hello)));
+    expect(Hash.hash(Posts.collection(alice))).toBe(Hash.hash(Posts.collection(alice)));
+  });
+
+  it("deduplicates in a HashSet", () => {
+    const set = HashSet.make(
+      Posts.doc(alice, hello),
+      Posts.doc(alice, hello),
+      Posts.doc(alice, Posts.id.make("other")),
+      OtherPosts.doc(alice, hello),
+    );
+    expect(HashSet.size(set)).toBe(3);
   });
 });
