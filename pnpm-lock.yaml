@@ -277,8 +277,8 @@ importers:
         specifier: ^26.1.1
         version: 26.2.0
       bumpp:
-        specifier: ^11.1.0
-        version: 11.1.0
+        specifier: ^12.3.0
+        version: 12.3.0
       effect:
         specifier: 'catalog:'
         version: 4.0.0-rc.110
@@ -1285,9 +1285,9 @@ packages:
   buffer-equal-constant-time@1.0.1:
     resolution: {integrity: sha512-zRpUiDwd/xk6ADqPMATG8vc9VPrkck7T07OIx0gnjmJAnHnTVXNQG3vfvWNuiZIkwu9KrKdA1iJKfsfTVxE6NA==}
 
-  bumpp@11.1.0:
-    resolution: {integrity: sha512-jdwOGMyX8JIqpQ0N2RMRR87DHZaoJnUtui5lU9LqFfFK5JC0H8qY9uWqXoa+dEWt/K7rOmmsoyiZB8RBM7RPBQ==}
-    engines: {node: '>=20.19.0'}
+  bumpp@12.3.0:
+    resolution: {integrity: sha512-YgW09sgbIGQmAD/Jk7FEGP0tm0PeDz+Zgk+IAk+MOHhb/98pj/l3CgkxSjd7C1O99JPxTNwS+bPOTNaHuNh6lQ==}
+    engines: {node: ^22.18.0 || ^24.11.0 || >=26.0.0}
     hasBin: true
 
   cac@7.0.0:
@@ -2015,6 +2015,10 @@ packages:
     resolution: {integrity: sha512-b+1eJOlsR9K8HJpow9Ok3fiWOWSIcIzXodvv0rQjVoOVNpWMpxf1wZNpt4y9h10odCNrqnYp1OBzRktckBe3sA==}
     deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
     hasBin: true
+
+  verkit@0.4.0:
+    resolution: {integrity: sha512-sXMwN6DMHeouPfCxkxWkKAmxphWKEenHYY5H1nIBzU3PmDsmJp6kBXJdshjVdpMZuWCmL9SH7KFRx29AylpP6g==}
+    engines: {node: '>=18.12.0'}
 
   vite-plus@0.2.9:
     resolution: {integrity: sha512-8uRNqAxh9no3AU4Lep8BEYhkim07+3NO+mhuxTWiN0k30syGT/2+ue/DtWYhtzQ7yi2f2WKpjOhoI4/QkWWbUg==}
@@ -2865,16 +2869,16 @@ snapshots:
 
   buffer-equal-constant-time@1.0.1: {}
 
-  bumpp@11.1.0:
+  bumpp@12.3.0:
     dependencies:
       args-tokenizer: 0.3.0
       cac: 7.0.0
       jsonc-parser: 3.3.1
       package-manager-detector: 1.8.0
-      semver: 7.8.5
       tinyexec: 1.3.0
       tinyglobby: 0.2.17
       unconfig: 7.5.0
+      verkit: 0.4.0
       yaml: 2.9.0
 
   cac@7.0.0: {}
@@ -3784,6 +3788,8 @@ snapshots:
 
   uuid@9.0.1:
     optional: true
+
+  verkit@0.4.0: {}
 
   vite-plus@0.2.9(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(@voidzero-dev/vite-plus-core@0.2.9(@types/node@26.2.0)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0))(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0):
     dependencies:

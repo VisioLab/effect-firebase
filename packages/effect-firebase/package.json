@@ -36,7 +36,7 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@types/node": "^26.1.1",
-    "bumpp": "^11.1.0",
+    "bumpp": "^12.3.0",
     "effect": "catalog:",
     "typescript": "^7.0.2",
     "vite": "catalog:",
