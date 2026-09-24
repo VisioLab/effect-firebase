@@ -13,7 +13,7 @@ catalog:
   firebase-admin: ^14.2.0
   typescript: ^7.0.2
   vite: npm:@voidzero-dev/vite-plus-core@0.3.2
-  vite-plus: 0.3.2
+  vite-plus: 0.3.3
 overrides:
   vite: "catalog:"
   # vite-plus 0.3.2 bundles vitest 4, but @effect/vitest >= 4.0.0-rc.113 peers on
