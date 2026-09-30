@@ -12,9 +12,6 @@ import * as Snapshot from "@visiolab/effect-firebase/firestore/Snapshot";
 import { FirebaseError } from "firebase-admin/app";
 import * as Admin from "firebase-admin/firestore";
 import * as App from "../App.ts";
-// The Admin SDK's own encoder, under the name it is reached by from outside.
-// `FirestoreEncoder` is taken here by the service it implements, which is what
-// the writes below ask context for.
 import * as Encoder from "./FirestoreEncoder.ts";
 
 /**
@@ -97,8 +94,6 @@ const firestoreError = (message: string) => (cause: unknown) =>
 export const make = Effect.fn("Firestore.make")(function* (options?: Options) {
   const app = yield* App.App;
 
-  // Taken from context rather than reached for directly, so that what a
-  // document is written through is settled where the layers are put together.
   const encoder = yield* FirestoreEncoder;
 
   // The SDK memoizes a database on the app itself, so there is nothing to
@@ -135,68 +130,64 @@ export const make = Effect.fn("Firestore.make")(function* (options?: Options) {
 
   return Firestore.of({
     getDoc: <C extends Collection.Any>(ref: Collection.DocumentReference<C>) =>
-      call("getDoc", `Failed to read the document "${ref.path}"`, (firestore) =>
-        firestore.doc(ref.path).get(),
-      ).pipe(
-        Effect.map((document) =>
-          // `data()` walks every field the document arrived with, so it goes
-          // behind an effect: whether that is worth doing is the reader's to
-          // decide.
-          document.exists
-            ? Snapshot.make(
-                ref,
-                Effect.sync(() => document.data()),
-              )
-            : Snapshot.missing(ref),
-        ),
-      ),
+      Effect.gen(function* () {
+        const snapshot = yield* call(
+          "getDoc",
+          `Failed to read the document "${ref.path}"`,
+          (firestore) => firestore.doc(ref.path).get(),
+        );
+
+        return snapshot.exists
+          ? Snapshot.make(
+              ref,
+              Effect.sync(() => snapshot.data()),
+            )
+          : Snapshot.missing(ref);
+      }),
 
     getDocs: <C extends Collection.Any>(ref: Collection.CollectionReference<C>) =>
-      call("getDocs", `Failed to read the collection "${ref.path}"`, (firestore) =>
-        firestore.collection(ref.path).get(),
-      ).pipe(
-        Effect.map((query) =>
-          // Every document a query answers with is one that was there, and its
-          // id addresses the collection it came out of, so it is branded off
-          // that collection rather than taken as a bare string.
-          query.docs.map((document) =>
-            Snapshot.make(
-              ref.doc(ref.collection.id.make(document.id)),
-              Effect.sync(() => document.data()),
-            ),
+      Effect.gen(function* () {
+        const query = yield* call(
+          "getDocs",
+          `Failed to read the collection "${ref.path}"`,
+          (firestore) => firestore.collection(ref.path).get(),
+        );
+
+        return query.docs.map((snapshot) =>
+          Snapshot.make(
+            ref.doc(ref.collection.id.make(snapshot.id)),
+            Effect.sync(() => snapshot.data()),
           ),
-        ),
-      ),
+        );
+      }),
 
     setDoc: <C extends Collection.Any>(
       ref: Collection.DocumentReference<C>,
       data: Collection.Document<C>,
     ) =>
-      encode(ref.collection, data).pipe(
-        Effect.flatMap((document) =>
-          call("setDoc", `Failed to write the document "${ref.path}"`, (firestore) =>
-            firestore.doc(ref.path).set(document),
-          ),
-        ),
-        // The Admin SDK reports when the write landed and the web SDK does not,
-        // so what comes back is what they agree on, which is nothing.
-        Effect.asVoid,
-      ),
+      Effect.gen(function* () {
+        const encoded = yield* encode(ref.collection, data);
+
+        yield* call("setDoc", `Failed to write the document "${ref.path}"`, (firestore) =>
+          firestore.doc(ref.path).set(encoded),
+        );
+      }),
 
     addDoc: <C extends Collection.Any>(
       ref: Collection.CollectionReference<C>,
       data: Collection.Document<C>,
     ) =>
-      encode(ref.collection, data).pipe(
-        Effect.flatMap((document) =>
-          call("addDoc", `Failed to add a document to "${ref.path}"`, (firestore) =>
-            firestore.collection(ref.path).add(document),
-          ),
-        ),
-        // The id Firestore picked addresses this collection and nothing else,
-        // so it is branded off it on the way back out.
-        Effect.map((added) => ref.doc(ref.collection.id.make(added.id))),
-      ),
+      Effect.gen(function* () {
+        const encoded = yield* encode(ref.collection, data);
+
+        const added = yield* call(
+          "addDoc",
+          `Failed to add a document to "${ref.path}"`,
+          (firestore) => firestore.collection(ref.path).add(encoded),
+        );
+
+        return ref.doc(ref.collection.id.make(added.id));
+      }),
   });
 });
 
