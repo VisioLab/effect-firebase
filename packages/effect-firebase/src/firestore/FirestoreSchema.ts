@@ -55,7 +55,7 @@ export interface Timestamp extends Schema.decodeTo<
 export const Timestamp: Timestamp = TimestampLikeValue.pipe(
   Schema.decodeTo(TimestampValue, {
     decode: SchemaGetter.transform(Timestamp_.fromTimestampLikeUnsafe),
-    encode: SchemaGetter.transformOrFail((timestamp: Timestamp_.Timestamp) =>
+    encode: SchemaGetter.transformEffect((timestamp: Timestamp_.Timestamp) =>
       Effect.map(FirestoreEncoder, (encoder) => encoder.timestamp(timestamp)),
     ),
   }),
@@ -92,7 +92,7 @@ export const DateTimeUtcFromTimestamp: DateTimeUtcFromTimestamp = TimestampLikeV
     decode: SchemaGetter.transform((like: Timestamp_.TimestampLike) =>
       Timestamp_.toDateTime(Timestamp_.fromTimestampLikeUnsafe(like)),
     ),
-    encode: SchemaGetter.transformOrFail((dateTime: DateTime.Utc) =>
+    encode: SchemaGetter.transformEffect((dateTime: DateTime.Utc) =>
       Effect.map(FirestoreEncoder, (encoder) =>
         encoder.timestamp(Timestamp_.fromDateTimeUnsafe(dateTime)),
       ),

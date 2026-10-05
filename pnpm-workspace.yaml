@@ -7,27 +7,29 @@ catalogMode: prefer
 
 catalog:
   "@changesets/cli": ^3.0.3
-  "@effect/tsgo": 0.45.0
-  "@effect/vitest": ^4.0.0-rc.112
-  effect: ^4.0.0-rc.112
+  "@effect/tsgo": 0.48.1
+  "@effect/vitest": ^4.0.1
+  effect: ^4.0.1
   firebase-admin: ^14.2.0
   typescript: ^7.0.2
-  vite: npm:@voidzero-dev/vite-plus-core@0.3.2
-  vite-plus: 0.3.2
+  vite: npm:@voidzero-dev/vite-plus-core@1.0.0
+  vite-plus: 1.0.0
+  vitest: 5.0.1
 overrides:
-  vite: "catalog:"
-  # vite-plus 0.3.2 bundles vitest 4, but @effect/vitest >= 4.0.0-rc.113 peers on
-  # vitest 5, and effect >= 4.0.0-rc.113 drops the `effect/testing/FastCheck`
-  # entrypoint that @effect/vitest 4.0.0-rc.112 imports. Hold the install at
-  # rc.112 until vite-plus ships vitest 5; the published peer range stays a caret.
-  effect: 4.0.0-rc.112
-  "@effect/vitest": 4.0.0-rc.112
-peerDependencyRules:
-  allowAny:
-    - vite
-  allowedVersions:
-    vite: "*"
+  vite@*: "catalog:"
+  vitest@*: "catalog:"
 allowBuilds:
   "@firebase/util": false
   msgpackr-extract: true
   protobufjs: false
+minimumReleaseAgeExclude:
+  - "@effect/tsgo-darwin-arm64@0.48.1"
+  - "@effect/tsgo-darwin-x64@0.48.1"
+  - "@effect/tsgo-linux-arm64@0.48.1"
+  - "@effect/tsgo-linux-arm@0.48.1"
+  - "@effect/tsgo-linux-x64@0.48.1"
+  - "@effect/tsgo-win32-arm64@0.48.1"
+  - "@effect/tsgo-win32-x64@0.48.1"
+  - "@effect/tsgo@0.48.1"
+  - "@effect/vitest@4.0.1"
+  - effect@4.0.1
