@@ -259,7 +259,16 @@ const validateSegment = (segment: string): void => {
   if (encoder.encode(segment).length > 1500) reject("it must be at most 1500 bytes");
 };
 
-const brandId = (path: ReadonlyArray<string>) => Schema.String.pipe(Schema.brand(path.join("/")));
+/**
+ * Brands an id schema with the path addressing it.
+ *
+ * The path is only known at runtime, and `Schema.brand` rejects an open `string`
+ * key. Narrowing the key to a placeholder literal keeps the real path on the
+ * annotation: the static brand is erased where `makeCollection` takes the schema
+ * as `Schema.Top`, and the public id types are built above it.
+ */
+const brandId = (path: ReadonlyArray<string>) =>
+  Schema.String.pipe(Schema.brand(path.join("/") as "~firestore/collection-path"));
 
 /** Interleaves the segments with the ids addressing them: `a/1/b/2/c`. */
 const joinPath = (segments: ReadonlyArray<string>, ancestors: ReadonlyArray<string>): string => {
