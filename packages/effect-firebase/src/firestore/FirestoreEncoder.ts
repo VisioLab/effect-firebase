@@ -19,13 +19,23 @@ import type * as Timestamp from "./Timestamp.ts";
  */
 export interface FirestoreEncoder {
   readonly timestamp: (value: Timestamp.Timestamp) => Timestamp.TimestampLike;
+  /**
+   * The sentinel standing in for the instant the server applies the write.
+   *
+   * There is nothing to hand over, because the sentinel carries nothing. What
+   * comes back is whatever that SDK's `FieldValue` is, which is opaque here: it
+   * goes straight back to the SDK that built it, and a document never reads one
+   * back.
+   */
+  readonly serverTimestamp: () => unknown;
 }
 
 /**
  * Service key for the encoder a document is written through.
  *
  * Encoding a document asks for this and decoding one does not, because a
- * timestamp an SDK hands back is already a {@link Timestamp.TimestampLike}.
+ * timestamp an SDK hands back is already a {@link Timestamp.TimestampLike}, and
+ * a sentinel is gone by the time a document is read.
  *
  * @category services
  * @since 0.0.0

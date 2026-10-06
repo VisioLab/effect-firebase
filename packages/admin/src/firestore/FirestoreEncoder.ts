@@ -5,7 +5,7 @@
  */
 import { Layer } from "effect";
 import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
-import { Timestamp } from "firebase-admin/firestore";
+import { FieldValue, Timestamp } from "firebase-admin/firestore";
 
 /**
  * Builds the values the Admin SDK writes.
@@ -15,6 +15,7 @@ import { Timestamp } from "firebase-admin/firestore";
  */
 export const make: FirestoreEncoder = {
   timestamp: ({ seconds, nanoseconds }) => new Timestamp(seconds, nanoseconds),
+  serverTimestamp: () => FieldValue.serverTimestamp(),
 };
 
 /**

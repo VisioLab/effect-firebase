@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { DateTime, Effect, Equal, Layer, Schema } from "effect";
+import * as FieldValue from "../../src/firestore/FieldValue.ts";
 import { FirestoreEncoder } from "../../src/firestore/FirestoreEncoder.ts";
 import * as FirestoreSchema from "../../src/firestore/FirestoreSchema.ts";
 import * as Timestamp from "../../src/firestore/Timestamp.ts";
@@ -12,8 +13,14 @@ class SdkTimestamp implements Timestamp.TimestampLike {
   ) {}
 }
 
+/** Stands in for an SDK's own sentinel. */
+class SdkServerTimestamp {}
+
 const encoder = Layer.succeed(FirestoreEncoder)(
-  FirestoreEncoder.of({ timestamp: (value) => new SdkTimestamp(value.seconds, value.nanoseconds) }),
+  FirestoreEncoder.of({
+    timestamp: (value) => new SdkTimestamp(value.seconds, value.nanoseconds),
+    serverTimestamp: () => new SdkServerTimestamp(),
+  }),
 );
 
 /** The shape an SDK hands back. */
@@ -138,5 +145,66 @@ describe("DateTimeUtcFromTimestamp", () => {
       const encoded = yield* encode(yield* decode(native(1, 123_456_789)));
       expect(encoded.nanoseconds).toBe(123_000_000);
     }).pipe(Effect.provide(encoder)),
+  );
+});
+
+describe("ServerTimestamp", () => {
+  it.effect("writes the sentinel the encoder builds", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(FirestoreSchema.ServerTimestamp)(
+        FieldValue.serverTimestamp,
+      );
+      expect(encoded).toBeInstanceOf(SdkServerTimestamp);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("refuses to be read, since a document never holds one", () =>
+    Effect.gen(function* () {
+      const failure = yield* Effect.flip(
+        Schema.decodeEffect(FirestoreSchema.ServerTimestamp)(new SdkServerTimestamp()),
+      );
+      expect(failure).toBeDefined();
+    }),
+  );
+
+  it("asks for an encoder to write", () => {
+    expectTypeOf<
+      (typeof FirestoreSchema.ServerTimestamp)["EncodingServices"]
+    >().toEqualTypeOf<FirestoreEncoder>();
+  });
+
+  it("fills itself in, since there is only one value it takes", () => {
+    const Write = Schema.Struct({
+      title: Schema.String,
+      updatedAt: FirestoreSchema.ServerTimestamp,
+    });
+    expect(Write.make({ title: "hello" })).toStrictEqual({
+      title: "hello",
+      updatedAt: FieldValue.serverTimestamp,
+    });
+  });
+});
+
+describe("TimestampOrServer", () => {
+  const WrittenAt = FirestoreSchema.TimestampOrServer;
+  const encode = Schema.encodeEffect(WrittenAt);
+
+  it.effect("writes the instant it was handed", () =>
+    Effect.gen(function* () {
+      expect(yield* encode(Timestamp.makeUnsafe(1, 2))).toBeInstanceOf(SdkTimestamp);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("writes the sentinel just as readily", () =>
+    Effect.gen(function* () {
+      expect(yield* encode(FieldValue.serverTimestamp)).toBeInstanceOf(SdkServerTimestamp);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("decodes the timestamp it wraps, which is all a read ever holds", () =>
+    Effect.gen(function* () {
+      const decoded = yield* Schema.decodeEffect(WrittenAt)(native(1, 2));
+      expect(Timestamp.isTimestamp(decoded)).toBe(true);
+    }),
   );
 });
