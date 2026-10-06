@@ -16,6 +16,7 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 export const make: FirestoreEncoder = {
   timestamp: ({ seconds, nanoseconds }) => new Timestamp(seconds, nanoseconds),
   serverTimestamp: () => FieldValue.serverTimestamp(),
+  increment: (by) => FieldValue.increment(by),
 };
 
 /**

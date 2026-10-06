@@ -101,3 +101,47 @@ describe("ServerTimestamp", () => {
     }).pipe(Effect.provide(FirestoreEncoder.layer)),
   );
 });
+
+class Page extends FirestoreModel.Class<Page>("Page")({
+  slug: Schema.String,
+  visits: FirestoreModel.Number(Schema.Int),
+}) {}
+
+describe("Increment", () => {
+  it.effect("writes the sentinel the Admin SDK resolves at the server", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(FirestoreSchema.Increment)(
+        FieldValue.increment(2),
+      );
+      expect(encoded).toBeInstanceOf(NativeFieldValue);
+      expect(encoded).toStrictEqual(NativeFieldValue.increment(2));
+    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+  );
+
+  it.effect("writes a move down as the negative the SDK takes", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(FirestoreSchema.Increment)(
+        FieldValue.decrement(2),
+      );
+      expect(encoded).toStrictEqual(NativeFieldValue.increment(-2));
+    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+  );
+
+  it.effect("writes an update the Admin SDK can apply as it stands", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Page.update)(
+        Page.update.make({ visits: FieldValue.increment(1) }),
+      );
+      expect(encoded).toStrictEqual({ visits: NativeFieldValue.increment(1) });
+    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+  );
+
+  it.effect("sets the number outright where a write was handed one", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Page.create)(
+        Page.create.make({ slug: "home", visits: 0 }),
+      );
+      expect(encoded).toStrictEqual({ slug: "home", visits: 0 });
+    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+  );
+});

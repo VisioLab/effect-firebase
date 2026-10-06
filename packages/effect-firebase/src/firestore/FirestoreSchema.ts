@@ -185,3 +185,81 @@ export interface TimestampOrServer extends Schema.Union<readonly [Timestamp, Ser
  * @since 0.0.0
  */
 export const TimestampOrServer: TimestampOrServer = Schema.Union([Timestamp, ServerTimestamp]);
+
+const IncrementValue = Schema.declare<FieldValue.Increment>(FieldValue.isIncrement, {
+  representation: {
+    id: "@visiolab/effect-firebase/firestore/FieldValue/Increment",
+    payload: null,
+  },
+  expected: "an increment",
+  toEquivalence: () => Equal.equals,
+});
+
+/**
+ * Type-level representation of {@link Increment}.
+ *
+ * @category models
+ * @since 0.0.0
+ */
+export interface Increment extends Schema.decodeTo<
+  Schema.declare<FieldValue.Increment>,
+  Schema.Unknown,
+  never,
+  FirestoreEncoder
+> {
+  readonly Rebuild: Increment;
+}
+
+/**
+ * Schema that writes the sentinel standing in for a field moved by a number.
+ *
+ * A call site hands it {@link FieldValue.increment} or
+ * {@link FieldValue.decrement}, and the encoder turns it into the sentinel its
+ * SDK writes.
+ *
+ * This one only goes one way, as {@link ServerTimestamp} does. A document holds
+ * the sum the server wrote rather than the request to add, so a read of the
+ * same field is a plain number - see {@link NumberOrIncrement} for the pair.
+ *
+ * @category schemas
+ * @since 0.0.0
+ */
+export const Increment: Increment = Schema.Unknown.pipe(
+  Schema.decodeTo(IncrementValue, {
+    decode: SchemaGetter.forbidden(() => "An increment is only ever written, never read back"),
+    encode: SchemaGetter.transformEffect((value: FieldValue.Increment) =>
+      Effect.map(FirestoreEncoder, (encoder) => encoder.increment(value.by)),
+    ),
+  }),
+);
+
+/**
+ * Type-level representation of {@link IncrementOr}.
+ *
+ * @category models
+ * @since 0.0.0
+ */
+export interface IncrementOr<S extends Schema.Top> extends Schema.Union<readonly [S, Increment]> {
+  readonly Rebuild: IncrementOr<S>;
+}
+
+/**
+ * Schema for a field written either as the number it is to hold or as a move
+ * from whatever it holds already.
+ *
+ * This is the write side of a number the server counts, and `schema` is the
+ * read side it is built from, which is where a call site says what the number
+ * may be: `Schema.Finite`, or `Schema.Int` for a field counted in whole steps,
+ * or either of them checked further. All that is asked of it is that it is
+ * stored as a number, since that is what the server adds to.
+ *
+ * A read is only ever that schema - the sentinel resolved to a number before
+ * the document came back - so this belongs in the variants a document is
+ * written through, against a `read` of the same.
+ *
+ * @category schemas
+ * @since 0.0.0
+ */
+export const IncrementOr = <S extends Schema.Codec<unknown, number, unknown, unknown>>(
+  schema: S,
+): IncrementOr<S> => Schema.Union([schema, Increment]);
