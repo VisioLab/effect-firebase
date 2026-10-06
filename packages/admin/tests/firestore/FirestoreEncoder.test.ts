@@ -54,8 +54,8 @@ describe("FirestoreEncoder", () => {
 
 class User extends FirestoreModel.Class<User>("User")({
   displayName: Schema.String,
-  createdAt: FirestoreModel.Timestamp,
-  updatedAt: FirestoreModel.Timestamp,
+  createdAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
+  updatedAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
 }) {}
 
 describe("ServerTimestamp", () => {

@@ -164,27 +164,38 @@ export const ServerTimestamp: ServerTimestamp = ServerTimestampSentinel.pipe(
 );
 
 /**
- * Type-level representation of {@link TimestampOrServer}.
+ * Type-level representation of {@link ServerTimestampOr}.
  *
  * @category models
  * @since 0.0.0
  */
-export interface TimestampOrServer extends Schema.Union<readonly [Timestamp, ServerTimestamp]> {
-  readonly Rebuild: TimestampOrServer;
+export interface ServerTimestampOr<S extends Schema.Top> extends Schema.Union<
+  readonly [S, ServerTimestamp]
+> {
+  readonly Rebuild: ServerTimestampOr<S>;
 }
 
 /**
  * Schema for a field written either as an instant this client picked or as the
  * one the server picks.
  *
- * This is the write side of a timestamp. A read is only ever a
- * {@link Timestamp} - the sentinel is gone by then - so this belongs in the
- * variants a document is written through, against a `read` of {@link Timestamp}.
+ * This is the write side of a timestamp, and `schema` is the read side it is
+ * built from: {@link Timestamp} where the finer digits are to survive a round
+ * trip, {@link DateTimeUtcFromTimestamp} where a `DateTime.Utc` is what the
+ * document is to hold, or any codec of a value Firestore stores as a timestamp.
+ *
+ * A read is only ever that schema - the sentinel is gone by then - so this
+ * belongs in the variants a document is written through, against a `read` of
+ * the same.
  *
  * @category schemas
  * @since 0.0.0
  */
-export const TimestampOrServer: TimestampOrServer = Schema.Union([Timestamp, ServerTimestamp]);
+export const ServerTimestampOr = <
+  S extends Schema.Codec<unknown, Timestamp_.TimestampLike, unknown, unknown>,
+>(
+  schema: S,
+): ServerTimestampOr<S> => Schema.Union([schema, ServerTimestamp]);
 
 const IncrementValue = Schema.declare<FieldValue.Increment>(FieldValue.isIncrement, {
   representation: {

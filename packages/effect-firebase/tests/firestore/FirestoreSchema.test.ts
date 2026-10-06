@@ -191,8 +191,8 @@ describe("ServerTimestamp", () => {
   });
 });
 
-describe("TimestampOrServer", () => {
-  const WrittenAt = FirestoreSchema.TimestampOrServer;
+describe("ServerTimestampOr", () => {
+  const WrittenAt = FirestoreSchema.ServerTimestampOr(FirestoreSchema.Timestamp);
   const encode = Schema.encodeEffect(WrittenAt);
 
   it.effect("writes the instant it was handed", () =>
@@ -212,6 +212,21 @@ describe("TimestampOrServer", () => {
       const decoded = yield* Schema.decodeEffect(WrittenAt)(native(1, 2));
       expect(Timestamp.isTimestamp(decoded)).toBe(true);
     }),
+  );
+
+  it.effect("holds the instant however the schema it was handed holds it", () =>
+    Effect.gen(function* () {
+      const SeenAt = FirestoreSchema.ServerTimestampOr(FirestoreSchema.DateTimeUtcFromTimestamp);
+      expect(yield* Schema.decodeEffect(SeenAt)(native(1_700_000_000, 123_000_000))).toStrictEqual(
+        DateTime.makeUnsafe(1_700_000_000_123),
+      );
+      expect(
+        yield* Schema.encodeEffect(SeenAt)(DateTime.makeUnsafe(1_700_000_000_123)),
+      ).toBeInstanceOf(SdkTimestamp);
+      expect(yield* Schema.encodeEffect(SeenAt)(FieldValue.serverTimestamp)).toBeInstanceOf(
+        SdkServerTimestamp,
+      );
+    }).pipe(Effect.provide(encoder)),
   );
 });
 
