@@ -1,8 +1,10 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
+import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
+import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as FirestoreSchema from "@visiolab/effect-firebase/firestore/FirestoreSchema";
 import * as Timestamp from "@visiolab/effect-firebase/firestore/Timestamp";
-import { Timestamp as Native } from "firebase-admin/firestore";
+import { FieldValue as NativeFieldValue, Timestamp as Native } from "firebase-admin/firestore";
 import * as FirestoreEncoder from "../../src/firestore/FirestoreEncoder.ts";
 
 const Post = Schema.Struct({ title: Schema.String, createdAt: FirestoreSchema.Timestamp });
@@ -46,6 +48,56 @@ describe("FirestoreEncoder", () => {
       const post = yield* Schema.decodeEffect(Post)({ title: "t", createdAt: original });
       const encoded = yield* Schema.encodeEffect(Post)(post);
       expect((encoded.createdAt as Native).isEqual(original)).toBe(true);
+    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+  );
+});
+
+class User extends FirestoreModel.Class<User>("User")({
+  displayName: Schema.String,
+  createdAt: FirestoreModel.Timestamp,
+  updatedAt: FirestoreModel.Timestamp,
+}) {}
+
+describe("ServerTimestamp", () => {
+  it.effect("writes the sentinel the Admin SDK resolves at the server", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(FirestoreSchema.ServerTimestamp)(
+        FieldValue.serverTimestamp,
+      );
+      expect(encoded).toBeInstanceOf(NativeFieldValue);
+      expect(encoded).toStrictEqual(NativeFieldValue.serverTimestamp());
+    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+  );
+
+  it.effect("writes a document the Admin SDK can set as it stands", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(User.create)(
+        User.create.make({
+          displayName: "alice",
+          createdAt: FieldValue.serverTimestamp,
+          updatedAt: FieldValue.serverTimestamp,
+        }),
+      );
+      expect(encoded).toStrictEqual({
+        displayName: "alice",
+        createdAt: NativeFieldValue.serverTimestamp(),
+        updatedAt: NativeFieldValue.serverTimestamp(),
+      });
+    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+  );
+
+  it.effect("writes an update the Admin SDK can apply as it stands", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(User.update)(
+        User.update.make({
+          displayName: "alice in chains",
+          updatedAt: FieldValue.serverTimestamp,
+        }),
+      );
+      expect(encoded).toStrictEqual({
+        displayName: "alice in chains",
+        updatedAt: NativeFieldValue.serverTimestamp(),
+      });
     }).pipe(Effect.provide(FirestoreEncoder.layer)),
   );
 });
