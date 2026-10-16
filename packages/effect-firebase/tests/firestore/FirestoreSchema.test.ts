@@ -191,8 +191,8 @@ describe("ServerTimestamp", () => {
   });
 });
 
-describe("TimestampOrServer", () => {
-  const WrittenAt = FirestoreSchema.TimestampOrServer;
+describe("ServerTimestampOr", () => {
+  const WrittenAt = FirestoreSchema.ServerTimestampOr(FirestoreSchema.Timestamp);
   const encode = Schema.encodeEffect(WrittenAt);
 
   it.effect("writes the instant it was handed", () =>
@@ -213,6 +213,107 @@ describe("TimestampOrServer", () => {
       expect(Timestamp.isTimestamp(decoded)).toBe(true);
     }),
   );
+
+  it.effect("holds the instant however the schema it was handed holds it", () =>
+    Effect.gen(function* () {
+      const SeenAt = FirestoreSchema.ServerTimestampOr(FirestoreSchema.DateTimeUtcFromTimestamp);
+      expect(yield* Schema.decodeEffect(SeenAt)(native(1_700_000_000, 123_000_000))).toStrictEqual(
+        DateTime.makeUnsafe(1_700_000_000_123),
+      );
+      expect(
+        yield* Schema.encodeEffect(SeenAt)(DateTime.makeUnsafe(1_700_000_000_123)),
+      ).toBeInstanceOf(SdkTimestamp);
+      expect(yield* Schema.encodeEffect(SeenAt)(FieldValue.serverTimestamp)).toBeInstanceOf(
+        SdkServerTimestamp,
+      );
+    }).pipe(Effect.provide(encoder)),
+  );
+});
+
+describe("Increment", () => {
+  const encode = Schema.encodeEffect(FirestoreSchema.Increment);
+
+  it.effect("hands the encoder how far the field moves", () =>
+    Effect.gen(function* () {
+      const encoded = yield* encode(FieldValue.increment(2));
+      expect(encoded).toBeInstanceOf(SdkIncrement);
+      expect((encoded as SdkIncrement).by).toBe(2);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("writes a move down as the negative it is", () =>
+    Effect.gen(function* () {
+      expect(((yield* encode(FieldValue.decrement(3))) as SdkIncrement).by).toBe(-3);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("refuses to be read, since a document holds the sum instead", () =>
+    Effect.gen(function* () {
+      const failure = yield* Effect.flip(
+        Schema.decodeEffect(FirestoreSchema.Increment)(new SdkIncrement(2)),
+      );
+      expect(failure).toBeDefined();
+    }),
+  );
+
+  it("asks for an encoder to write", () => {
+    expectTypeOf<
+      (typeof FirestoreSchema.Increment)["EncodingServices"]
+    >().toEqualTypeOf<FirestoreEncoder>();
+  });
+
+  it("keeps its own name through a rebuild", () => {
+    expectTypeOf(FirestoreSchema.Increment.annotate({})).toEqualTypeOf<FirestoreSchema.Increment>();
+  });
+});
+
+describe("IncrementOr", () => {
+  const Visits = FirestoreSchema.IncrementOr(Schema.Finite);
+  const encode = Schema.encodeEffect(Visits);
+
+  it.effect("writes the number it was handed", () =>
+    Effect.gen(function* () {
+      expect(yield* encode(7)).toBe(7);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("writes the sentinel just as readily", () =>
+    Effect.gen(function* () {
+      const encoded = yield* encode(FieldValue.increment(1));
+      expect(encoded).toBeInstanceOf(SdkIncrement);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("decodes the number it wraps, which is all a read ever holds", () =>
+    Effect.gen(function* () {
+      expect(yield* Schema.decodeEffect(Visits)(7)).toBe(7);
+    }),
+  );
+
+  it.effect("refuses what the schema it was built from refuses", () =>
+    Effect.gen(function* () {
+      const decodeUnknown = Schema.decodeUnknownEffect(Visits);
+      expect(yield* Effect.flip(decodeUnknown(Number.NaN))).toBeDefined();
+      expect(yield* Effect.flip(decodeUnknown("7"))).toBeDefined();
+    }),
+  );
+
+  it.effect("carries a tighter schema into the writes as well as the read", () =>
+    Effect.gen(function* () {
+      const Whole = FirestoreSchema.IncrementOr(Schema.Int);
+      expect(yield* Schema.encodeEffect(Whole)(7)).toBe(7);
+      // Flipped through `asVoid`, since what a write encodes to is the SDK's to
+      // say and so reads as `unknown` here.
+      expect(yield* Effect.flip(Effect.asVoid(Schema.encodeEffect(Whole)(7.5)))).toBeDefined();
+      expect(yield* Effect.flip(Schema.decodeEffect(Whole)(7.5))).toBeDefined();
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it("keeps the schema it was handed, rather than widening to a number", () => {
+    expectTypeOf<FirestoreSchema.IncrementOr<Schema.Int>["Type"]>().toEqualTypeOf<
+      number | FieldValue.Increment
+    >();
+  });
 });
 
 describe("Increment", () => {

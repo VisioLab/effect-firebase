@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { Effect, Layer, Schema } from "effect";
+import { DateTime, Effect, Layer, Schema } from "effect";
 import * as FieldValue from "../../src/firestore/FieldValue.ts";
 import { FirestoreEncoder } from "../../src/firestore/FirestoreEncoder.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
@@ -38,9 +38,9 @@ class User extends FirestoreModel.Class<User>("User")({
   // hand, since there is no named field for the shape yet.
   createdAt: FirestoreModel.Field({
     read: FirestoreSchema.Timestamp,
-    create: FirestoreSchema.TimestampOrServer,
+    create: FirestoreSchema.ServerTimestampOr(FirestoreSchema.Timestamp),
   }),
-  updatedAt: FirestoreModel.Timestamp,
+  updatedAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
 }) {}
 
 /** The shape a snapshot hands back, which is only ever known at runtime. */
@@ -255,7 +255,7 @@ describe("a field written either way", () => {
   /** Reads as a timestamp, and is written as one or left to the server. */
   class Event extends FirestoreModel.Class<Event>("Event")({
     name: Schema.String,
-    occurredAt: FirestoreModel.Timestamp,
+    occurredAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
   }) {}
 
   it("keeps the encoder it asks for, rather than widening to unknown", () => {
@@ -288,6 +288,116 @@ describe("a field written either way", () => {
       } as unknown);
       expect(Timestamp.isTimestamp(event.occurredAt)).toBe(true);
     }),
+  );
+
+  it.effect("holds the instant the way the schema it was handed does", () =>
+    Effect.gen(function* () {
+      class Visit extends FirestoreModel.Class<Visit>("Visit")({
+        seenAt: FirestoreModel.Timestamp(FirestoreSchema.DateTimeUtcFromTimestamp),
+      }) {}
+
+      const visit = yield* Schema.decodeEffect(Visit)({
+        seenAt: new SdkTimestamp(1_700_000_000, 123_000_000),
+      });
+      expect(visit.seenAt).toStrictEqual(DateTime.makeUnsafe(1_700_000_000_123));
+
+      const stamped = yield* Schema.encodeEffect(Visit.update)(
+        Visit.update.make({ seenAt: DateTime.makeUnsafe(1_700_000_000_123) }),
+      );
+      expect(stamped.seenAt).toBeInstanceOf(SdkTimestamp);
+
+      const left = yield* Schema.encodeEffect(Visit.update)(
+        Visit.update.make({ seenAt: FieldValue.serverTimestamp }),
+      );
+      expect(left.seenAt).toBeInstanceOf(SdkServerTimestamp);
+    }).pipe(Effect.provide(encoder)),
+  );
+});
+
+describe("Number", () => {
+  /** Reads as a number, and is written as one or moved by the server. */
+  class Page extends FirestoreModel.Class<Page>("Page")({
+    slug: Schema.String,
+    visits: FirestoreModel.Number(Schema.Int),
+  }) {}
+
+  it("takes a number or a move in the writes, and a number alone in the read", () => {
+    expectTypeOf<(typeof Page)["Type"]["visits"]>().toEqualTypeOf<number>();
+    expectTypeOf<(typeof Page.update)["Type"]>().toEqualTypeOf<{
+      readonly slug?: string;
+      readonly visits?: number | FieldValue.Increment;
+    }>();
+  });
+
+  it.effect("sets the number outright where it was handed one", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Page.create)(
+        Page.create.make({ slug: "home", visits: 0 }),
+      );
+      expect(encoded.visits).toBe(0);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("leaves the sum to the server where it was handed a move", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Page.update)(
+        Page.update.make({ visits: FieldValue.increment(1) }),
+      );
+      expect(Object.keys(encoded)).toEqual(["visits"]);
+      expect(encoded.visits).toBeInstanceOf(SdkIncrement);
+      expect((encoded.visits as SdkIncrement).by).toBe(1);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("counts down just as readily", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Page.update)(
+        Page.update.make({ visits: FieldValue.decrement(2) }),
+      );
+      expect((encoded.visits as SdkIncrement).by).toBe(-2);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("reads back as the number the server wrote", () =>
+    Effect.gen(function* () {
+      const page = yield* Schema.decodeUnknownEffect(Page)({ slug: "home", visits: 12 } as unknown);
+      expect(page.visits).toBe(12);
+    }),
+  );
+
+  it("refuses a move where only a number is read", () => {
+    expect(
+      () =>
+        // @ts-expect-error a document holds the sum rather than the request to add
+        new Page({ slug: "home", visits: FieldValue.increment(1) }),
+    ).toThrow();
+  });
+
+  it.effect("holds the schema it was handed in every variant", () =>
+    Effect.gen(function* () {
+      // `Schema.Int` is the caller's, so a fraction is refused reading a
+      // document and writing one alike - the write as early as the constructor.
+      expect(
+        yield* Effect.flip(Schema.decodeEffect(Page)({ slug: "a", visits: 1.5 })),
+      ).toBeDefined();
+      expect(() => Page.update.make({ visits: 1.5 })).toThrow();
+    }),
+  );
+
+  it.effect("adds up fractions where the schema it was handed does", () =>
+    Effect.gen(function* () {
+      class Account extends FirestoreModel.Class<Account>("Account")({
+        balance: FirestoreModel.Number(Schema.Finite),
+      }) {}
+
+      const encoded = yield* Schema.encodeEffect(Account.update)(
+        Account.update.make({ balance: FieldValue.increment(0.5) }),
+      );
+      expect((encoded.balance as SdkIncrement).by).toBe(0.5);
+      expect(yield* Schema.decodeEffect(Account)({ balance: 1.5 })).toMatchObject({
+        balance: 1.5,
+      });
+    }).pipe(Effect.provide(encoder)),
   );
 });
 
