@@ -330,7 +330,7 @@ export const DeleteField: DeleteField = Schema.Unknown.pipe(
  * @since 0.0.0
  */
 export interface DeleteFieldOr<S extends Schema.Top> extends Schema.Union<
-  readonly [S, DeleteField]
+  readonly [DeleteField, S]
 > {
   readonly Rebuild: DeleteFieldOr<S>;
 }
@@ -342,8 +342,11 @@ export interface DeleteFieldOr<S extends Schema.Top> extends Schema.Union<
  * holds while it is there. It belongs in an update and nowhere else: a read
  * never holds the sentinel, and a document written whole refuses it.
  *
+ * The sentinel is tried first. A schema that takes any object - a struct whose
+ * every key is optional, say - would take it too, and strip it to nothing.
+ *
  * @category schemas
  * @since 0.0.0
  */
 export const DeleteFieldOr = <S extends Schema.Top>(schema: S): DeleteFieldOr<S> =>
-  Schema.Union([schema, DeleteField]);
+  Schema.Union([DeleteField, schema]);
