@@ -562,7 +562,7 @@ describe("an update reaching into a group", () => {
 
   it.effect("is never read back", () =>
     Effect.gen(function* () {
-      const exit = yield* Schema.decodeUnknownEffect(Place.update)({ name: "a" }).pipe(Effect.exit);
+      const exit = yield* Schema.decodeEffect(Place.update)({ name: "a" }).pipe(Effect.exit);
       expect(Exit.isFailure(exit)).toBe(true);
     }),
   );

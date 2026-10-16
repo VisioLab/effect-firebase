@@ -1,6 +1,7 @@
 /**
  * The Admin SDK's implementation of {@link FirestoreEncoder.FirestoreEncoder}.
  *
+ * @stability unstable
  * @since 0.2.0
  */
 import { Layer } from "effect";
@@ -10,6 +11,7 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
 /**
  * Builds the values the Admin SDK writes.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
@@ -23,6 +25,7 @@ export const make: FirestoreEncoder = {
 /**
  * A layer providing {@link make}.
  *
+ * @stability unstable
  * @category layers
  * @since 0.2.0
  */

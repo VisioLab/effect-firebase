@@ -6,6 +6,7 @@
  * that definition, so a path can only be built out of the ids that actually
  * locate it.
  *
+ * @stability unstable
  * @since 0.1.0
  */
 import type { Brand, Equal, Inspectable, Schema } from "effect";
@@ -18,6 +19,7 @@ const DocumentReferenceTypeId = collection.DocumentReferenceTypeId;
 /**
  * A path segment together with the schema of the documents stored under it.
  *
+ * @stability unstable
  * @category models
  * @since 0.1.0
  */
@@ -30,6 +32,7 @@ export type Level = readonly [segment: string, schema: Schema.Top];
  * Carrying the whole chain rather than just the collection's own segment is
  * what lets the ids that address a collection stay typed all the way up.
  *
+ * @stability unstable
  * @category models
  * @since 0.1.0
  */
@@ -82,6 +85,7 @@ type AncestorsOf<L extends Levels> = L extends readonly [...infer I, Level]
  * `Schema.Top` declares, so pinning it to `string` here is what makes minting
  * an id a compile-time check rather than a runtime throw.
  *
+ * @stability unstable
  * @category models
  * @since 0.1.0
  */
@@ -97,6 +101,7 @@ export interface IdSchema<T extends string> extends Schema.Codec<T, string> {
  * {@link Collection.collection} and {@link Collection.doc} turn it into a
  * reference once the ids that address it are known.
  *
+ * @stability unstable
  * @category models
  * @since 0.1.0
  */
@@ -151,6 +156,7 @@ export interface Collection<L extends Levels> extends Inspectable.Inspectable {
  * `Collection<Levels>` would be the honest bound, but `L` sits in an argument
  * position in {@link Collection.doc}, which makes it invariant.
  *
+ * @stability unstable
  * @category models
  * @since 0.1.0
  */
@@ -159,6 +165,7 @@ export type Any = Collection<any>;
 /**
  * The id of a document in `C`.
  *
+ * @stability unstable
  * @category models
  * @since 0.1.0
  */
@@ -167,6 +174,7 @@ export type Id<C extends Any> = IdOf<C["~levels"]>;
 /**
  * One id per ancestor of `C`, ordered from the root down.
  *
+ * @stability unstable
  * @category models
  * @since 0.1.0
  */
@@ -175,6 +183,7 @@ export type Ancestors<C extends Any> = AncestorsOf<C["~levels"]>;
 /**
  * The schema of the documents in `C`.
  *
+ * @stability unstable
  * @category models
  * @since 0.1.0
  */
@@ -183,6 +192,7 @@ export type DocumentSchema<C extends Any> = Leaf<C["~levels"]>[1];
 /**
  * A reference to one collection, addressed by the ids of its ancestors.
  *
+ * @stability unstable
  * @category models
  * @since 0.1.0
  */
@@ -208,6 +218,7 @@ export interface CollectionReference<C extends Any> extends Inspectable.Inspecta
 /**
  * A reference to one document.
  *
+ * @stability unstable
  * @category models
  * @since 0.1.0
  */
@@ -226,12 +237,14 @@ export interface DocumentReference<C extends Any> extends Inspectable.Inspectabl
 }
 
 /**
+ * @stability unstable
  * @category guards
  * @since 0.1.0
  */
 export const isCollection: (u: unknown) => u is Any = collection.isCollection;
 
 /**
+ * @stability unstable
  * @category guards
  * @since 0.1.0
  */
@@ -239,6 +252,7 @@ export const isCollectionReference: (u: unknown) => u is CollectionReference<Any
   collection.isCollectionReference;
 
 /**
+ * @stability unstable
  * @category guards
  * @since 0.1.0
  */
@@ -255,6 +269,7 @@ export const isDocumentReference: (u: unknown) => u is DocumentReference<Any> =
  * cannot be built is a mistake in the definition rather than something a caller
  * can recover from.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.1.0
  */
