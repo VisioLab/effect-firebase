@@ -24,12 +24,24 @@ class SdkIncrement {
 /** Stands in for an SDK's own sentinel. */
 class SdkDeleteField {}
 
+/** Stands in for an SDK's own sentinel, which carries the elements to add. */
+class SdkArrayUnion {
+  constructor(readonly elements: ReadonlyArray<unknown>) {}
+}
+
+/** Stands in for an SDK's own sentinel, which carries the elements to remove. */
+class SdkArrayRemove {
+  constructor(readonly elements: ReadonlyArray<unknown>) {}
+}
+
 const encoder = Layer.succeed(FirestoreEncoder)(
   FirestoreEncoder.of({
     timestamp: (value) => new SdkTimestamp(value.seconds, value.nanoseconds),
     serverTimestamp: () => new SdkServerTimestamp(),
     increment: (by) => new SdkIncrement(by),
     deleteField: () => new SdkDeleteField(),
+    arrayUnion: (elements) => new SdkArrayUnion(elements),
+    arrayRemove: (elements) => new SdkArrayRemove(elements),
   }),
 );
 
@@ -382,6 +394,132 @@ describe("DeleteFieldOr", () => {
   it("keeps the schema it was handed", () => {
     expectTypeOf<FirestoreSchema.DeleteFieldOr<Schema.String>["Type"]>().toEqualTypeOf<
       string | FieldValue.DeleteField
+    >();
+  });
+});
+
+describe("ArrayUnion", () => {
+  const Tags = FirestoreSchema.ArrayUnion(Schema.String);
+
+  it.effect("hands the encoder the elements the array is to gain", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Tags)(FieldValue.arrayUnion("a", "b"));
+      expect(encoded).toBeInstanceOf(SdkArrayUnion);
+      expect((encoded as SdkArrayUnion).elements).toEqual(["a", "b"]);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("encodes each element through the schema it was built from", () =>
+    Effect.gen(function* () {
+      const Seen = FirestoreSchema.ArrayUnion(FirestoreSchema.Timestamp);
+      const encoded = yield* Schema.encodeEffect(Seen)(
+        FieldValue.arrayUnion(Timestamp.makeUnsafe(1, 2)),
+      );
+      const [element] = (encoded as SdkArrayUnion).elements;
+      expect(element).toBeInstanceOf(SdkTimestamp);
+      expect(element).toMatchObject({ seconds: 1, nanoseconds: 2 });
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("refuses an element the schema it was built from refuses", () =>
+    Effect.gen(function* () {
+      const Whole = FirestoreSchema.ArrayUnion(Schema.Int);
+      const failure = yield* Effect.flip(
+        Effect.asVoid(Schema.encodeEffect(Whole)(FieldValue.arrayUnion(1, 1.5))),
+      );
+      expect(String(failure)).toContain(`["elements"][1]`);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("refuses to be read, since a document holds the array instead", () =>
+    Effect.gen(function* () {
+      const failure = yield* Effect.flip(Schema.decodeEffect(Tags)(new SdkArrayUnion(["a"])));
+      expect(failure).toBeDefined();
+    }),
+  );
+
+  it("asks for an encoder, and for whatever its elements ask for", () => {
+    expectTypeOf<(typeof Tags)["EncodingServices"]>().toEqualTypeOf<FirestoreEncoder>();
+    expectTypeOf<(typeof Tags)["Type"]>().toEqualTypeOf<FieldValue.ArrayUnion<string>>();
+  });
+
+  it("compares by the elements, as the schema it was built from compares them", () => {
+    const equivalence = Schema.toEquivalence(
+      FirestoreSchema.ArrayUnion(FirestoreSchema.DateTimeUtcFromTimestamp),
+    );
+    const at = (millis: number) => DateTime.makeUnsafe(millis);
+    expect(
+      equivalence(FieldValue.arrayUnion(at(1), at(2)), FieldValue.arrayUnion(at(1), at(2))),
+    ).toBe(true);
+    expect(equivalence(FieldValue.arrayUnion(at(1)), FieldValue.arrayUnion(at(2)))).toBe(false);
+  });
+
+  it("keeps its own name through a rebuild", () => {
+    expectTypeOf(Tags.annotate({})).toEqualTypeOf<FirestoreSchema.ArrayUnion<Schema.String>>();
+  });
+});
+
+describe("ArrayRemove", () => {
+  const Tags = FirestoreSchema.ArrayRemove(Schema.String);
+
+  it.effect("hands the encoder the elements the array is to lose", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Tags)(FieldValue.arrayRemove("a"));
+      expect(encoded).toBeInstanceOf(SdkArrayRemove);
+      expect((encoded as SdkArrayRemove).elements).toEqual(["a"]);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("encodes each element through the schema it was built from", () =>
+    Effect.gen(function* () {
+      const Seen = FirestoreSchema.ArrayRemove(Schema.Struct({ at: FirestoreSchema.Timestamp }));
+      const encoded = yield* Schema.encodeEffect(Seen)(
+        FieldValue.arrayRemove({ at: Timestamp.makeUnsafe(1, 2) }),
+      );
+      expect((encoded as SdkArrayRemove).elements[0]).toMatchObject({
+        at: new SdkTimestamp(1, 2),
+      });
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("refuses to be read, since a document holds the array instead", () =>
+    Effect.gen(function* () {
+      const failure = yield* Effect.flip(Schema.decodeEffect(Tags)(new SdkArrayRemove(["a"])));
+      expect(failure).toBeDefined();
+    }),
+  );
+
+  it("keeps its own name through a rebuild", () => {
+    expectTypeOf(Tags.annotate({})).toEqualTypeOf<FirestoreSchema.ArrayRemove<Schema.String>>();
+  });
+});
+
+describe("ArrayOr", () => {
+  const Tags = FirestoreSchema.ArrayOr(Schema.String);
+  const encode = Schema.encodeEffect(Tags);
+
+  it.effect("writes the array it was handed", () =>
+    Effect.gen(function* () {
+      expect(yield* encode(["a", "b"])).toEqual(["a", "b"]);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("writes either sentinel just as readily", () =>
+    Effect.gen(function* () {
+      expect(yield* encode(FieldValue.arrayUnion("a"))).toBeInstanceOf(SdkArrayUnion);
+      expect(yield* encode(FieldValue.arrayRemove("a"))).toBeInstanceOf(SdkArrayRemove);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("decodes the array, which is all a read ever holds", () =>
+    Effect.gen(function* () {
+      expect(yield* Schema.decodeEffect(Tags)(["a"])).toEqual(["a"]);
+    }),
+  );
+
+  it("keeps the schema it was handed", () => {
+    expectTypeOf<FirestoreSchema.ArrayOr<Schema.String>["Type"]>().toEqualTypeOf<
+      ReadonlyArray<string> | FieldValue.ArrayUnion<string> | FieldValue.ArrayRemove<string>
     >();
   });
 });

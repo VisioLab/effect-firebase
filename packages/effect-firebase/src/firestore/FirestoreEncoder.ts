@@ -45,6 +45,23 @@ export interface FirestoreEncoder {
    * comes back is that SDK's `FieldValue`, as opaque here as the others.
    */
   readonly deleteField: () => unknown;
+  /**
+   * The sentinel standing in for an array grown by whichever of `elements` it
+   * lacks.
+   *
+   * The elements are already encoded, so a timestamp among them is this SDK's
+   * own by the time it gets here. What comes back is that SDK's `FieldValue`,
+   * as opaque here as the others.
+   */
+  readonly arrayUnion: (elements: ReadonlyArray<unknown>) => unknown;
+  /**
+   * The sentinel standing in for an array rid of every element equal to one of
+   * `elements`.
+   *
+   * The elements are already encoded, as they are for the one above, and what
+   * comes back is as opaque.
+   */
+  readonly arrayRemove: (elements: ReadonlyArray<unknown>) => unknown;
 }
 
 /**

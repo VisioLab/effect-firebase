@@ -25,12 +25,24 @@ class SdkIncrement {
 /** Stands in for an SDK's own sentinel. */
 class SdkDeleteField {}
 
+/** Stands in for an SDK's own sentinel, which carries the elements to add. */
+class SdkArrayUnion {
+  constructor(readonly elements: ReadonlyArray<unknown>) {}
+}
+
+/** Stands in for an SDK's own sentinel, which carries the elements to remove. */
+class SdkArrayRemove {
+  constructor(readonly elements: ReadonlyArray<unknown>) {}
+}
+
 const encoder = Layer.succeed(FirestoreEncoder)(
   FirestoreEncoder.of({
     timestamp: (value) => new SdkTimestamp(value.seconds, value.nanoseconds),
     serverTimestamp: () => new SdkServerTimestamp(),
     increment: (by) => new SdkIncrement(by),
     deleteField: () => new SdkDeleteField(),
+    arrayUnion: (elements) => new SdkArrayUnion(elements),
+    arrayRemove: (elements) => new SdkArrayRemove(elements),
   }),
 );
 
@@ -379,6 +391,121 @@ describe("Number", () => {
         balance: 1.5,
       });
     }).pipe(Effect.provide(encoder)),
+  );
+});
+
+describe("Array", () => {
+  /** Reads as an array, and is written as one or grown and shrunk by the server. */
+  class Article extends FirestoreModel.Class<Article>("Article")({
+    name: Schema.String,
+    tags: FirestoreModel.Array(Schema.String),
+    editors: FirestoreModel.Optional(FirestoreModel.Array(Schema.String)),
+    meta: FirestoreModel.Struct({
+      keywords: FirestoreModel.Array(Schema.String),
+    }),
+  }) {}
+
+  it("takes the array alone in the read and the create, and a sentinel besides in the update", () => {
+    expectTypeOf<(typeof Article)["Type"]["tags"]>().toEqualTypeOf<ReadonlyArray<string>>();
+    expectTypeOf<(typeof Article.create)["Type"]["tags"]>().toEqualTypeOf<ReadonlyArray<string>>();
+    expectTypeOf<(typeof Article.update)["Type"]["tags"]>().toEqualTypeOf<
+      | ReadonlyArray<string>
+      | FieldValue.ArrayUnion<string>
+      | FieldValue.ArrayRemove<string>
+      | undefined
+    >();
+  });
+
+  it.effect("writes the array whole where it was handed one", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Article.create)(
+        Article.create.make({ name: "a", tags: ["news"], meta: { keywords: [] } }),
+      );
+      expect(encoded).toStrictEqual({
+        name: "a",
+        tags: ["news"],
+        meta: { keywords: [] },
+      });
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it("refuses a sentinel where a document is written whole", () => {
+    expect(() =>
+      Article.create.make({
+        name: "a",
+        // @ts-expect-error growing an array that is not there yet is writing it
+        tags: FieldValue.arrayUnion("news"),
+        meta: { keywords: [] },
+      }),
+    ).toThrow();
+  });
+
+  it.effect("leaves the elements to the server where an update was handed a sentinel", () =>
+    Effect.gen(function* () {
+      const grown = yield* Schema.encodeEffect(Article.update)(
+        Article.update.make({ tags: FieldValue.arrayUnion("opinion") }),
+      );
+      expect(Object.keys(grown)).toEqual(["tags"]);
+      expect(grown.tags).toBeInstanceOf(SdkArrayUnion);
+      expect((grown.tags as SdkArrayUnion).elements).toEqual(["opinion"]);
+
+      const shrunk = yield* Schema.encodeEffect(Article.update)(
+        Article.update.make({ tags: FieldValue.arrayRemove("news") }),
+      );
+      expect(shrunk.tags).toBeInstanceOf(SdkArrayRemove);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("writes a sentinel at its path inside a group", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Article.update)(
+        Article.update.make({ meta: { keywords: FieldValue.arrayUnion("effect") } }),
+      );
+      expect(Object.keys(encoded)).toEqual(["meta.keywords"]);
+      expect(encoded["meta.keywords"]).toBeInstanceOf(SdkArrayUnion);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("composes with Optional, which takes the removal besides", () =>
+    Effect.gen(function* () {
+      const grown = yield* Schema.encodeEffect(Article.update)(
+        Article.update.make({ editors: FieldValue.arrayUnion("alice") }),
+      );
+      expect(grown.editors).toBeInstanceOf(SdkArrayUnion);
+
+      const removed = yield* Schema.encodeEffect(Article.update)(
+        Article.update.make({ editors: FieldValue.deleteField }),
+      );
+      expect(removed.editors).toBeInstanceOf(SdkDeleteField);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("encodes the elements of a sentinel as it encodes those of the array", () =>
+    Effect.gen(function* () {
+      class Log extends FirestoreModel.Class<Log>("Log")({
+        seenAt: FirestoreModel.Array(FirestoreSchema.Timestamp),
+      }) {}
+
+      const whole = yield* Schema.encodeEffect(Log.update)(
+        Log.update.make({ seenAt: [Timestamp.makeUnsafe(1, 2)] }),
+      );
+      const grown = yield* Schema.encodeEffect(Log.update)(
+        Log.update.make({ seenAt: FieldValue.arrayUnion(Timestamp.makeUnsafe(1, 2)) }),
+      );
+      expect((whole.seenAt as ReadonlyArray<unknown>)[0]).toStrictEqual(new SdkTimestamp(1, 2));
+      expect((grown.seenAt as SdkArrayUnion).elements[0]).toStrictEqual(new SdkTimestamp(1, 2));
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("reads back as the array the server wrote", () =>
+    Effect.gen(function* () {
+      const article = yield* Schema.decodeUnknownEffect(Article)({
+        name: "a",
+        tags: ["news", "opinion"],
+        meta: { keywords: [] },
+      } as unknown);
+      expect(article.tags).toEqual(["news", "opinion"]);
+    }),
   );
 });
 
