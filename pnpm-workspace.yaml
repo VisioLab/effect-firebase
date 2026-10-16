@@ -7,7 +7,7 @@ catalogMode: prefer
 
 catalog:
   "@changesets/cli": ^3.0.3
-  "@effect/tsgo": 0.51.0
+  "@effect/tsgo": 0.51.1
   "@effect/vitest": ^4.0.4
   effect: ^4.0.4
   firebase-admin: ^14.2.0
