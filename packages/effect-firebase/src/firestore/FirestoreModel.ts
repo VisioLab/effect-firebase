@@ -28,6 +28,7 @@
  * User.update // what `update` writes
  * ```
  *
+ * @stability unstable
  * @since 0.2.0
  */
 import type { Schema, Struct as Struct_ } from "effect";
@@ -46,6 +47,7 @@ import type * as Timestamp_ from "./Timestamp.ts";
  * `read` is the default, so the schema itself is the one a document is read
  * through and the write shapes hang off it.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -54,6 +56,7 @@ export type Variant = "read" | "create" | "update";
 /**
  * Declares a field that is a different schema in different variants.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
@@ -62,6 +65,7 @@ export const Field = firestoreModel.Field;
 /**
  * Declares a field that only appears in the named variants.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
@@ -70,6 +74,7 @@ export const FieldOnly = firestoreModel.FieldOnly;
 /**
  * Declares a field that appears in every variant but the named ones.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
@@ -79,6 +84,7 @@ export const FieldExcept = firestoreModel.FieldExcept;
  * Groups fields without building a class, for nesting inside a document or
  * sharing between several.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
@@ -87,6 +93,7 @@ export const Struct = firestoreModel.Struct;
 /**
  * Rewrites the schemas of a field, variant by variant.
  *
+ * @stability unstable
  * @category transforming
  * @since 0.2.0
  */
@@ -99,6 +106,7 @@ export const fieldEvolve = firestoreModel.fieldEvolve;
  * which is to say it is neither made partial nor flattened into paths the way
  * {@link Class} makes it.
  *
+ * @stability unstable
  * @category converting
  * @since 0.2.0
  */
@@ -107,6 +115,7 @@ export const extract = firestoreModel.extract;
 /**
  * The field definitions a class or group was built from.
  *
+ * @stability unstable
  * @category getters
  * @since 0.2.0
  */
@@ -117,6 +126,7 @@ export const fields: <A extends VariantSchema.Struct<any>>(
 /**
  * Any document schema, whatever it holds.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -150,6 +160,7 @@ type UnionToIntersection<U> = (U extends unknown ? (u: U) => void : never) exten
  * The fields of an update: every one that may change, each of them optional,
  * and each group a partial of its own.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -175,6 +186,7 @@ export type UpdateFields<Fields extends VariantSchema.Struct.Fields> = {
  * unless it is {@link Optional} - then its key takes the removal and nothing
  * else.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -219,6 +231,7 @@ export type UpdatePaths<
  * It is only ever written. A document is never read in this shape, so decoding
  * fails.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -230,6 +243,7 @@ export interface Update<Fields extends VariantSchema.Struct.Fields> extends Sche
 /**
  * A document schema, together with the shapes it is written in.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -259,6 +273,7 @@ type MissingSelfGeneric =
  * what every other schema combinator takes. {@link Class.create} and
  * {@link Class.update} hang off it.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
@@ -275,6 +290,7 @@ export const Class: <Self = never>(
 /**
  * A union of document schemas, in every variant.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
@@ -283,6 +299,7 @@ export const Union = firestoreModel.Union;
 /**
  * Type-level representation of {@link Immutable}.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -297,6 +314,7 @@ export interface Immutable<S extends Schema.Top> extends VariantSchema.Field<{
  * It is read back and it is set by `set`, and it is absent from `update`, so
  * the field cannot be changed by one.
  *
+ * @stability unstable
  * @category schemas
  * @since 0.2.0
  */
@@ -306,6 +324,7 @@ export const Immutable: <S extends Schema.Top>(schema: S) => Immutable<S> =
 /**
  * Type-level representation of {@link Timestamp}.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -344,6 +363,7 @@ export interface Timestamp<
  * {@link FieldValue.serverTimestamp}. Where it never may, name the schema
  * directly, which goes into every variant as it stands.
  *
+ * @stability unstable
  * @category schemas
  * @since 0.2.0
  */
@@ -356,6 +376,7 @@ export const Timestamp: <
 /**
  * Type-level representation of {@link Number}.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -395,6 +416,7 @@ export interface Number<
  * {@link FieldValue.increment} or {@link FieldValue.decrement}. Where it never
  * may, name the schema directly, which goes into every variant as it stands.
  *
+ * @stability unstable
  * @category schemas
  * @since 0.2.0
  */
@@ -407,6 +429,7 @@ export const Number: <S extends Schema.Codec<unknown, number, unknown, unknown>>
  *
  * It carries the group it was made of, which is what an update reaches into.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -423,6 +446,7 @@ export interface OptionalGroup<G extends VariantSchema.Struct<any>> extends Vari
 /**
  * Type-level representation of {@link Optional}.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -480,6 +504,7 @@ export type Optional<F extends VariantSchema.Field<any> | VariantSchema.Struct<a
  * field is removed the same way as at the top, since an update writes a group
  * at its paths - see {@link Update}.
  *
+ * @stability unstable
  * @category schemas
  * @since 0.2.0
  */

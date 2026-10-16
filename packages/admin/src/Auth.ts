@@ -1,6 +1,7 @@
 /**
  * Firebase Authentication, as exposed by the Firebase Admin SDK.
  *
+ * @stability unstable
  * @since 0.1.0
  */
 import { Context, Effect, Layer, Schema } from "effect";
@@ -11,6 +12,7 @@ import * as App from "./App.ts";
 /**
  * Raised when a Firebase Authentication call fails.
  *
+ * @stability unstable
  * @category errors
  * @since 0.1.0
  */
@@ -34,6 +36,7 @@ const authError = (message: string) => (cause: unknown) =>
  * This covers the handful of calls most server code reaches for. Anything else
  * the Admin SDK offers is available through {@link Auth.use}.
  *
+ * @stability unstable
  * @category models
  * @since 0.1.0
  */
@@ -69,6 +72,7 @@ export interface Auth {
 /**
  * Service key for Firebase Authentication.
  *
+ * @stability unstable
  * @category services
  * @since 0.1.0
  */
@@ -86,6 +90,7 @@ export const Auth = Context.Service<Auth>("@visiolab/effect-firebase-admin/Auth"
  * The Admin SDK has no way to abort a request in flight, so these effects run
  * their call to completion even when the fiber is interrupted.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.1.0
  */
@@ -140,6 +145,7 @@ export const make = Effect.gen(function* () {
  *
  * @see {@link make} for why building the service cannot fail.
  *
+ * @stability unstable
  * @category layers
  * @since 0.1.0
  */

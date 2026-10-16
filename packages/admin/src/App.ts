@@ -1,6 +1,7 @@
 /**
  * The Firebase Admin SDK app.
  *
+ * @stability unstable
  * @since 0.1.0
  */
 import { Context, Effect, Layer, Schema } from "effect";
@@ -10,6 +11,7 @@ import * as internalApp from "./internal/app.ts";
 /**
  * A Firebase Admin SDK app.
  *
+ * @stability unstable
  * @category models
  * @since 0.1.0
  */
@@ -18,6 +20,7 @@ export interface App extends Admin.App {}
 /**
  * Service key for the Firebase Admin SDK app.
  *
+ * @stability unstable
  * @category services
  * @since 0.1.0
  */
@@ -26,6 +29,7 @@ export const App = Context.Service<App>("@visiolab/effect-firebase-admin/App");
 /**
  * Raised when an app cannot be initialized.
  *
+ * @stability unstable
  * @category errors
  * @since 0.1.0
  */
@@ -49,6 +53,7 @@ export class AppError extends Schema.TaggedError<AppError>()("AppError", {
  * a credential or an `httpAgent`. Reach for `Admin.getApp` to pick up an app the
  * host initialized.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.1.0
  */
@@ -74,6 +79,7 @@ export const make = Effect.fn("App.make")(function* (options?: Admin.AppOptions,
  *
  * @see {@link make} for how the app is initialized and torn down.
  *
+ * @stability unstable
  * @category layers
  * @since 0.1.0
  */

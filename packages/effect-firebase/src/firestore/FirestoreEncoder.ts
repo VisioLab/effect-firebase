@@ -6,6 +6,7 @@
  * it is, it would be stored as a nested map rather than as a timestamp, and
  * nothing would report it.
  *
+ * @stability unstable
  * @since 0.2.0
  */
 import { Context } from "effect";
@@ -14,6 +15,7 @@ import type * as Timestamp from "./Timestamp.ts";
 /**
  * Builds the values one SDK writes.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -52,6 +54,7 @@ export interface FirestoreEncoder {
  * timestamp an SDK hands back is already a {@link Timestamp.TimestampLike}, and
  * a sentinel is gone by the time a document is read.
  *
+ * @stability unstable
  * @category services
  * @since 0.2.0
  */

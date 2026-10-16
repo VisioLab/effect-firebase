@@ -11,6 +11,7 @@
  * a {@link FirestoreEncoder.FirestoreEncoder}, and the codecs that reach for it
  * live in `firestore/FirestoreSchema`.
  *
+ * @stability unstable
  * @since 0.2.0
  */
 import type { Equal, Inspectable } from "effect";
@@ -25,6 +26,7 @@ const ServerTimestampTypeId = fieldValue.ServerTimestampTypeId;
  * it. Writing one is how a document gets a time that every client agrees on,
  * rather than the time at whichever client happened to write it.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -38,12 +40,14 @@ export interface ServerTimestamp extends Inspectable.Inspectable {
  * It carries nothing, so one is enough, and equality falls out of that: two
  * requests for the server's time are the same request.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
 export const serverTimestamp: ServerTimestamp = fieldValue.serverTimestamp;
 
 /**
+ * @stability unstable
  * @category guards
  * @since 0.2.0
  */
@@ -62,6 +66,7 @@ const IncrementTypeId = fieldValue.IncrementTypeId;
  * A field that holds no number yet, or holds something else entirely, counts as
  * zero, so an increment lands on a document whether or not the field was there.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -72,6 +77,7 @@ export interface Increment extends Equal.Equal, Inspectable.Inspectable {
 }
 
 /**
+ * @stability unstable
  * @category guards
  * @since 0.2.0
  */
@@ -84,6 +90,7 @@ export const isIncrement: (u: unknown) => u is Increment = fieldValue.isIncremen
  * finite number. Both integers and doubles go through; an integer added to a
  * double comes back a double.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
@@ -96,6 +103,7 @@ export const increment: (by: number) => Increment = fieldValue.increment;
  * and reads back as such: `decrement(2).by` is `-2`. It is here because a call
  * site that counts down should say so rather than negate by hand.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
@@ -114,6 +122,7 @@ const DeleteFieldTypeId = fieldValue.DeleteFieldTypeId;
  * `merge` - removes a field by leaving it out, and Firestore refuses the
  * sentinel there.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -128,12 +137,14 @@ export interface DeleteField extends Inspectable.Inspectable {
  * enough. It is not called `delete`, which is a word JavaScript keeps for
  * itself - the web SDK calls its own `deleteField` for the same reason.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
 export const deleteField: DeleteField = fieldValue.deleteField;
 
 /**
+ * @stability unstable
  * @category guards
  * @since 0.2.0
  */

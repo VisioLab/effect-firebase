@@ -7,6 +7,7 @@
  * {@link FirestoreEncoder}, so a document schema is written once and reads the same under
  * the Admin SDK and the web SDK.
  *
+ * @stability unstable
  * @since 0.2.0
  */
 import type { Schema } from "effect";
@@ -18,6 +19,7 @@ import type * as Timestamp_ from "./Timestamp.ts";
 /**
  * Type-level representation of {@link Timestamp}.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -37,6 +39,7 @@ export interface Timestamp extends Schema.decodeTo<
  * {@link DateTimeUtcFromTimestamp} when a document is read, written back, and
  * expected to come out unchanged.
  *
+ * @stability unstable
  * @category schemas
  * @since 0.2.0
  */
@@ -45,6 +48,7 @@ export const Timestamp: Timestamp = firestoreSchema.Timestamp;
 /**
  * Type-level representation of {@link DateTimeUtcFromTimestamp}.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -65,6 +69,7 @@ export interface DateTimeUtcFromTimestamp extends Schema.decodeTo<
  * do not come back on the way out. Reach for {@link Timestamp} where that
  * matters.
  *
+ * @stability unstable
  * @category schemas
  * @since 0.2.0
  */
@@ -83,6 +88,7 @@ interface ServerTimestampSentinel extends Schema.decodeTo<
 /**
  * Type-level representation of {@link ServerTimestamp}.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -104,6 +110,7 @@ export interface ServerTimestamp extends Schema.withConstructorDefault<ServerTim
  * timestamp it resolved to, which is what the field reads as on the way back -
  * see {@link FirestoreModel.Timestamp} for the pair.
  *
+ * @stability unstable
  * @category schemas
  * @since 0.2.0
  */
@@ -112,6 +119,7 @@ export const ServerTimestamp: ServerTimestamp = firestoreSchema.ServerTimestamp;
 /**
  * Type-level representation of {@link ServerTimestampOr}.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -134,6 +142,7 @@ export interface ServerTimestampOr<
  * belongs in the variants a document is written through, against a `read` of
  * the same.
  *
+ * @stability unstable
  * @category schemas
  * @since 0.2.0
  */
@@ -146,6 +155,7 @@ export const ServerTimestampOr: <
 /**
  * Type-level representation of {@link Increment}.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -169,6 +179,7 @@ export interface Increment extends Schema.decodeTo<
  * the sum the server wrote rather than the request to add, so a read of the
  * same field is a plain number - see {@link IncrementOr} for the pair.
  *
+ * @stability unstable
  * @category schemas
  * @since 0.2.0
  */
@@ -177,6 +188,7 @@ export const Increment: Increment = firestoreSchema.Increment;
 /**
  * Type-level representation of {@link IncrementOr}.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -200,6 +212,7 @@ export interface IncrementOr<
  * the document came back - so this belongs in the variants a document is
  * written through, against a `read` of the same.
  *
+ * @stability unstable
  * @category schemas
  * @since 0.2.0
  */
@@ -210,6 +223,7 @@ export const IncrementOr: <S extends Schema.Codec<unknown, number, unknown, unkn
 /**
  * Type-level representation of {@link DeleteField}.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -233,6 +247,7 @@ export interface DeleteField extends Schema.decodeTo<
  * not there to read, so a read of the same is an optional key - see
  * {@link DeleteFieldOr} for the pair.
  *
+ * @stability unstable
  * @category schemas
  * @since 0.2.0
  */
@@ -241,6 +256,7 @@ export const DeleteField: DeleteField = firestoreSchema.DeleteField;
 /**
  * Type-level representation of {@link DeleteFieldOr}.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -260,6 +276,7 @@ export interface DeleteFieldOr<S extends Schema.Top> extends Schema.Union<
  * The sentinel is tried first. A schema that takes any object - a struct whose
  * every key is optional, say - would take it too, and strip it to nothing.
  *
+ * @stability unstable
  * @category schemas
  * @since 0.2.0
  */

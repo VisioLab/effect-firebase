@@ -9,6 +9,7 @@
  * The codecs that read and write it live in `Firestore/FirestoreSchema`, which keeps this
  * module free of the schema machinery.
  *
+ * @stability unstable
  * @since 0.2.0
  */
 import type { DateTime, Effect, Equal, Inspectable, Option, Order as order } from "effect";
@@ -22,6 +23,7 @@ const TypeId = timestamp.TypeId;
  * Both the Admin SDK and the web SDK hand back a `Timestamp` carrying these two
  * fields, so this is the shape a document arrives in whichever one read it.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -39,6 +41,7 @@ export interface TimestampLike {
  * `DateTime.Utc` can hold, so this is the representation that survives a round
  * trip through the database intact.
  *
+ * @stability unstable
  * @category models
  * @since 0.2.0
  */
@@ -49,6 +52,7 @@ export interface Timestamp extends TimestampLike, Equal.Equal, Inspectable.Inspe
 /**
  * Whether `u` is a {@link Timestamp} this module built.
  *
+ * @stability unstable
  * @category guards
  * @since 0.2.0
  */
@@ -61,6 +65,7 @@ export const isTimestamp: (u: unknown) => u is Timestamp = timestamp.isTimestamp
  * This is what makes a timestamp readable without depending on an SDK: an SDK's
  * own `Timestamp` passes, because it carries the same two fields.
  *
+ * @stability unstable
  * @category guards
  * @since 0.2.0
  */
@@ -72,6 +77,7 @@ export const isTimestampLike: (u: unknown) => u is TimestampLike = timestamp.isT
  *
  * @see {@link make} for the same check without the throw.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
@@ -81,6 +87,7 @@ export const makeUnsafe: (seconds: number, nanoseconds: number) => Timestamp = t
  * Builds a timestamp from the two fields Firestore stores, or `None` when they
  * do not describe an instant Firestore can address.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
@@ -91,6 +98,7 @@ export const make: (seconds: number, nanoseconds: number) => Option.Option<Times
  * Builds a timestamp from milliseconds since the Unix epoch, throwing when they
  * fall outside the range Firestore addresses.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
@@ -100,6 +108,7 @@ export const fromMillisUnsafe: (millis: number) => Timestamp = timestamp.fromMil
  * Builds a timestamp from milliseconds since the Unix epoch, or `None` when
  * they fall outside the range Firestore addresses.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
@@ -111,6 +120,7 @@ export const fromMillis: (millis: number) => Option.Option<Timestamp> = timestam
  * Throws for the handful of instants a `DateTime` can hold and Firestore cannot,
  * which is to say those outside the years 1 to 9999.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
@@ -121,6 +131,7 @@ export const fromDateTimeUnsafe: (dateTime: DateTime.Utc) => Timestamp =
  * Builds a timestamp from a `DateTime.Utc`, or `None` for the handful of
  * instants a `DateTime` can hold and Firestore cannot.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
@@ -132,6 +143,7 @@ export const fromDateTime: (dateTime: DateTime.Utc) => Option.Option<Timestamp> 
  *
  * Throws when the fields fall outside the range Firestore addresses.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
@@ -143,6 +155,7 @@ export const fromTimestampLikeUnsafe: (like: TimestampLike) => Timestamp =
  *
  * This is the time here rather than the time at the database.
  *
+ * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
@@ -151,6 +164,7 @@ export const now: Effect.Effect<Timestamp> = timestamp.now;
 /**
  * Milliseconds since the Unix epoch, dropping the finer digits.
  *
+ * @stability unstable
  * @category conversions
  * @since 0.2.0
  */
@@ -159,6 +173,7 @@ export const toMillis: (self: Timestamp) => number = timestamp.toMillis;
 /**
  * The same instant as a `DateTime.Utc`, to the millisecond.
  *
+ * @stability unstable
  * @category conversions
  * @since 0.2.0
  */
@@ -167,6 +182,7 @@ export const toDateTime: (self: Timestamp) => DateTime.Utc = timestamp.toDateTim
 /**
  * Orders timestamps by when they happened, to the full precision they carry.
  *
+ * @stability unstable
  * @category ordering
  * @since 0.2.0
  */
