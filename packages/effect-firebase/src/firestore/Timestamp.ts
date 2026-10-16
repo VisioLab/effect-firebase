@@ -11,25 +11,10 @@
  *
  * @since 0.0.0
  */
-import {
-  DateTime,
-  Effect,
-  Equal,
-  Hash,
-  Inspectable,
-  Option,
-  Order as order,
-  Predicate,
-} from "effect";
+import type { DateTime, Effect, Equal, Inspectable, Option, Order as order } from "effect";
+import * as timestamp from "./internal/timestamp.ts";
 
-const TypeId = "~@visiolab/effect-firebase/firestore/Timestamp";
-
-/** `0001-01-01T00:00:00Z`, the earliest instant Firestore addresses. */
-const minSeconds = -62_135_596_800;
-/** `9999-12-31T23:59:59Z`, the latest. */
-const maxSeconds = 253_402_300_799;
-const maxNanoseconds = 999_999_999;
-const nanosecondsPerMillisecond = 1_000_000;
+const TypeId = timestamp.TypeId;
 
 /**
  * The minimal shape of a Firestore timestamp, whoever built it.
@@ -61,21 +46,13 @@ export interface Timestamp extends TimestampLike, Equal.Equal, Inspectable.Inspe
   readonly [TypeId]: typeof TypeId;
 }
 
-/** Kept apart from the guards below, which narrow a `number` to `never`. */
-const inSecondsRange = (n: number): boolean =>
-  Number.isInteger(n) && n >= minSeconds && n <= maxSeconds;
-
-const inNanosecondsRange = (n: number): boolean =>
-  Number.isInteger(n) && n >= 0 && n <= maxNanoseconds;
-
 /**
  * Whether `u` is a {@link Timestamp} this module built.
  *
  * @category guards
  * @since 0.0.0
  */
-export const isTimestamp = (u: unknown): u is Timestamp =>
-  Predicate.hasProperty(u, TypeId) && u[TypeId] === TypeId && isTimestampLike(u);
+export const isTimestamp: (u: unknown) => u is Timestamp = timestamp.isTimestamp;
 
 /**
  * Whether `u` is shaped like a Firestore timestamp and holds an instant
@@ -87,32 +64,7 @@ export const isTimestamp = (u: unknown): u is Timestamp =>
  * @category guards
  * @since 0.0.0
  */
-export const isTimestampLike = (u: unknown): u is TimestampLike =>
-  Predicate.hasProperty(u, "seconds") &&
-  Predicate.hasProperty(u, "nanoseconds") &&
-  Predicate.isNumber(u.seconds) &&
-  Predicate.isNumber(u.nanoseconds) &&
-  inSecondsRange(u.seconds) &&
-  inNanosecondsRange(u.nanoseconds);
-
-const Proto: Omit<Timestamp, keyof TimestampLike> = {
-  ...Inspectable.BaseProto,
-  [TypeId]: TypeId,
-  toJSON(this: Timestamp) {
-    return { _id: "Timestamp", seconds: this.seconds, nanoseconds: this.nanoseconds };
-  },
-  [Equal.symbol](this: Timestamp, that: unknown): boolean {
-    return (
-      isTimestamp(that) && this.seconds === that.seconds && this.nanoseconds === that.nanoseconds
-    );
-  },
-  [Hash.symbol](this: Timestamp): number {
-    return Hash.combine(Hash.number(this.seconds), Hash.number(this.nanoseconds));
-  },
-};
-
-const makeUnchecked = (seconds: number, nanoseconds: number): Timestamp =>
-  Object.assign(Object.create(Proto) as typeof Proto, { seconds, nanoseconds });
+export const isTimestampLike: (u: unknown) => u is TimestampLike = timestamp.isTimestampLike;
 
 /**
  * Builds a timestamp from the two fields Firestore stores, throwing when they
@@ -123,19 +75,7 @@ const makeUnchecked = (seconds: number, nanoseconds: number): Timestamp =>
  * @category constructors
  * @since 0.0.0
  */
-export const makeUnsafe = (seconds: number, nanoseconds: number): Timestamp => {
-  if (!inSecondsRange(seconds)) {
-    throw new Error(
-      `Invalid Firestore timestamp: seconds must be an integer between ${minSeconds} and ${maxSeconds}, got ${seconds}`,
-    );
-  }
-  if (!inNanosecondsRange(nanoseconds)) {
-    throw new Error(
-      `Invalid Firestore timestamp: nanoseconds must be an integer between 0 and ${maxNanoseconds}, got ${nanoseconds}`,
-    );
-  }
-  return makeUnchecked(seconds, nanoseconds);
-};
+export const makeUnsafe: (seconds: number, nanoseconds: number) => Timestamp = timestamp.makeUnsafe;
 
 /**
  * Builds a timestamp from the two fields Firestore stores, or `None` when they
@@ -144,16 +84,8 @@ export const makeUnsafe = (seconds: number, nanoseconds: number): Timestamp => {
  * @category constructors
  * @since 0.0.0
  */
-export const make = (seconds: number, nanoseconds: number): Option.Option<Timestamp> =>
-  inSecondsRange(seconds) && inNanosecondsRange(nanoseconds)
-    ? Option.some(makeUnchecked(seconds, nanoseconds))
-    : Option.none();
-
-/** Splits milliseconds into the second and the fraction of it Firestore stores. */
-const partsOfMillis = (millis: number): readonly [seconds: number, nanoseconds: number] => {
-  const seconds = Math.floor(millis / 1000);
-  return [seconds, Math.floor((millis - seconds * 1000) * nanosecondsPerMillisecond)];
-};
+export const make: (seconds: number, nanoseconds: number) => Option.Option<Timestamp> =
+  timestamp.make;
 
 /**
  * Builds a timestamp from milliseconds since the Unix epoch, throwing when they
@@ -162,7 +94,7 @@ const partsOfMillis = (millis: number): readonly [seconds: number, nanoseconds: 
  * @category constructors
  * @since 0.0.0
  */
-export const fromMillisUnsafe = (millis: number): Timestamp => makeUnsafe(...partsOfMillis(millis));
+export const fromMillisUnsafe: (millis: number) => Timestamp = timestamp.fromMillisUnsafe;
 
 /**
  * Builds a timestamp from milliseconds since the Unix epoch, or `None` when
@@ -171,8 +103,7 @@ export const fromMillisUnsafe = (millis: number): Timestamp => makeUnsafe(...par
  * @category constructors
  * @since 0.0.0
  */
-export const fromMillis = (millis: number): Option.Option<Timestamp> =>
-  make(...partsOfMillis(millis));
+export const fromMillis: (millis: number) => Option.Option<Timestamp> = timestamp.fromMillis;
 
 /**
  * Builds a timestamp from a `DateTime.Utc`, which only carries milliseconds.
@@ -183,8 +114,8 @@ export const fromMillis = (millis: number): Option.Option<Timestamp> =>
  * @category constructors
  * @since 0.0.0
  */
-export const fromDateTimeUnsafe = (dateTime: DateTime.Utc): Timestamp =>
-  fromMillisUnsafe(DateTime.toEpochMillis(dateTime));
+export const fromDateTimeUnsafe: (dateTime: DateTime.Utc) => Timestamp =
+  timestamp.fromDateTimeUnsafe;
 
 /**
  * Builds a timestamp from a `DateTime.Utc`, or `None` for the handful of
@@ -193,8 +124,8 @@ export const fromDateTimeUnsafe = (dateTime: DateTime.Utc): Timestamp =>
  * @category constructors
  * @since 0.0.0
  */
-export const fromDateTime = (dateTime: DateTime.Utc): Option.Option<Timestamp> =>
-  fromMillis(DateTime.toEpochMillis(dateTime));
+export const fromDateTime: (dateTime: DateTime.Utc) => Option.Option<Timestamp> =
+  timestamp.fromDateTime;
 
 /**
  * Takes over a timestamp read through an SDK, leaving one of ours alone.
@@ -204,8 +135,8 @@ export const fromDateTime = (dateTime: DateTime.Utc): Option.Option<Timestamp> =
  * @category constructors
  * @since 0.0.0
  */
-export const fromTimestampLikeUnsafe = (like: TimestampLike): Timestamp =>
-  isTimestamp(like) ? like : makeUnsafe(like.seconds, like.nanoseconds);
+export const fromTimestampLikeUnsafe: (like: TimestampLike) => Timestamp =
+  timestamp.fromTimestampLikeUnsafe;
 
 /**
  * The current instant, read from the `Clock`, to the millisecond it reports.
@@ -215,7 +146,7 @@ export const fromTimestampLikeUnsafe = (like: TimestampLike): Timestamp =>
  * @category constructors
  * @since 0.0.0
  */
-export const now: Effect.Effect<Timestamp> = Effect.map(DateTime.now, fromDateTimeUnsafe);
+export const now: Effect.Effect<Timestamp> = timestamp.now;
 
 /**
  * Milliseconds since the Unix epoch, dropping the finer digits.
@@ -223,8 +154,7 @@ export const now: Effect.Effect<Timestamp> = Effect.map(DateTime.now, fromDateTi
  * @category conversions
  * @since 0.0.0
  */
-export const toMillis = (self: Timestamp): number =>
-  self.seconds * 1000 + Math.floor(self.nanoseconds / nanosecondsPerMillisecond);
+export const toMillis: (self: Timestamp) => number = timestamp.toMillis;
 
 /**
  * The same instant as a `DateTime.Utc`, to the millisecond.
@@ -232,7 +162,7 @@ export const toMillis = (self: Timestamp): number =>
  * @category conversions
  * @since 0.0.0
  */
-export const toDateTime = (self: Timestamp): DateTime.Utc => DateTime.makeUnsafe(toMillis(self));
+export const toDateTime: (self: Timestamp) => DateTime.Utc = timestamp.toDateTime;
 
 /**
  * Orders timestamps by when they happened, to the full precision they carry.
@@ -240,8 +170,4 @@ export const toDateTime = (self: Timestamp): DateTime.Utc => DateTime.makeUnsafe
  * @category ordering
  * @since 0.0.0
  */
-export const Order: order.Order<TimestampLike> = order.make((self, that) =>
-  self.seconds === that.seconds
-    ? order.Number(self.nanoseconds, that.nanoseconds)
-    : order.Number(self.seconds, that.seconds),
-);
+export const Order: order.Order<TimestampLike> = timestamp.Order;

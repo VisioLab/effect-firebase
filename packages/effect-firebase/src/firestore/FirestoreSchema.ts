@@ -9,24 +9,11 @@
  *
  * @since 0.0.0
  */
-import { DateTime, Effect, Equal, Schema, SchemaGetter } from "effect";
-import * as FieldValue from "./FieldValue.ts";
-import { FirestoreEncoder } from "./FirestoreEncoder.ts";
-import * as Timestamp_ from "./Timestamp.ts";
-
-/** Accepts a timestamp in the shape Firestore hands back, whichever SDK read it. */
-const TimestampLikeValue = Schema.declare<Timestamp_.TimestampLike>(Timestamp_.isTimestampLike, {
-  representation: { id: "@visiolab/effect-firebase/firestore/Timestamp/Like", payload: null },
-  expected: "a Firestore timestamp",
-  toEquivalence: () => (self, that) =>
-    self.seconds === that.seconds && self.nanoseconds === that.nanoseconds,
-});
-
-const TimestampValue = Schema.declare<Timestamp_.Timestamp>(Timestamp_.isTimestamp, {
-  representation: { id: "@visiolab/effect-firebase/firestore/Timestamp", payload: null },
-  expected: "a Firestore Timestamp",
-  toEquivalence: () => Equal.equals,
-});
+import type { Schema } from "effect";
+import type * as FieldValue from "./FieldValue.ts";
+import type { FirestoreEncoder } from "./FirestoreEncoder.ts";
+import * as firestoreSchema from "./internal/firestoreSchema.ts";
+import type * as Timestamp_ from "./Timestamp.ts";
 
 /**
  * Type-level representation of {@link Timestamp}.
@@ -53,14 +40,7 @@ export interface Timestamp extends Schema.decodeTo<
  * @category schemas
  * @since 0.0.0
  */
-export const Timestamp: Timestamp = TimestampLikeValue.pipe(
-  Schema.decodeTo(TimestampValue, {
-    decode: SchemaGetter.transform(Timestamp_.fromTimestampLikeUnsafe),
-    encode: SchemaGetter.transformEffect((timestamp: Timestamp_.Timestamp) =>
-      Effect.map(FirestoreEncoder, (encoder) => encoder.timestamp(timestamp)),
-    ),
-  }),
-);
+export const Timestamp: Timestamp = firestoreSchema.Timestamp;
 
 /**
  * Type-level representation of {@link DateTimeUtcFromTimestamp}.
@@ -88,29 +68,8 @@ export interface DateTimeUtcFromTimestamp extends Schema.decodeTo<
  * @category schemas
  * @since 0.0.0
  */
-export const DateTimeUtcFromTimestamp: DateTimeUtcFromTimestamp = TimestampLikeValue.pipe(
-  Schema.decodeTo(Schema.DateTimeUtc, {
-    decode: SchemaGetter.transform((like: Timestamp_.TimestampLike) =>
-      Timestamp_.toDateTime(Timestamp_.fromTimestampLikeUnsafe(like)),
-    ),
-    encode: SchemaGetter.transformEffect((dateTime: DateTime.Utc) =>
-      Effect.map(FirestoreEncoder, (encoder) =>
-        encoder.timestamp(Timestamp_.fromDateTimeUnsafe(dateTime)),
-      ),
-    ),
-  }),
-);
-
-const ServerTimestampValue = Schema.declare<FieldValue.ServerTimestamp>(
-  FieldValue.isServerTimestamp,
-  {
-    representation: {
-      id: "@visiolab/effect-firebase/firestore/FieldValue/ServerTimestamp",
-      payload: null,
-    },
-    expected: "a server timestamp",
-  },
-);
+export const DateTimeUtcFromTimestamp: DateTimeUtcFromTimestamp =
+  firestoreSchema.DateTimeUtcFromTimestamp;
 
 interface ServerTimestampSentinel extends Schema.decodeTo<
   Schema.declare<FieldValue.ServerTimestamp>,
@@ -120,17 +79,6 @@ interface ServerTimestampSentinel extends Schema.decodeTo<
 > {
   readonly Rebuild: ServerTimestampSentinel;
 }
-
-const ServerTimestampSentinel: ServerTimestampSentinel = Schema.Unknown.pipe(
-  Schema.decodeTo(ServerTimestampValue, {
-    decode: SchemaGetter.forbidden(
-      () => "A server timestamp is only ever written, never read back",
-    ),
-    encode: SchemaGetter.transformEffect(() =>
-      Effect.map(FirestoreEncoder, (encoder) => encoder.serverTimestamp()),
-    ),
-  }),
-);
 
 /**
  * Type-level representation of {@link ServerTimestamp}.
@@ -159,9 +107,7 @@ export interface ServerTimestamp extends Schema.withConstructorDefault<ServerTim
  * @category schemas
  * @since 0.0.0
  */
-export const ServerTimestamp: ServerTimestamp = ServerTimestampSentinel.pipe(
-  Schema.withConstructorDefault(Effect.succeed(FieldValue.serverTimestamp)),
-);
+export const ServerTimestamp: ServerTimestamp = firestoreSchema.ServerTimestamp;
 
 /**
  * Type-level representation of {@link ServerTimestampOr}.
@@ -191,20 +137,11 @@ export interface ServerTimestampOr<
  * @category schemas
  * @since 0.0.0
  */
-export const ServerTimestampOr = <
+export const ServerTimestampOr: <
   S extends Schema.Codec<unknown, Timestamp_.TimestampLike, unknown, unknown>,
 >(
   schema: S,
-): ServerTimestampOr<S> => Schema.Union([schema, ServerTimestamp]);
-
-const IncrementValue = Schema.declare<FieldValue.Increment>(FieldValue.isIncrement, {
-  representation: {
-    id: "@visiolab/effect-firebase/firestore/FieldValue/Increment",
-    payload: null,
-  },
-  expected: "an increment",
-  toEquivalence: () => Equal.equals,
-});
+) => ServerTimestampOr<S> = firestoreSchema.ServerTimestampOr;
 
 /**
  * Type-level representation of {@link Increment}.
@@ -235,14 +172,7 @@ export interface Increment extends Schema.decodeTo<
  * @category schemas
  * @since 0.0.0
  */
-export const Increment: Increment = Schema.Unknown.pipe(
-  Schema.decodeTo(IncrementValue, {
-    decode: SchemaGetter.forbidden(() => "An increment is only ever written, never read back"),
-    encode: SchemaGetter.transformEffect((value: FieldValue.Increment) =>
-      Effect.map(FirestoreEncoder, (encoder) => encoder.increment(value.by)),
-    ),
-  }),
-);
+export const Increment: Increment = firestoreSchema.Increment;
 
 /**
  * Type-level representation of {@link IncrementOr}.
@@ -273,17 +203,9 @@ export interface IncrementOr<
  * @category schemas
  * @since 0.0.0
  */
-export const IncrementOr = <S extends Schema.Codec<unknown, number, unknown, unknown>>(
+export const IncrementOr: <S extends Schema.Codec<unknown, number, unknown, unknown>>(
   schema: S,
-): IncrementOr<S> => Schema.Union([schema, Increment]);
-
-const DeleteFieldValue = Schema.declare<FieldValue.DeleteField>(FieldValue.isDeleteField, {
-  representation: {
-    id: "@visiolab/effect-firebase/firestore/FieldValue/DeleteField",
-    payload: null,
-  },
-  expected: "a field deletion",
-});
+) => IncrementOr<S> = firestoreSchema.IncrementOr;
 
 /**
  * Type-level representation of {@link DeleteField}.
@@ -314,14 +236,7 @@ export interface DeleteField extends Schema.decodeTo<
  * @category schemas
  * @since 0.0.0
  */
-export const DeleteField: DeleteField = Schema.Unknown.pipe(
-  Schema.decodeTo(DeleteFieldValue, {
-    decode: SchemaGetter.forbidden(() => "A field deletion is only ever written, never read back"),
-    encode: SchemaGetter.transformEffect(() =>
-      Effect.map(FirestoreEncoder, (encoder) => encoder.deleteField()),
-    ),
-  }),
-);
+export const DeleteField: DeleteField = firestoreSchema.DeleteField;
 
 /**
  * Type-level representation of {@link DeleteFieldOr}.
@@ -348,5 +263,5 @@ export interface DeleteFieldOr<S extends Schema.Top> extends Schema.Union<
  * @category schemas
  * @since 0.0.0
  */
-export const DeleteFieldOr = <S extends Schema.Top>(schema: S): DeleteFieldOr<S> =>
-  Schema.Union([DeleteField, schema]);
+export const DeleteFieldOr: <S extends Schema.Top>(schema: S) => DeleteFieldOr<S> =
+  firestoreSchema.DeleteFieldOr;

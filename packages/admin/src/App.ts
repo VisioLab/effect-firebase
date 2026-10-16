@@ -4,8 +4,8 @@
  * @since 0.0.0
  */
 import { Context, Effect, Layer, Schema } from "effect";
-import { defaultAppName } from "@visiolab/effect-firebase/App";
-import * as Admin from "firebase-admin/app";
+import type * as Admin from "firebase-admin/app";
+import * as internalApp from "./internal/app.ts";
 
 /**
  * A Firebase Admin SDK app.
@@ -34,31 +34,6 @@ export class AppError extends Schema.TaggedError<AppError>()("AppError", {
   cause: Schema.optional(Schema.Defect()),
 }) {}
 
-/** The app together with whether we are the ones who initialized it. */
-interface Initialized {
-  readonly app: App;
-  readonly owned: boolean;
-}
-
-const initialize = (options?: Admin.AppOptions, name?: string): Initialized => {
-  // An app that is already registered under this name was initialized by
-  // somebody else - typically the hosting runtime - so ending its lifecycle is
-  // not ours to do. `initializeApp` still throws when that app was configured
-  // differently, so conflicting configuration is not swallowed here.
-  const owned = !Admin.getApps().some((app) => app.name === (name ?? defaultAppName));
-  return { app: Admin.initializeApp(options, name), owned };
-};
-
-const release = ({ app, owned }: Initialized) =>
-  owned
-    ? Effect.tryPromise(() => Admin.deleteApp(app)).pipe(
-        Effect.ignore({
-          log: "Warn",
-          message: `Failed to delete the Firebase Admin SDK app "${app.name}"`,
-        }),
-      )
-    : Effect.void;
-
 /**
  * Initializes a Firebase Admin SDK app, deleting it again when the surrounding
  * scope closes.
@@ -80,11 +55,11 @@ const release = ({ app, owned }: Initialized) =>
 export const make = Effect.fn("App.make")(function* (options?: Admin.AppOptions, name?: string) {
   const { app } = yield* Effect.acquireRelease(
     Effect.try({
-      try: () => initialize(options, name),
+      try: () => internalApp.initialize(options, name),
       catch: (cause) =>
         new AppError({ message: "Failed to initialize the Firebase Admin SDK app", cause }),
     }),
-    release,
+    internalApp.release,
   );
   return app;
 });
