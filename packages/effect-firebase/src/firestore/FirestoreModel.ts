@@ -340,3 +340,57 @@ export const Number = <S extends Schema.Codec<unknown, number, unknown, unknown>
     create: FirestoreSchema.IncrementOr(schema),
     update: FirestoreSchema.IncrementOr(schema),
   });
+
+/**
+ * Type-level representation of {@link Optional}.
+ *
+ * @category models
+ * @since 0.0.0
+ */
+export type Optional<F extends VariantSchema.Field<any> | Schema.Top> = F extends Schema.Top
+  ? VariantSchema.Field<{
+      readonly read: Schema.optionalKey<F>;
+      readonly create: Schema.optionalKey<F>;
+      readonly update: Schema.optionalKey<FirestoreSchema.DeleteFieldOr<F>>;
+    }>
+  : F extends VariantSchema.Field<infer S>
+    ? VariantSchema.Field<{
+        readonly [K in keyof S]: S[K] extends Schema.Top
+          ? K extends "update"
+            ? Schema.optionalKey<FirestoreSchema.DeleteFieldOr<S[K]>>
+            : Schema.optionalKey<S[K]>
+          : never;
+      }>
+    : never;
+
+/**
+ * A field a document may go without, and an update may take away.
+ *
+ * The read and the create hold it as an optional key, since a field that is
+ * not there is left out rather than stored as nothing. The update takes
+ * {@link FieldValue.deleteField} besides, because leaving a field out of an
+ * update leaves it as it is, and removing it has to be asked for.
+ *
+ * It takes a schema or a field, so it makes any of the others optional too:
+ *
+ * ```ts
+ * nickname: FirestoreModel.Optional(Schema.String)
+ * lastSeenAt: FirestoreModel.Optional(FirestoreModel.Timestamp(FirestoreSchema.Timestamp))
+ * ```
+ *
+ * A field with no `update` variant - {@link Immutable}, say - is made optional
+ * where it is read and created, and stays out of the update as before.
+ *
+ * Only the top level is removed this way, for the reason the update is only
+ * partial at the top level: reaching into a nested map is a write by field
+ * path, which this does not make.
+ *
+ * @category schemas
+ * @since 0.0.0
+ */
+export const Optional: <F extends VariantSchema.Field<any> | Schema.Top>(self: F) => Optional<F> =
+  fieldEvolve({
+    read: Schema.optionalKey,
+    create: Schema.optionalKey,
+    update: (schema: Schema.Top) => Schema.optionalKey(FirestoreSchema.DeleteFieldOr(schema)),
+  } as any) as any;

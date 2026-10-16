@@ -22,11 +22,15 @@ class SdkIncrement {
   constructor(readonly by: number) {}
 }
 
+/** Stands in for an SDK's own sentinel. */
+class SdkDeleteField {}
+
 const encoder = Layer.succeed(FirestoreEncoder)(
   FirestoreEncoder.of({
     timestamp: (value) => new SdkTimestamp(value.seconds, value.nanoseconds),
     serverTimestamp: () => new SdkServerTimestamp(),
     increment: (by) => new SdkIncrement(by),
+    deleteField: () => new SdkDeleteField(),
   }),
 );
 
@@ -376,4 +380,96 @@ describe("Number", () => {
       });
     }).pipe(Effect.provide(encoder)),
   );
+});
+
+describe("Optional", () => {
+  /** A profile that may go without a nickname or a time last seen. */
+  class Profile extends FirestoreModel.Class<Profile>("Profile")({
+    name: Schema.String,
+    nickname: FirestoreModel.Optional(Schema.String),
+    lastSeenAt: FirestoreModel.Optional(FirestoreModel.Timestamp(FirestoreSchema.Timestamp)),
+    invitedBy: FirestoreModel.Optional(FirestoreModel.Immutable(Schema.String)),
+  }) {}
+
+  it("is an optional key where read and created, and removable where updated", () => {
+    expectTypeOf<(typeof Profile)["Type"]["nickname"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<(typeof Profile.create)["Type"]>().toEqualTypeOf<{
+      readonly name: string;
+      readonly nickname?: string;
+      readonly lastSeenAt?: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+      readonly invitedBy?: string;
+    }>();
+    expectTypeOf<(typeof Profile.update)["Type"]>().toEqualTypeOf<{
+      readonly name?: string;
+      readonly nickname?: string | FieldValue.DeleteField;
+      readonly lastSeenAt?:
+        | Timestamp.Timestamp
+        | FieldValue.ServerTimestamp
+        | FieldValue.DeleteField;
+    }>();
+  });
+
+  it.effect("reads a document that goes without the field", () =>
+    Effect.gen(function* () {
+      const profile = yield* Schema.decodeUnknownEffect(Profile)({ name: "alice" } as unknown);
+      expect(profile.nickname).toBeUndefined();
+      expect("nickname" in profile).toBe(false);
+    }),
+  );
+
+  it.effect("reads one that holds it", () =>
+    Effect.gen(function* () {
+      const profile = yield* Schema.decodeUnknownEffect(Profile)({
+        name: "alice",
+        nickname: "ally",
+        lastSeenAt: new SdkTimestamp(1, 2),
+      } as unknown);
+      expect(profile.nickname).toBe("ally");
+      expect(Timestamp.isTimestamp(profile.lastSeenAt)).toBe(true);
+    }),
+  );
+
+  it.effect("creates a document without the field", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Profile.create)(
+        Profile.create.make({ name: "alice" }),
+      );
+      expect(encoded).toStrictEqual({ name: "alice" });
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it("refuses the sentinel where a document is written whole", () => {
+    expect(() =>
+      // @ts-expect-error `set` removes a field by leaving it out
+      Profile.create.make({ name: "alice", nickname: FieldValue.deleteField }),
+    ).toThrow();
+  });
+
+  it.effect("removes the field where an update was handed the sentinel", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Profile.update)(
+        Profile.update.make({ nickname: FieldValue.deleteField }),
+      );
+      expect(Object.keys(encoded)).toEqual(["nickname"]);
+      expect(encoded.nickname).toBeInstanceOf(SdkDeleteField);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("keeps what the field it was handed takes", () =>
+    Effect.gen(function* () {
+      const stamped = yield* Schema.encodeEffect(Profile.update)(
+        Profile.update.make({ lastSeenAt: FieldValue.serverTimestamp }),
+      );
+      expect(stamped.lastSeenAt).toBeInstanceOf(SdkServerTimestamp);
+
+      const removed = yield* Schema.encodeEffect(Profile.update)(
+        Profile.update.make({ lastSeenAt: FieldValue.deleteField }),
+      );
+      expect(removed.lastSeenAt).toBeInstanceOf(SdkDeleteField);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it("keeps a field with no update out of the update", () => {
+    expect(Object.keys(Profile.update.fields).sort()).toEqual(["lastSeenAt", "name", "nickname"]);
+  });
 });
