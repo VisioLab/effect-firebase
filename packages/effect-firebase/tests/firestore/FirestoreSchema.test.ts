@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { DateTime, Effect, Equal, Layer, Schema } from "effect";
+import * as Collection from "../../src/firestore/Collection.ts";
 import * as FieldValue from "../../src/firestore/FieldValue.ts";
 import { FirestoreEncoder } from "../../src/firestore/FirestoreEncoder.ts";
 import * as FirestoreSchema from "../../src/firestore/FirestoreSchema.ts";
@@ -34,9 +35,22 @@ class SdkArrayRemove {
   constructor(readonly elements: ReadonlyArray<unknown>) {}
 }
 
+/** Stands in for an SDK's own `DocumentReference`. */
+class SdkDocumentReference implements Collection.DocumentReferenceLike {
+  readonly firestore = {};
+  constructor(readonly path: string) {}
+  get id(): string {
+    return this.path.slice(this.path.lastIndexOf("/") + 1);
+  }
+  get parent(): string {
+    return this.path.slice(0, this.path.lastIndexOf("/"));
+  }
+}
+
 const encoder = Layer.succeed(FirestoreEncoder)(
   FirestoreEncoder.of({
     timestamp: (value) => new SdkTimestamp(value.seconds, value.nanoseconds),
+    documentReference: (ref) => new SdkDocumentReference(ref.path),
     serverTimestamp: () => new SdkServerTimestamp(),
     increment: (by) => new SdkIncrement(by),
     deleteField: () => new SdkDeleteField(),
@@ -168,6 +182,114 @@ describe("DateTimeUtcFromTimestamp", () => {
       expect(encoded.nanoseconds).toBe(123_000_000);
     }).pipe(Effect.provide(encoder)),
   );
+});
+
+describe("DocumentReference", () => {
+  const Users = Collection.make("users", Schema.Struct({ name: Schema.String }));
+  const Posts = Users.subcollection("posts", Schema.Struct({ title: Schema.String }));
+  const Orgs = Collection.make("orgs", Schema.Struct({ name: Schema.String }));
+  const OrgPosts = Orgs.subcollection("posts", Schema.Struct({ title: Schema.String }));
+
+  const Post = FirestoreSchema.DocumentReference(Posts);
+  const decode = Schema.decodeUnknownEffect(Post);
+  const encode = Schema.encodeEffect(Post);
+  const hello = Posts.doc(Users.id.make("alice"), Posts.id.make("hello"));
+
+  it("is typed by the collection it points into", () => {
+    expectTypeOf<(typeof Post)["Type"]>().toEqualTypeOf<
+      Collection.DocumentReference<typeof Posts>
+    >();
+    expectTypeOf<(typeof Post)["Encoded"]>().toEqualTypeOf<Collection.DocumentReferenceLike>();
+    expectTypeOf<(typeof Post)["DecodingServices"]>().toEqualTypeOf<never>();
+    expectTypeOf<(typeof Post)["EncodingServices"]>().toEqualTypeOf<FirestoreEncoder>();
+  });
+
+  it("keeps its own name through a rebuild", () => {
+    expectTypeOf(Post.annotate({})).toEqualTypeOf<
+      FirestoreSchema.DocumentReference<typeof Posts>
+    >();
+  });
+
+  it.effect("decodes a reference read through an SDK", () =>
+    Effect.gen(function* () {
+      const decoded = yield* decode(new SdkDocumentReference("users/alice/posts/hello"));
+      expect(Collection.isDocumentReference(decoded)).toBe(true);
+      expect(decoded.collection).toBe(Posts);
+      expect(decoded.ancestors).toEqual(["alice"]);
+      expect(decoded.id).toBe("hello");
+      expect(Equal.equals(decoded, hello)).toBe(true);
+    }),
+  );
+
+  it.effect("decodes one of ours unchanged", () =>
+    Effect.gen(function* () {
+      expect(Equal.equals(yield* decode(hello), hello)).toBe(true);
+    }),
+  );
+
+  it.effect("refuses a reference into another collection", () =>
+    Effect.gen(function* () {
+      for (const path of [
+        "orgs/acme/posts/hello",
+        "users/alice",
+        "users/alice/posts/hello/comments/first",
+        "users//posts/hello",
+      ]) {
+        const failure = yield* Effect.flip(decode(new SdkDocumentReference(path)));
+        expect(String(failure)).toContain(`Expected a document in users/{id}/posts/{id}`);
+      }
+    }),
+  );
+
+  it.effect("refuses a map that only looks like a reference", () =>
+    Effect.gen(function* () {
+      const failure = yield* Effect.flip(decode({ id: "hello", path: "users/alice/posts/hello" }));
+      expect(String(failure)).toContain("a Firestore document reference");
+    }),
+  );
+
+  it.effect("writes the SDK's own reference", () =>
+    Effect.gen(function* () {
+      const encoded = yield* encode(hello);
+      expect(encoded).toBeInstanceOf(SdkDocumentReference);
+      expect(encoded.path).toBe("users/alice/posts/hello");
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("refuses to write a reference into another collection", () =>
+    Effect.gen(function* () {
+      const elsewhere = OrgPosts.doc(Orgs.id.make("acme"), OrgPosts.id.make("hello"));
+      const failure = yield* Effect.flip(Schema.encodeUnknownEffect(Post)(elsewhere));
+      expect(failure).toBeDefined();
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("tells collections apart in a union", () =>
+    Effect.gen(function* () {
+      const Either = Schema.Union([Post, FirestoreSchema.DocumentReference(OrgPosts)]);
+      const decoded = yield* Schema.decodeEffect(Either)(
+        new SdkDocumentReference("orgs/acme/posts/hello"),
+      );
+      expect(decoded.collection).toBe(OrgPosts);
+    }),
+  );
+
+  it.effect("writes each element of an array union as the SDK's own", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(FirestoreSchema.ArrayUnion(Post))(
+        FieldValue.arrayUnion(hello),
+      );
+      expect((encoded as SdkArrayUnion).elements[0]).toBeInstanceOf(SdkDocumentReference);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it("compares by where it points", () => {
+    const equivalence = Schema.toEquivalence(Post);
+    expect(equivalence(hello, Posts.doc(Users.id.make("alice"), Posts.id.make("hello")))).toBe(
+      true,
+    );
+    expect(equivalence(hello, Posts.doc(Users.id.make("bob"), Posts.id.make("hello")))).toBe(false);
+  });
 });
 
 describe("ServerTimestamp", () => {

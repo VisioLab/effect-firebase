@@ -11,6 +11,7 @@
  * @since 0.2.0
  */
 import type { Schema } from "effect";
+import type * as Collection from "./Collection.ts";
 import type * as FieldValue from "./FieldValue.ts";
 import type { FirestoreEncoder } from "./FirestoreEncoder.ts";
 import * as firestoreSchema from "./internal/firestoreSchema.ts";
@@ -75,6 +76,42 @@ export interface DateTimeUtcFromTimestamp extends Schema.decodeTo<
  */
 export const DateTimeUtcFromTimestamp: DateTimeUtcFromTimestamp =
   firestoreSchema.DateTimeUtcFromTimestamp;
+
+/**
+ * Type-level representation of {@link DocumentReference}.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface DocumentReference<C extends Collection.Any> extends Schema.decodeTo<
+  Schema.declare<Collection.DocumentReference<C>>,
+  Schema.declare<Collection.DocumentReferenceLike>,
+  never,
+  FirestoreEncoder
+> {
+  readonly Rebuild: DocumentReference<C>;
+}
+
+/**
+ * Schema that decodes a Firestore document reference into a reference typed by
+ * `collection`.
+ *
+ * The path the reference points at is checked against the collection's
+ * segments, so a reference into any other collection - one sharing its last
+ * segment included - is refused rather than read as one into this. A field
+ * that may point into more than one collection is a `Schema.Union` of one of
+ * these per collection.
+ *
+ * A reference is written as the SDK's own, built by the encoder, since one
+ * handed over as it is would be stored as a nested map.
+ *
+ * @stability unstable
+ * @category schemas
+ * @since 0.2.0
+ */
+export const DocumentReference: <C extends Collection.Any>(collection: C) => DocumentReference<C> =
+  firestoreSchema.DocumentReference;
 
 interface ServerTimestampSentinel extends Schema.decodeTo<
   Schema.declare<FieldValue.ServerTimestamp>,

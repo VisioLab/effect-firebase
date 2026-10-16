@@ -1,4 +1,4 @@
-import { Equal, Hash, Inspectable, Predicate, Schema } from "effect";
+import { Equal, Hash, Inspectable, Option, Predicate, Schema } from "effect";
 import type * as Collection from "../Collection.ts";
 
 /** @internal */
@@ -25,6 +25,22 @@ export const isDocumentReference = (
   u: unknown,
 ): u is Collection.DocumentReference<Collection.Any> =>
   Predicate.hasProperty(u, DocumentReferenceTypeId);
+
+/**
+ * An SDK's reference is told apart from a map that happens to hold an `id` and
+ * a `path` by the `parent` and `firestore` both SDKs hang off it, which a map
+ * read back from Firestore never carries.
+ *
+ * @internal
+ */
+export const isDocumentReferenceLike = (u: unknown): u is Collection.DocumentReferenceLike =>
+  isDocumentReference(u) ||
+  (Predicate.hasProperty(u, "id") &&
+    Predicate.hasProperty(u, "path") &&
+    Predicate.hasProperty(u, "parent") &&
+    Predicate.hasProperty(u, "firestore") &&
+    Predicate.isString(u.id) &&
+    Predicate.isString(u.path));
 
 const encoder = new TextEncoder();
 
@@ -203,3 +219,29 @@ export const make = <const Segment extends string, S extends Schema.Top>(
     readonly [readonly [Segment, S]]
   >;
 };
+
+/** @internal */
+export const fromPath = <C extends Collection.Any>(
+  collection: C,
+  path: string,
+): Option.Option<Collection.DocumentReference<C>> => {
+  const self = collection as unknown as CollectionImpl;
+  const parts = path.split("/");
+  if (parts.length !== self.path.length * 2) return Option.none();
+  const ids: Array<string> = [];
+  for (let i = 0; i < self.path.length; i++) {
+    const id = parts[2 * i + 1];
+    if (parts[2 * i] !== self.path[i] || id.length === 0) return Option.none();
+    ids.push(id);
+  }
+  return Option.some(self.doc(...ids) as unknown as Collection.DocumentReference<C>);
+};
+
+/**
+ * The path a document in `collection` is found at, with `{id}` standing in for
+ * each id: `users/{id}/posts/{id}`.
+ *
+ * @internal
+ */
+export const pattern = (collection: Collection.Any): string =>
+  (collection as unknown as CollectionImpl).path.map((segment) => `${segment}/{id}`).join("/");

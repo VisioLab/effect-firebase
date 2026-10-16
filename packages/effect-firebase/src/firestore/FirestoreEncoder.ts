@@ -10,6 +10,7 @@
  * @since 0.2.0
  */
 import { Context } from "effect";
+import type * as Collection from "./Collection.ts";
 import type * as Timestamp from "./Timestamp.ts";
 
 /**
@@ -21,6 +22,17 @@ import type * as Timestamp from "./Timestamp.ts";
  */
 export interface FirestoreEncoder {
   readonly timestamp: (value: Timestamp.Timestamp) => Timestamp.TimestampLike;
+  /**
+   * That SDK's own reference to the document `ref` points at.
+   *
+   * Handed over as it is, a reference would be stored as a nested map rather
+   * than as a reference, the way a timestamp would. Building one takes the
+   * database it points into, which is why an encoder that answers this is
+   * built from one.
+   */
+  readonly documentReference: (
+    ref: Collection.DocumentReference<Collection.Any>,
+  ) => Collection.DocumentReferenceLike;
   /**
    * The sentinel standing in for the instant the server applies the write.
    *
@@ -68,8 +80,9 @@ export interface FirestoreEncoder {
  * Service key for the encoder a document is written through.
  *
  * Encoding a document asks for this and decoding one does not, because a
- * timestamp an SDK hands back is already a {@link Timestamp.TimestampLike}, and
- * a sentinel is gone by the time a document is read.
+ * timestamp an SDK hands back is already a {@link Timestamp.TimestampLike}, a
+ * reference is already a {@link Collection.DocumentReferenceLike}, and a
+ * sentinel is gone by the time a document is read.
  *
  * @stability unstable
  * @category services

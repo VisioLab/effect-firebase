@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { Equal, Hash, HashSet, Schema } from "effect";
+import { Equal, Hash, HashSet, Option, Schema } from "effect";
 import * as Collection from "../../src/firestore/Collection.ts";
 
 const User = Schema.Struct({ name: Schema.String });
@@ -103,6 +103,28 @@ describe("ids", () => {
     Posts.doc(hello, alice);
     // @ts-expect-error `posts` under `orgs` is a different collection
     Posts.doc(alice, OrgPosts.id.make("hello"));
+  });
+});
+
+describe("fromPath", () => {
+  it("references the document found at a path", () => {
+    const ref = Option.getOrThrow(
+      Collection.fromPath(Comments, "users/alice/posts/hello/comments/first"),
+    );
+    expect(Equal.equals(ref, Comments.doc(alice, hello, first))).toBe(true);
+    expectTypeOf(ref).toEqualTypeOf<Collection.DocumentReference<typeof Comments>>();
+  });
+
+  it("refuses a path into another collection", () => {
+    expect(Option.isNone(Collection.fromPath(OrgPosts, "users/alice/posts/hello"))).toBe(true);
+    expect(Option.isNone(Collection.fromPath(Posts, "users/alice"))).toBe(true);
+    expect(Option.isNone(Collection.fromPath(Posts, "users/alice/posts"))).toBe(true);
+    expect(Option.isNone(Collection.fromPath(Users, "users/alice/posts/hello"))).toBe(true);
+  });
+
+  it("refuses an empty id", () => {
+    expect(Option.isNone(Collection.fromPath(Posts, "users//posts/hello"))).toBe(true);
+    expect(Option.isNone(Collection.fromPath(Users, "users/"))).toBe(true);
   });
 });
 
