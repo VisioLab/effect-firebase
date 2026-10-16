@@ -3,8 +3,13 @@ import { Effect, Schema } from "effect";
 import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as FirestoreSchema from "@visiolab/effect-firebase/firestore/FirestoreSchema";
+import * as GeoPoint from "@visiolab/effect-firebase/firestore/GeoPoint";
 import * as Timestamp from "@visiolab/effect-firebase/firestore/Timestamp";
-import { FieldValue as NativeFieldValue, Timestamp as Native } from "firebase-admin/firestore";
+import {
+  GeoPoint as NativeGeoPoint,
+  FieldValue as NativeFieldValue,
+  Timestamp as Native,
+} from "firebase-admin/firestore";
 import * as FirestoreEncoder from "../../src/firestore/FirestoreEncoder.ts";
 
 const Post = Schema.Struct({ title: Schema.String, createdAt: FirestoreSchema.Timestamp });
@@ -214,6 +219,45 @@ describe("ArrayRemove", () => {
       expect((encoded.tags as NativeFieldValue).isEqual(NativeFieldValue.arrayRemove("news"))).toBe(
         true,
       );
+    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+  );
+});
+
+class Landmark extends FirestoreModel.Class<Landmark>("Landmark")({
+  name: Schema.String,
+  location: FirestoreSchema.GeoPoint,
+}) {}
+
+describe("GeoPoint", () => {
+  it.effect("reads a geopoint the SDK handed back", () =>
+    Effect.gen(function* () {
+      const landmark = yield* Schema.decodeEffect(Landmark)({
+        name: "Fernsehturm",
+        location: new NativeGeoPoint(52.52, 13.405),
+      });
+      expect(GeoPoint.isGeoPoint(landmark.location)).toBe(true);
+      expect(landmark.location.longitude).toBe(13.405);
+    }),
+  );
+
+  it.effect("writes a document the Admin SDK stores a geopoint in", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Landmark.create)(
+        Landmark.create.make({ name: "Fernsehturm", location: GeoPoint.makeUnsafe(52.52, 13.405) }),
+      );
+      expect(encoded.location).toBeInstanceOf(NativeGeoPoint);
+      expect((encoded.location as NativeGeoPoint).isEqual(new NativeGeoPoint(52.52, 13.405))).toBe(
+        true,
+      );
+    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+  );
+
+  it.effect("writes an update the Admin SDK stores a geopoint in", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Landmark.update)(
+        Landmark.update.make({ location: GeoPoint.makeUnsafe(52.52, 13.405) }),
+      );
+      expect(encoded.location).toBeInstanceOf(NativeGeoPoint);
     }).pipe(Effect.provide(FirestoreEncoder.layer)),
   );
 });

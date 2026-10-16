@@ -27,6 +27,7 @@
     "./firestore/FirestoreEncoder": "./src/firestore/FirestoreEncoder.ts",
     "./firestore/FirestoreModel": "./src/firestore/FirestoreModel.ts",
     "./firestore/FirestoreSchema": "./src/firestore/FirestoreSchema.ts",
+    "./firestore/GeoPoint": "./src/firestore/GeoPoint.ts",
     "./firestore/Timestamp": "./src/firestore/Timestamp.ts",
     "./package.json": "./package.json"
   },
@@ -40,6 +41,7 @@
       "./firestore/FirestoreEncoder": "./dist/firestore/FirestoreEncoder.mjs",
       "./firestore/FirestoreModel": "./dist/firestore/FirestoreModel.mjs",
       "./firestore/FirestoreSchema": "./dist/firestore/FirestoreSchema.mjs",
+      "./firestore/GeoPoint": "./dist/firestore/GeoPoint.mjs",
       "./firestore/Timestamp": "./dist/firestore/Timestamp.mjs",
       "./package.json": "./package.json"
     },

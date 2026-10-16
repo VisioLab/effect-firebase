@@ -12,9 +12,11 @@ import type * as Collection from "../Collection.ts";
 import type * as FieldValue from "../FieldValue.ts";
 import { FirestoreEncoder } from "../FirestoreEncoder.ts";
 import type * as FirestoreSchema from "../FirestoreSchema.ts";
+import type * as GeoPoint_ from "../GeoPoint.ts";
 import type * as Timestamp_ from "../Timestamp.ts";
 import * as collection_ from "./collection.ts";
 import * as fieldValue from "./fieldValue.ts";
+import * as geoPoint from "./geoPoint.ts";
 import * as timestamp from "./timestamp.ts";
 
 /** Accepts a timestamp in the shape Firestore hands back, whichever SDK read it. */
@@ -55,6 +57,30 @@ export const DateTimeUtcFromTimestamp: FirestoreSchema.DateTimeUtcFromTimestamp 
       ),
     }),
   );
+
+/** Accepts a geopoint in the shape Firestore hands back, whichever SDK read it. */
+const GeoPointLikeValue = Schema.declare<GeoPoint_.GeoPointLike>(geoPoint.isGeoPointLike, {
+  representation: { id: "@visiolab/effect-firebase/firestore/GeoPoint/Like", payload: null },
+  expected: "a Firestore geopoint",
+  toEquivalence: () => (self, that) =>
+    self.latitude === that.latitude && self.longitude === that.longitude,
+});
+
+const GeoPointValue = Schema.declare<GeoPoint_.GeoPoint>(geoPoint.isGeoPoint, {
+  representation: { id: "@visiolab/effect-firebase/firestore/GeoPoint", payload: null },
+  expected: "a Firestore GeoPoint",
+  toEquivalence: () => Equal.equals,
+});
+
+/** @internal */
+export const GeoPoint: FirestoreSchema.GeoPoint = GeoPointLikeValue.pipe(
+  Schema.decodeTo(GeoPointValue, {
+    decode: SchemaGetter.transform(geoPoint.fromGeoPointLikeUnsafe),
+    encode: SchemaGetter.transformEffect((value: GeoPoint_.GeoPoint) =>
+      Effect.map(FirestoreEncoder, (encoder) => encoder.geoPoint(value)),
+    ),
+  }),
+);
 
 /** Accepts a reference in the shape Firestore hands back, whichever SDK read it. */
 const DocumentReferenceLikeValue = Schema.declare<Collection.DocumentReferenceLike>(

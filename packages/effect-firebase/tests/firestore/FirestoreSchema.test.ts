@@ -4,6 +4,7 @@ import * as Collection from "../../src/firestore/Collection.ts";
 import * as FieldValue from "../../src/firestore/FieldValue.ts";
 import { FirestoreEncoder } from "../../src/firestore/FirestoreEncoder.ts";
 import * as FirestoreSchema from "../../src/firestore/FirestoreSchema.ts";
+import * as GeoPoint from "../../src/firestore/GeoPoint.ts";
 import * as Timestamp from "../../src/firestore/Timestamp.ts";
 
 /** Stands in for an SDK's own `Timestamp`. */
@@ -11,6 +12,14 @@ class SdkTimestamp implements Timestamp.TimestampLike {
   constructor(
     readonly seconds: number,
     readonly nanoseconds: number,
+  ) {}
+}
+
+/** Stands in for an SDK's own `GeoPoint`. */
+class SdkGeoPoint implements GeoPoint.GeoPointLike {
+  constructor(
+    readonly latitude: number,
+    readonly longitude: number,
   ) {}
 }
 
@@ -50,6 +59,7 @@ class SdkDocumentReference implements Collection.DocumentReferenceLike {
 const encoder = Layer.succeed(FirestoreEncoder)(
   FirestoreEncoder.of({
     timestamp: (value) => new SdkTimestamp(value.seconds, value.nanoseconds),
+    geoPoint: (value) => new SdkGeoPoint(value.latitude, value.longitude),
     documentReference: (ref) => new SdkDocumentReference(ref.path),
     serverTimestamp: () => new SdkServerTimestamp(),
     increment: (by) => new SdkIncrement(by),
@@ -180,6 +190,55 @@ describe("DateTimeUtcFromTimestamp", () => {
     Effect.gen(function* () {
       const encoded = yield* encode(yield* decode(native(1, 123_456_789)));
       expect(encoded.nanoseconds).toBe(123_000_000);
+    }).pipe(Effect.provide(encoder)),
+  );
+});
+
+describe("GeoPoint", () => {
+  it("keeps its own name through a rebuild", () => {
+    expectTypeOf(FirestoreSchema.GeoPoint.annotate({})).toEqualTypeOf<FirestoreSchema.GeoPoint>();
+  });
+
+  const decode = Schema.decodeEffect(FirestoreSchema.GeoPoint);
+  const encode = Schema.encodeEffect(FirestoreSchema.GeoPoint);
+
+  it.effect("decodes a geopoint read through an SDK", () =>
+    Effect.gen(function* () {
+      const decoded = yield* decode(new SdkGeoPoint(52.52, 13.405));
+      expect(GeoPoint.isGeoPoint(decoded)).toBe(true);
+      expect(Equal.equals(decoded, GeoPoint.makeUnsafe(52.52, 13.405))).toBe(true);
+    }),
+  );
+
+  it("asks for an encoder to write, and for nothing at all to read", () => {
+    expectTypeOf<
+      (typeof FirestoreSchema.GeoPoint)["EncodingServices"]
+    >().toEqualTypeOf<FirestoreEncoder>();
+    expectTypeOf<(typeof FirestoreSchema.GeoPoint)["DecodingServices"]>().toEqualTypeOf<never>();
+  });
+
+  it.effect("hands the encoder the value, and writes what it builds", () =>
+    Effect.gen(function* () {
+      const encoded = yield* encode(GeoPoint.makeUnsafe(52.52, 13.405));
+      expect(encoded).toBeInstanceOf(SdkGeoPoint);
+      expect(encoded.latitude).toBe(52.52);
+      expect(encoded.longitude).toBe(13.405);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("refuses what Firestore would not have handed back", () =>
+    Effect.gen(function* () {
+      const decodeUnknown = Schema.decodeUnknownEffect(FirestoreSchema.GeoPoint);
+      expect(yield* Effect.flip(decodeUnknown(new SdkGeoPoint(91, 0)))).toBeDefined();
+      expect(yield* Effect.flip(decodeUnknown(new SdkGeoPoint(0, 181)))).toBeDefined();
+      expect(yield* Effect.flip(decodeUnknown({ latitude: 0 }))).toBeDefined();
+    }),
+  );
+
+  it.effect("refuses to write a place out of range", () =>
+    Effect.gen(function* () {
+      const encodeUnknown = Schema.encodeUnknownEffect(FirestoreSchema.GeoPoint);
+      expect(yield* Effect.flip(encodeUnknown({ latitude: 0, longitude: 0 }))).toBeDefined();
     }).pipe(Effect.provide(encoder)),
   );
 });

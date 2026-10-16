@@ -2,15 +2,16 @@
  * Building the values an SDK writes.
  *
  * Firestore decides what a field is by the class of the value it is handed, so
- * a timestamp has to become the SDK's own before it is written - handed over as
- * it is, it would be stored as a nested map rather than as a timestamp, and
- * nothing would report it.
+ * a timestamp or a geopoint has to become the SDK's own before it is written -
+ * handed over as it is, it would be stored as a nested map instead, and nothing
+ * would report it.
  *
  * @stability unstable
  * @since 0.2.0
  */
 import { Context } from "effect";
 import type * as Collection from "./Collection.ts";
+import type * as GeoPoint from "./GeoPoint.ts";
 import type * as Timestamp from "./Timestamp.ts";
 
 /**
@@ -22,6 +23,7 @@ import type * as Timestamp from "./Timestamp.ts";
  */
 export interface FirestoreEncoder {
   readonly timestamp: (value: Timestamp.Timestamp) => Timestamp.TimestampLike;
+  readonly geoPoint: (value: GeoPoint.GeoPoint) => GeoPoint.GeoPointLike;
   /**
    * That SDK's own reference to the document `ref` points at.
    *
@@ -81,8 +83,9 @@ export interface FirestoreEncoder {
  *
  * Encoding a document asks for this and decoding one does not, because a
  * timestamp an SDK hands back is already a {@link Timestamp.TimestampLike}, a
- * reference is already a {@link Collection.DocumentReferenceLike}, and a
- * sentinel is gone by the time a document is read.
+ * geopoint already a {@link GeoPoint.GeoPointLike}, a reference already a
+ * {@link Collection.DocumentReferenceLike}, and a sentinel is gone by the time a
+ * document is read.
  *
  * @stability unstable
  * @category services

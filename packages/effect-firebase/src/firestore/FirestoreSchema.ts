@@ -14,6 +14,7 @@ import type { Schema } from "effect";
 import type * as Collection from "./Collection.ts";
 import type * as FieldValue from "./FieldValue.ts";
 import type { FirestoreEncoder } from "./FirestoreEncoder.ts";
+import type * as GeoPoint_ from "./GeoPoint.ts";
 import * as firestoreSchema from "./internal/firestoreSchema.ts";
 import type * as Timestamp_ from "./Timestamp.ts";
 
@@ -76,6 +77,36 @@ export interface DateTimeUtcFromTimestamp extends Schema.decodeTo<
  */
 export const DateTimeUtcFromTimestamp: DateTimeUtcFromTimestamp =
   firestoreSchema.DateTimeUtcFromTimestamp;
+
+/**
+ * Type-level representation of {@link GeoPoint}.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface GeoPoint extends Schema.decodeTo<
+  Schema.declare<GeoPoint_.GeoPoint>,
+  Schema.declare<GeoPoint_.GeoPointLike>,
+  never,
+  FirestoreEncoder
+> {
+  readonly Rebuild: GeoPoint;
+}
+
+/**
+ * Schema that decodes a Firestore geopoint into a `GeoPoint`.
+ *
+ * Declaring the shape by hand - a struct of `latitude` and `longitude` - reads
+ * a geopoint just as well, but writes it back as a plain object, which
+ * Firestore stores as a map. This writes it through the encoder, as the SDK's
+ * own `GeoPoint`.
+ *
+ * @stability unstable
+ * @category schemas
+ * @since 0.2.0
+ */
+export const GeoPoint: GeoPoint = firestoreSchema.GeoPoint;
 
 /**
  * Type-level representation of {@link DocumentReference}.
