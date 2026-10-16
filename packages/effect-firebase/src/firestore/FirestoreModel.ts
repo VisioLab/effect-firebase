@@ -273,3 +273,52 @@ export const Timestamp: Timestamp = Field({
   create: FirestoreSchema.TimestampOrServer,
   update: FirestoreSchema.TimestampOrServer,
 });
+
+/**
+ * Type-level representation of {@link Number}.
+ *
+ * @category models
+ * @since 0.0.0
+ */
+export interface Number<
+  S extends Schema.Codec<unknown, number, unknown, unknown>,
+> extends VariantSchema.Field<{
+  readonly read: S;
+  readonly create: FirestoreSchema.IncrementOr<S>;
+  readonly update: FirestoreSchema.IncrementOr<S>;
+}> {}
+
+/**
+ * A number field: set outright, or moved by the server.
+ *
+ * Both writes take either, and the read takes `schema` alone, since a document
+ * holds the sum the server wrote rather than the request to add. A move is what
+ * keeps a total right when two clients write at once, which reading the number
+ * and writing the sum back does not.
+ *
+ * What the number may be is `schema`'s to say, and the writes say it too: hand
+ * it `Schema.Int` and the field is counted in whole steps, `Schema.Finite` and
+ * it adds up fractions, either of them checked further and the check holds on
+ * the way in and the way out. A move of its own is not checked against it,
+ * since the sum is the server's to work out and only the next read sees it.
+ *
+ * ```ts
+ * visits: FirestoreModel.Number(Schema.Int)
+ * balance: FirestoreModel.Number(Schema.Finite)
+ * ```
+ *
+ * Where the server is to move it, a call site hands it
+ * {@link FieldValue.increment} or {@link FieldValue.decrement}. Where it never
+ * may, name the schema directly, which goes into every variant as it stands.
+ *
+ * @category schemas
+ * @since 0.0.0
+ */
+export const Number = <S extends Schema.Codec<unknown, number, unknown, unknown>>(
+  schema: S,
+): Number<S> =>
+  Field({
+    read: schema,
+    create: FirestoreSchema.IncrementOr(schema),
+    update: FirestoreSchema.IncrementOr(schema),
+  });

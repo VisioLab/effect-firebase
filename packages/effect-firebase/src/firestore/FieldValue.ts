@@ -13,7 +13,7 @@
  *
  * @since 0.0.0
  */
-import { Inspectable, Predicate } from "effect";
+import { Equal, Hash, Inspectable, Predicate } from "effect";
 
 const ServerTimestampTypeId = "~@visiolab/effect-firebase/firestore/FieldValue/ServerTimestamp";
 
@@ -58,3 +58,75 @@ export const serverTimestamp: ServerTimestamp = Object.create(
  */
 export const isServerTimestamp = (u: unknown): u is ServerTimestamp =>
   Predicate.hasProperty(u, ServerTimestampTypeId);
+
+const IncrementTypeId = "~@visiolab/effect-firebase/firestore/FieldValue/Increment";
+
+/**
+ * A stand-in for the number a field already holds, moved by `by`.
+ *
+ * The server reads the field, adds `by`, and writes the sum, so two clients
+ * that each add one leave the field two higher - which is not what reading a
+ * number and writing it back would do, since each would have read the same
+ * number and written the same sum.
+ *
+ * A field that holds no number yet, or holds something else entirely, counts as
+ * zero, so an increment lands on a document whether or not the field was there.
+ *
+ * @category models
+ * @since 0.0.0
+ */
+export interface Increment extends Equal.Equal, Inspectable.Inspectable {
+  readonly [IncrementTypeId]: typeof IncrementTypeId;
+  /** How far the field moves, which is negative where it comes down. */
+  readonly by: number;
+}
+
+/**
+ * @category guards
+ * @since 0.0.0
+ */
+export const isIncrement = (u: unknown): u is Increment =>
+  Predicate.hasProperty(u, IncrementTypeId);
+
+const IncrementProto: Omit<Increment, "by"> = {
+  ...Inspectable.BaseProto,
+  [IncrementTypeId]: IncrementTypeId,
+  toJSON(this: Increment) {
+    return { _id: "Increment", by: this.by };
+  },
+  [Equal.symbol](this: Increment, that: unknown): boolean {
+    return isIncrement(that) && this.by === that.by;
+  },
+  [Hash.symbol](this: Increment): number {
+    return Hash.combine(Hash.string(IncrementTypeId), Hash.number(this.by));
+  },
+};
+
+/**
+ * Asks the server to raise a field by `by`.
+ *
+ * Throws for a `by` Firestore would refuse, which is to say one that is not a
+ * finite number. Both integers and doubles go through; an integer added to a
+ * double comes back a double.
+ *
+ * @category constructors
+ * @since 0.0.0
+ */
+export const increment = (by: number): Increment => {
+  if (!Number.isFinite(by)) {
+    throw new Error(`Invalid Firestore increment: by must be a finite number, got ${by}`);
+  }
+  return Object.assign(Object.create(IncrementProto) as typeof IncrementProto, { by });
+};
+
+/**
+ * Asks the server to lower a field by `by`.
+ *
+ * Firestore has the one sentinel, so this is {@link increment} of the negation
+ * and reads back as such: `decrement(2).by` is `-2`. It is here because a call
+ * site that counts down should say so rather than negate by hand.
+ *
+ * @category constructors
+ * @since 0.0.0
+ */
+export const decrement = (by: number): Increment => increment(-by);

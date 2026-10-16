@@ -28,6 +28,14 @@ export interface FirestoreEncoder {
    * back.
    */
   readonly serverTimestamp: () => unknown;
+  /**
+   * The sentinel standing in for the number a field holds, moved by `by`.
+   *
+   * Firestore has the one sentinel for both directions, so a `by` below zero is
+   * how a field comes down. What comes back is that SDK's `FieldValue`, which
+   * is as opaque here as the one above.
+   */
+  readonly increment: (by: number) => unknown;
 }
 
 /**

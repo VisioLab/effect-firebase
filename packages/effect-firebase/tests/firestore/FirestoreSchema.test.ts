@@ -16,10 +16,16 @@ class SdkTimestamp implements Timestamp.TimestampLike {
 /** Stands in for an SDK's own sentinel. */
 class SdkServerTimestamp {}
 
+/** Stands in for an SDK's own sentinel, which carries what it is to add. */
+class SdkIncrement {
+  constructor(readonly by: number) {}
+}
+
 const encoder = Layer.succeed(FirestoreEncoder)(
   FirestoreEncoder.of({
     timestamp: (value) => new SdkTimestamp(value.seconds, value.nanoseconds),
     serverTimestamp: () => new SdkServerTimestamp(),
+    increment: (by) => new SdkIncrement(by),
   }),
 );
 
@@ -207,4 +213,101 @@ describe("TimestampOrServer", () => {
       expect(Timestamp.isTimestamp(decoded)).toBe(true);
     }),
   );
+});
+
+describe("Increment", () => {
+  const encode = Schema.encodeEffect(FirestoreSchema.Increment);
+
+  it.effect("hands the encoder how far the field moves", () =>
+    Effect.gen(function* () {
+      const encoded = yield* encode(FieldValue.increment(2));
+      expect(encoded).toBeInstanceOf(SdkIncrement);
+      expect((encoded as SdkIncrement).by).toBe(2);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("writes a move down as the negative it is", () =>
+    Effect.gen(function* () {
+      expect(((yield* encode(FieldValue.decrement(3))) as SdkIncrement).by).toBe(-3);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("refuses to be read, since a document holds the sum instead", () =>
+    Effect.gen(function* () {
+      const failure = yield* Effect.flip(
+        Schema.decodeEffect(FirestoreSchema.Increment)(new SdkIncrement(2)),
+      );
+      expect(failure).toBeDefined();
+    }),
+  );
+
+  it("asks for an encoder to write", () => {
+    expectTypeOf<
+      (typeof FirestoreSchema.Increment)["EncodingServices"]
+    >().toEqualTypeOf<FirestoreEncoder>();
+  });
+
+  it("keeps its own name through a rebuild", () => {
+    expectTypeOf(FirestoreSchema.Increment.annotate({})).toEqualTypeOf<FirestoreSchema.Increment>();
+  });
+});
+
+describe("IncrementOr", () => {
+  const Visits = FirestoreSchema.IncrementOr(Schema.Finite);
+  const encode = Schema.encodeEffect(Visits);
+
+  it.effect("writes the number it was handed", () =>
+    Effect.gen(function* () {
+      expect(yield* encode(7)).toBe(7);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("writes the sentinel just as readily", () =>
+    Effect.gen(function* () {
+      const encoded = yield* encode(FieldValue.increment(1));
+      expect(encoded).toBeInstanceOf(SdkIncrement);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("decodes the number it wraps, which is all a read ever holds", () =>
+    Effect.gen(function* () {
+      expect(yield* Schema.decodeEffect(Visits)(7)).toBe(7);
+    }),
+  );
+
+  it.effect("refuses what the schema it was built from refuses", () =>
+    Effect.gen(function* () {
+      const decodeUnknown = Schema.decodeUnknownEffect(Visits);
+      expect(yield* Effect.flip(decodeUnknown(Number.NaN))).toBeDefined();
+      expect(yield* Effect.flip(decodeUnknown("7"))).toBeDefined();
+    }),
+  );
+
+  it.effect("carries a tighter schema into the writes as well as the read", () =>
+    Effect.gen(function* () {
+      const Whole = FirestoreSchema.IncrementOr(Schema.Int);
+      expect(yield* Schema.encodeEffect(Whole)(7)).toBe(7);
+      // Flipped through `asVoid`, since what a write encodes to is the SDK's to
+      // say and so reads as `unknown` here.
+      expect(yield* Effect.flip(Effect.asVoid(Schema.encodeEffect(Whole)(7.5)))).toBeDefined();
+      expect(yield* Effect.flip(Schema.decodeEffect(Whole)(7.5))).toBeDefined();
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it("keeps the schema it was handed, rather than widening to a number", () => {
+    expectTypeOf<FirestoreSchema.IncrementOr<Schema.Int>["Type"]>().toEqualTypeOf<
+      number | FieldValue.Increment
+    >();
+  });
+
+  it("is only built from a schema stored as a number", () => {
+    // @ts-expect-error the server has no number to add to
+    FirestoreSchema.IncrementOr(Schema.String);
+    // @ts-expect-error read as a number, but stored as a string
+    FirestoreSchema.IncrementOr(Schema.FiniteFromString);
+    expectTypeOf<
+      // @ts-expect-error the type is held to the same as the constructor
+      FirestoreSchema.IncrementOr<Schema.String>
+    >().not.toBeNever();
+  });
 });
