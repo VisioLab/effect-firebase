@@ -30,10 +30,10 @@
  *
  * @since 0.0.0
  */
-import { Predicate, Schema, SchemaGetter, type Struct as Struct_ } from "effect";
-import { VariantSchema } from "effect/schema";
-import * as FieldValue from "./FieldValue.ts";
-import * as FirestoreSchema from "./FirestoreSchema.ts";
+import type { Schema, Struct as Struct_ } from "effect";
+import type { VariantSchema } from "effect/schema";
+import type * as FirestoreSchema from "./FirestoreSchema.ts";
+import * as firestoreModel from "./internal/firestoreModel.ts";
 import type * as Timestamp_ from "./Timestamp.ts";
 
 /**
@@ -51,18 +51,13 @@ import type * as Timestamp_ from "./Timestamp.ts";
  */
 export type Variant = "read" | "create" | "update";
 
-const Variants = VariantSchema.make({
-  variants: ["read", "create", "update"],
-  defaultVariant: "read",
-});
-
 /**
  * Declares a field that is a different schema in different variants.
  *
  * @category constructors
  * @since 0.0.0
  */
-export const Field = Variants.Field;
+export const Field = firestoreModel.Field;
 
 /**
  * Declares a field that only appears in the named variants.
@@ -70,7 +65,7 @@ export const Field = Variants.Field;
  * @category constructors
  * @since 0.0.0
  */
-export const FieldOnly = Variants.FieldOnly;
+export const FieldOnly = firestoreModel.FieldOnly;
 
 /**
  * Declares a field that appears in every variant but the named ones.
@@ -78,7 +73,7 @@ export const FieldOnly = Variants.FieldOnly;
  * @category constructors
  * @since 0.0.0
  */
-export const FieldExcept = Variants.FieldExcept;
+export const FieldExcept = firestoreModel.FieldExcept;
 
 /**
  * Groups fields without building a class, for nesting inside a document or
@@ -87,7 +82,7 @@ export const FieldExcept = Variants.FieldExcept;
  * @category constructors
  * @since 0.0.0
  */
-export const Struct = Variants.Struct;
+export const Struct = firestoreModel.Struct;
 
 /**
  * Rewrites the schemas of a field, variant by variant.
@@ -95,7 +90,7 @@ export const Struct = Variants.Struct;
  * @category transforming
  * @since 0.0.0
  */
-export const fieldEvolve = Variants.fieldEvolve;
+export const fieldEvolve = firestoreModel.fieldEvolve;
 
 /**
  * Pulls one variant out of a field group as a plain schema.
@@ -107,7 +102,7 @@ export const fieldEvolve = Variants.fieldEvolve;
  * @category converting
  * @since 0.0.0
  */
-export const extract = Variants.extract;
+export const extract = firestoreModel.extract;
 
 /**
  * The field definitions a class or group was built from.
@@ -115,9 +110,9 @@ export const extract = Variants.extract;
  * @category getters
  * @since 0.0.0
  */
-export const fields = <A extends VariantSchema.Struct<any>>(
+export const fields: <A extends VariantSchema.Struct<any>>(
   self: A,
-): A[typeof VariantSchema.TypeId] => VariantSchema.fields(self);
+) => A[typeof VariantSchema.TypeId] = firestoreModel.fields;
 
 /**
  * Any document schema, whatever it holds.
@@ -131,7 +126,7 @@ export type Any = Schema.Top & {
   readonly update: Schema.Top;
 };
 
-const OptionalGroupTypeId = "~@visiolab/effect-firebase/firestore/FirestoreModel/OptionalGroup";
+const OptionalGroupTypeId = firestoreModel.OptionalGroupTypeId;
 
 /** The schema a field is updated through, or `never` where it cannot be. */
 type UpdateSchema<F> =
@@ -232,104 +227,6 @@ export interface Update<Fields extends VariantSchema.Struct.Fields> extends Sche
   Schema.Struct<UpdatePaths<Fields> extends infer P extends Schema.Struct.Fields ? P : never>
 > {}
 
-/** Where the groups sit, which is where flattening goes one level down. */
-interface Groups {
-  readonly [key: string]: Groups;
-}
-
-const updateSchema = (field: unknown): Schema.Top | undefined =>
-  VariantSchema.isField(field) ? (field.schemas as any).update : (field as Schema.Top);
-
-/** The fields of the group a field reaches into, if it is one. */
-const groupOf = (
-  field: unknown,
-): { readonly fields: VariantSchema.Struct.Fields; readonly optional: boolean } | undefined => {
-  if (VariantSchema.isStruct(field)) {
-    return { fields: VariantSchema.fields(field), optional: false };
-  }
-  if (Predicate.hasProperty(field, OptionalGroupTypeId)) {
-    const group = field[OptionalGroupTypeId] as VariantSchema.Struct<any>;
-    return { fields: VariantSchema.fields(group), optional: true };
-  }
-  return undefined;
-};
-
-/**
- * Builds the patch a set of fields is updated through, along with where its
- * groups sit, and gathers the schema of each path it can write at into
- * `paths`.
- *
- * Throws on a field name holding a dot, which a path would read as two.
- */
-const build = (
-  fields: VariantSchema.Struct.Fields,
-  prefix: string,
-  paths: Record<string, Schema.Top>,
-): { readonly patch: Schema.Top; readonly groups: Groups } => {
-  const schemas: Record<string, Schema.Top> = {};
-  const groups: Record<string, Groups> = {};
-  for (const key of Object.keys(fields)) {
-    if (key.includes(".")) {
-      throw new Error(`Invalid Firestore field name "${key}": it must not contain "."`);
-    }
-    const field = fields[key];
-    const path = prefix + key;
-    const group = groupOf(field);
-    if (group !== undefined) {
-      const inner = build(group.fields, `${path}.`, paths);
-      if (group.optional) {
-        schemas[key] = Schema.optionalKey(FirestoreSchema.DeleteFieldOr(inner.patch));
-        paths[path] = Schema.optionalKey(FirestoreSchema.DeleteField);
-      } else {
-        schemas[key] = Schema.optionalKey(inner.patch);
-      }
-      groups[key] = inner.groups;
-    } else {
-      const schema = updateSchema(field);
-      if (schema !== undefined) {
-        schemas[key] = Schema.optionalKey(schema);
-        paths[path] = Schema.optionalKey(schema);
-      }
-    }
-  }
-  return { patch: Schema.Struct(schemas), groups };
-};
-
-/**
- * Goes one level down where the schema says a group sits, unless the group is
- * being removed. It runs on the patch as the caller wrote it, before anything
- * is encoded, so the removal is still this library's to recognise.
- */
-const flatten = (
-  value: Record<string, unknown>,
-  groups: Groups,
-  prefix: string,
-  out: Record<string, unknown>,
-): Record<string, unknown> => {
-  for (const key of Object.keys(value)) {
-    const inner = value[key];
-    if (Object.hasOwn(groups, key) && !FieldValue.isDeleteField(inner)) {
-      flatten(inner as Record<string, unknown>, groups[key], `${prefix}${key}.`, out);
-    } else {
-      out[prefix + key] = inner;
-    }
-  }
-  return out;
-};
-
-const update = (fields: VariantSchema.Struct.Fields): Schema.Top => {
-  const paths: Record<string, Schema.Top> = {};
-  const { patch, groups } = build(fields, "", paths);
-  return Schema.Struct(paths).pipe(
-    Schema.decodeTo(Schema.toType(patch), {
-      decode: SchemaGetter.forbidden(() => "An update is only ever written, never read back"),
-      encode: SchemaGetter.transform((value) =>
-        flatten(value as Record<string, unknown>, groups, "", {}),
-      ),
-    }),
-  );
-};
-
 /**
  * A document schema, together with the shapes it is written in.
  *
@@ -365,30 +262,15 @@ type MissingSelfGeneric =
  * @category constructors
  * @since 0.0.0
  */
-export const Class =
-  <Self = never>(identifier: string) =>
-  <const Fields extends VariantSchema.Struct.Fields>(
-    fields: Fields & VariantSchema.Struct.Validate<Fields, Variant>,
-    annotations?: Schema.Annotations.Declaration<
-      Self,
-      readonly [Schema.Struct<VariantSchema.ExtractFields<"read", Fields, true>>]
-    >,
-  ): [Self] extends [never] ? MissingSelfGeneric : Class<Self, Fields> => {
-    const Base = Variants.Class<Self>(identifier)(fields, annotations) as any;
-    // `Variants.Class` defines each variant as a non-configurable property, so
-    // the patch `update` is shadowed from a subclass rather than written over
-    // it. A class built this way is extended by the caller anyway, which is
-    // what `Self` is for, so this is one more link in a chain that already has
-    // one.
-    class Model extends Base {}
-    Object.defineProperty(Model, "update", {
-      value: update(fields).annotate({
-        id: `${identifier}.update`,
-        title: `${identifier}.update`,
-      }),
-    });
-    return Model as any;
-  };
+export const Class: <Self = never>(
+  identifier: string,
+) => <const Fields extends VariantSchema.Struct.Fields>(
+  fields: Fields & VariantSchema.Struct.Validate<Fields, Variant>,
+  annotations?: Schema.Annotations.Declaration<
+    Self,
+    readonly [Schema.Struct<VariantSchema.ExtractFields<"read", Fields, true>>]
+  >,
+) => [Self] extends [never] ? MissingSelfGeneric : Class<Self, Fields> = firestoreModel.Class;
 
 /**
  * A union of document schemas, in every variant.
@@ -396,7 +278,7 @@ export const Class =
  * @category constructors
  * @since 0.0.0
  */
-export const Union = Variants.Union;
+export const Union = firestoreModel.Union;
 
 /**
  * Type-level representation of {@link Immutable}.
@@ -418,8 +300,8 @@ export interface Immutable<S extends Schema.Top> extends VariantSchema.Field<{
  * @category schemas
  * @since 0.0.0
  */
-export const Immutable = <S extends Schema.Top>(schema: S): Immutable<S> =>
-  Field({ read: schema, create: schema });
+export const Immutable: <S extends Schema.Top>(schema: S) => Immutable<S> =
+  firestoreModel.Immutable;
 
 /**
  * Type-level representation of {@link Timestamp}.
@@ -460,16 +342,11 @@ export interface Timestamp<
  * @category schemas
  * @since 0.0.0
  */
-export const Timestamp = <
+export const Timestamp: <
   S extends Schema.Codec<unknown, Timestamp_.TimestampLike, unknown, unknown>,
 >(
   schema: S,
-): Timestamp<S> =>
-  Field({
-    read: schema,
-    create: FirestoreSchema.ServerTimestampOr(schema),
-    update: FirestoreSchema.ServerTimestampOr(schema),
-  });
+) => Timestamp<S> = firestoreModel.Timestamp;
 
 /**
  * Type-level representation of {@link Number}.
@@ -511,14 +388,9 @@ export interface Number<
  * @category schemas
  * @since 0.0.0
  */
-export const Number = <S extends Schema.Codec<unknown, number, unknown, unknown>>(
+export const Number: <S extends Schema.Codec<unknown, number, unknown, unknown>>(
   schema: S,
-): Number<S> =>
-  Field({
-    read: schema,
-    create: FirestoreSchema.IncrementOr(schema),
-    update: FirestoreSchema.IncrementOr(schema),
-  });
+) => Number<S> = firestoreModel.Number;
 
 /**
  * Type-level representation of {@link Optional}, made of a group.
@@ -563,24 +435,6 @@ export type Optional<F extends VariantSchema.Field<any> | VariantSchema.Struct<a
           }>
         : never;
 
-const optionalField = fieldEvolve({
-  read: Schema.optionalKey,
-  create: Schema.optionalKey,
-  update: (schema: Schema.Top) => Schema.optionalKey(FirestoreSchema.DeleteFieldOr(schema)),
-} as any) as (self: unknown) => unknown;
-
-const optionalGroup = (self: VariantSchema.Struct<any>): unknown =>
-  Object.assign(
-    Field({
-      read: Schema.optionalKey(extract(self, "read") as Schema.Top),
-      create: Schema.optionalKey(extract(self, "create") as Schema.Top),
-      update: Schema.optionalKey(
-        FirestoreSchema.DeleteFieldOr(build(VariantSchema.fields(self), "", {}).patch),
-      ),
-    }),
-    { [OptionalGroupTypeId]: self },
-  );
-
 /**
  * A field a document may go without, and an update may take away.
  *
@@ -609,8 +463,8 @@ const optionalGroup = (self: VariantSchema.Struct<any>): unknown =>
  * @category schemas
  * @since 0.0.0
  */
-export const Optional = <
+export const Optional: <
   F extends VariantSchema.Field<any> | VariantSchema.Struct<any> | Schema.Top,
 >(
   self: F,
-): Optional<F> => (VariantSchema.isStruct(self) ? optionalGroup(self) : optionalField(self)) as any;
+) => Optional<F> = firestoreModel.Optional;

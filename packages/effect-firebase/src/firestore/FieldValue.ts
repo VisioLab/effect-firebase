@@ -13,9 +13,10 @@
  *
  * @since 0.0.0
  */
-import { Equal, Hash, Inspectable, Predicate } from "effect";
+import type { Equal, Inspectable } from "effect";
+import * as fieldValue from "./internal/fieldValue.ts";
 
-const ServerTimestampTypeId = "~@visiolab/effect-firebase/firestore/FieldValue/ServerTimestamp";
+const ServerTimestampTypeId = fieldValue.ServerTimestampTypeId;
 
 /**
  * A stand-in for the instant the server applied the write.
@@ -31,14 +32,6 @@ export interface ServerTimestamp extends Inspectable.Inspectable {
   readonly [ServerTimestampTypeId]: typeof ServerTimestampTypeId;
 }
 
-const ServerTimestampProto: ServerTimestamp = {
-  ...Inspectable.BaseProto,
-  [ServerTimestampTypeId]: ServerTimestampTypeId,
-  toJSON() {
-    return { _id: "ServerTimestamp" };
-  },
-};
-
 /**
  * The only {@link ServerTimestamp} there is.
  *
@@ -48,18 +41,15 @@ const ServerTimestampProto: ServerTimestamp = {
  * @category constructors
  * @since 0.0.0
  */
-export const serverTimestamp: ServerTimestamp = Object.create(
-  ServerTimestampProto,
-) as ServerTimestamp;
+export const serverTimestamp: ServerTimestamp = fieldValue.serverTimestamp;
 
 /**
  * @category guards
  * @since 0.0.0
  */
-export const isServerTimestamp = (u: unknown): u is ServerTimestamp =>
-  Predicate.hasProperty(u, ServerTimestampTypeId);
+export const isServerTimestamp: (u: unknown) => u is ServerTimestamp = fieldValue.isServerTimestamp;
 
-const IncrementTypeId = "~@visiolab/effect-firebase/firestore/FieldValue/Increment";
+const IncrementTypeId = fieldValue.IncrementTypeId;
 
 /**
  * A stand-in for the number a field already holds, moved by `by`.
@@ -85,22 +75,7 @@ export interface Increment extends Equal.Equal, Inspectable.Inspectable {
  * @category guards
  * @since 0.0.0
  */
-export const isIncrement = (u: unknown): u is Increment =>
-  Predicate.hasProperty(u, IncrementTypeId);
-
-const IncrementProto: Omit<Increment, "by"> = {
-  ...Inspectable.BaseProto,
-  [IncrementTypeId]: IncrementTypeId,
-  toJSON(this: Increment) {
-    return { _id: "Increment", by: this.by };
-  },
-  [Equal.symbol](this: Increment, that: unknown): boolean {
-    return isIncrement(that) && this.by === that.by;
-  },
-  [Hash.symbol](this: Increment): number {
-    return Hash.combine(Hash.string(IncrementTypeId), Hash.number(this.by));
-  },
-};
+export const isIncrement: (u: unknown) => u is Increment = fieldValue.isIncrement;
 
 /**
  * Asks the server to raise a field by `by`.
@@ -112,12 +87,7 @@ const IncrementProto: Omit<Increment, "by"> = {
  * @category constructors
  * @since 0.0.0
  */
-export const increment = (by: number): Increment => {
-  if (!Number.isFinite(by)) {
-    throw new Error(`Invalid Firestore increment: by must be a finite number, got ${by}`);
-  }
-  return Object.assign(Object.create(IncrementProto) as typeof IncrementProto, { by });
-};
+export const increment: (by: number) => Increment = fieldValue.increment;
 
 /**
  * Asks the server to lower a field by `by`.
@@ -129,9 +99,9 @@ export const increment = (by: number): Increment => {
  * @category constructors
  * @since 0.0.0
  */
-export const decrement = (by: number): Increment => increment(-by);
+export const decrement: (by: number) => Increment = fieldValue.decrement;
 
-const DeleteFieldTypeId = "~@visiolab/effect-firebase/firestore/FieldValue/DeleteField";
+const DeleteFieldTypeId = fieldValue.DeleteFieldTypeId;
 
 /**
  * A stand-in for a field the write removes.
@@ -151,14 +121,6 @@ export interface DeleteField extends Inspectable.Inspectable {
   readonly [DeleteFieldTypeId]: typeof DeleteFieldTypeId;
 }
 
-const DeleteFieldProto: DeleteField = {
-  ...Inspectable.BaseProto,
-  [DeleteFieldTypeId]: DeleteFieldTypeId,
-  toJSON() {
-    return { _id: "DeleteField" };
-  },
-};
-
 /**
  * The only {@link DeleteField} there is.
  *
@@ -169,11 +131,10 @@ const DeleteFieldProto: DeleteField = {
  * @category constructors
  * @since 0.0.0
  */
-export const deleteField: DeleteField = Object.create(DeleteFieldProto) as DeleteField;
+export const deleteField: DeleteField = fieldValue.deleteField;
 
 /**
  * @category guards
  * @since 0.0.0
  */
-export const isDeleteField = (u: unknown): u is DeleteField =>
-  Predicate.hasProperty(u, DeleteFieldTypeId);
+export const isDeleteField: (u: unknown) => u is DeleteField = fieldValue.isDeleteField;

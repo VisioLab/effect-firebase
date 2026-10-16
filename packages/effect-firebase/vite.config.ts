@@ -4,7 +4,9 @@ export default defineConfig({
   pack: {
     // One entry per module, so consumers can reach `App` as
     // `@visiolab/effect-firebase/App` without loading the whole barrel.
-    entry: ["src/**/*.ts"],
+    // Internal modules stay out of the entries, and so out of `exports`: they
+    // are the implementation behind the public modules, not API of their own.
+    entry: ["src/**/*.ts", "!src/**/internal/**"],
     // Keep one output file per source module instead of one bundle, so
     // consumers only pull in what they import and stack traces stay readable.
     unbundle: true,

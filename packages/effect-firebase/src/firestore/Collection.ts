@@ -8,12 +8,12 @@
  *
  * @since 0.0.0
  */
-import type { Brand } from "effect";
-import { Equal, Hash, Inspectable, Predicate, Schema } from "effect";
+import type { Brand, Equal, Inspectable, Schema } from "effect";
+import * as collection from "./internal/collection.ts";
 
-const CollectionTypeId = "~@visiolab/effect-firebase/firestore/Collection";
-const CollectionReferenceTypeId = "~@visiolab/effect-firebase/firestore/CollectionReference";
-const DocumentReferenceTypeId = "~@visiolab/effect-firebase/firestore/DocumentReference";
+const CollectionTypeId = collection.CollectionTypeId;
+const CollectionReferenceTypeId = collection.CollectionReferenceTypeId;
+const DocumentReferenceTypeId = collection.DocumentReferenceTypeId;
 
 /**
  * A path segment together with the schema of the documents stored under it.
@@ -229,187 +229,21 @@ export interface DocumentReference<C extends Any> extends Inspectable.Inspectabl
  * @category guards
  * @since 0.0.0
  */
-export const isCollection = (u: unknown): u is Any => Predicate.hasProperty(u, CollectionTypeId);
+export const isCollection: (u: unknown) => u is Any = collection.isCollection;
 
 /**
  * @category guards
  * @since 0.0.0
  */
-export const isCollectionReference = (u: unknown): u is CollectionReference<Any> =>
-  Predicate.hasProperty(u, CollectionReferenceTypeId);
+export const isCollectionReference: (u: unknown) => u is CollectionReference<Any> =
+  collection.isCollectionReference;
 
 /**
  * @category guards
  * @since 0.0.0
  */
-export const isDocumentReference = (u: unknown): u is DocumentReference<Any> =>
-  Predicate.hasProperty(u, DocumentReferenceTypeId);
-
-const encoder = new TextEncoder();
-
-/** Rejects the segments Firestore cannot address, before they reach a path. */
-const validateSegment = (segment: string): void => {
-  const reject = (reason: string): never => {
-    throw new Error(`Invalid Firestore collection id "${segment}": ${reason}`);
-  };
-  if (segment.length === 0) reject("it must not be empty");
-  if (segment.includes("/")) reject('it must not contain "/"');
-  if (segment === "." || segment === "..") reject('it must not be "." or ".."');
-  if (/^__.*__$/.test(segment)) reject('it must not match "__.*__"');
-  if (encoder.encode(segment).length > 1500) reject("it must be at most 1500 bytes");
-};
-
-/**
- * Brands an id schema with the path addressing it.
- *
- * The path is only known at runtime, and `Schema.brand` rejects an open `string`
- * key. Narrowing the key to a placeholder literal keeps the real path on the
- * annotation: the static brand is erased where `makeCollection` takes the schema
- * as `Schema.Top`, and the public id types are built above it.
- */
-const brandId = (path: ReadonlyArray<string>) =>
-  Schema.String.pipe(Schema.brand(path.join("/") as "~firestore/collection-path"));
-
-/** Interleaves the segments with the ids addressing them: `a/1/b/2/c`. */
-const joinPath = (segments: ReadonlyArray<string>, ancestors: ReadonlyArray<string>): string => {
-  let path = segments[0];
-  for (let i = 0; i < ancestors.length; i++) path += `/${ancestors[i]}/${segments[i + 1]}`;
-  return path;
-};
-
-/**
- * The untyped shapes behind the exported ones.
- *
- * Everything below works on plain segments and ids. The types above are what
- * make a path only buildable out of the ids that address it, so the runtime has
- * no work left to do beyond joining strings.
- */
-interface CollectionImpl {
-  readonly path: ReadonlyArray<string>;
-  readonly segment: string;
-  readonly schema: Schema.Top;
-  readonly id: Schema.Top;
-  subcollection(segment: string, schema: Schema.Top): CollectionImpl;
-  collection(...ancestors: ReadonlyArray<string>): CollectionReferenceImpl;
-  doc(...ids: ReadonlyArray<string>): DocumentReferenceImpl;
-}
-
-interface CollectionReferenceImpl {
-  readonly collection: CollectionImpl;
-  readonly ancestors: ReadonlyArray<string>;
-  readonly id: string;
-  readonly path: string;
-  doc(id: string): DocumentReferenceImpl;
-}
-
-interface DocumentReferenceImpl {
-  readonly collection: CollectionImpl;
-  readonly ancestors: ReadonlyArray<string>;
-  readonly id: string;
-  readonly path: string;
-  readonly parent: CollectionReferenceImpl;
-}
-
-const CollectionProto = {
-  ...Inspectable.BaseProto,
-  [CollectionTypeId]: CollectionTypeId,
-  toJSON(this: CollectionImpl) {
-    return { _id: "Collection", path: this.path.join("/") };
-  },
-  subcollection(this: CollectionImpl, segment: string, schema: Schema.Top): CollectionImpl {
-    validateSegment(segment);
-    const path = [...this.path, segment];
-    return makeCollection(path, schema, brandId(path));
-  },
-  collection(this: CollectionImpl, ...ancestors: ReadonlyArray<string>): CollectionReferenceImpl {
-    return makeCollectionReference(this, ancestors);
-  },
-  doc(this: CollectionImpl, ...ids: ReadonlyArray<string>): DocumentReferenceImpl {
-    const parent = makeCollectionReference(this, ids.slice(0, -1));
-    return makeDocumentReference(parent, ids[ids.length - 1]);
-  },
-};
-
-/**
- * The target is asserted as the prototype rather than as the finished shape, so
- * that the result type is inferred from the fields below. The return annotation
- * then catches a field that is missing, misspelled or of the wrong type -
- * asserting the finished shape up front would check none of the three.
- */
-const makeCollection = (
-  path: ReadonlyArray<string>,
-  schema: Schema.Top,
-  id: Schema.Top,
-): CollectionImpl =>
-  Object.assign(Object.create(CollectionProto) as typeof CollectionProto, {
-    path,
-    segment: path[path.length - 1],
-    schema,
-    id,
-  });
-
-const CollectionReferenceProto = {
-  ...Inspectable.BaseProto,
-  [CollectionReferenceTypeId]: CollectionReferenceTypeId,
-  toJSON(this: CollectionReferenceImpl) {
-    return { _id: "CollectionReference", path: this.path };
-  },
-  // The definition is compared by reference: it is written once and named, and
-  // `Equal.equals` would otherwise walk the whole schema behind it.
-  [Equal.symbol](this: CollectionReferenceImpl, that: unknown): boolean {
-    return (
-      isCollectionReference(that) && this.path === that.path && this.collection === that.collection
-    );
-  },
-  [Hash.symbol](this: CollectionReferenceImpl): number {
-    return Hash.combine(Hash.string(this.path), Hash.random(this.collection));
-  },
-  doc(this: CollectionReferenceImpl, id: string): DocumentReferenceImpl {
-    return makeDocumentReference(this, id);
-  },
-};
-
-const makeCollectionReference = (
-  collection: CollectionImpl,
-  ancestors: ReadonlyArray<string>,
-): CollectionReferenceImpl =>
-  Object.assign(Object.create(CollectionReferenceProto) as typeof CollectionReferenceProto, {
-    collection,
-    ancestors,
-    id: collection.segment,
-    path: joinPath(collection.path, ancestors),
-  });
-
-const DocumentReferenceProto = {
-  ...Inspectable.BaseProto,
-  [DocumentReferenceTypeId]: DocumentReferenceTypeId,
-  toJSON(this: DocumentReferenceImpl) {
-    return { _id: "DocumentReference", path: this.path };
-  },
-  // The definition is compared by reference: it is written once and named, and
-  // `Equal.equals` would otherwise walk the whole schema behind it.
-  [Equal.symbol](this: DocumentReferenceImpl, that: unknown): boolean {
-    return (
-      isDocumentReference(that) && this.path === that.path && this.collection === that.collection
-    );
-  },
-  [Hash.symbol](this: DocumentReferenceImpl): number {
-    return Hash.combine(Hash.string(this.path), Hash.random(this.collection));
-  },
-};
-
-/** A document is always built from the collection holding it, which it keeps. */
-const makeDocumentReference = (
-  parent: CollectionReferenceImpl,
-  id: string,
-): DocumentReferenceImpl =>
-  Object.assign(Object.create(DocumentReferenceProto) as typeof DocumentReferenceProto, {
-    collection: parent.collection,
-    ancestors: parent.ancestors,
-    id,
-    path: `${parent.path}/${id}`,
-    parent,
-  });
+export const isDocumentReference: (u: unknown) => u is DocumentReference<Any> =
+  collection.isDocumentReference;
 
 /**
  * Defines a root collection.
@@ -424,13 +258,7 @@ const makeDocumentReference = (
  * @category constructors
  * @since 0.0.0
  */
-export const make = <const Segment extends string, S extends Schema.Top>(
+export const make: <const Segment extends string, S extends Schema.Top>(
   segment: Segment,
   schema: S,
-): Collection<readonly [readonly [Segment, S]]> => {
-  validateSegment(segment);
-  const path = [segment];
-  return makeCollection(path, schema, brandId(path)) as unknown as Collection<
-    readonly [readonly [Segment, S]]
-  >;
-};
+) => Collection<readonly [readonly [Segment, S]]> = collection.make;
