@@ -219,7 +219,7 @@ export interface Increment extends Schema.decodeTo<
  *
  * This one only goes one way, as {@link ServerTimestamp} does. A document holds
  * the sum the server wrote rather than the request to add, so a read of the
- * same field is a plain number - see {@link NumberOrIncrement} for the pair.
+ * same field is a plain number - see {@link IncrementOr} for the pair.
  *
  * @category schemas
  * @since 0.0.0
