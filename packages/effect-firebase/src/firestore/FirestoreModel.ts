@@ -28,7 +28,7 @@
  * User.update // what `update` writes
  * ```
  *
- * @since 0.0.0
+ * @since 0.2.0
  */
 import type { Schema, Struct as Struct_ } from "effect";
 import type { VariantSchema } from "effect/schema";
@@ -47,7 +47,7 @@ import type * as Timestamp_ from "./Timestamp.ts";
  * through and the write shapes hang off it.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export type Variant = "read" | "create" | "update";
 
@@ -55,7 +55,7 @@ export type Variant = "read" | "create" | "update";
  * Declares a field that is a different schema in different variants.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const Field = firestoreModel.Field;
 
@@ -63,7 +63,7 @@ export const Field = firestoreModel.Field;
  * Declares a field that only appears in the named variants.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const FieldOnly = firestoreModel.FieldOnly;
 
@@ -71,7 +71,7 @@ export const FieldOnly = firestoreModel.FieldOnly;
  * Declares a field that appears in every variant but the named ones.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const FieldExcept = firestoreModel.FieldExcept;
 
@@ -80,7 +80,7 @@ export const FieldExcept = firestoreModel.FieldExcept;
  * sharing between several.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const Struct = firestoreModel.Struct;
 
@@ -88,7 +88,7 @@ export const Struct = firestoreModel.Struct;
  * Rewrites the schemas of a field, variant by variant.
  *
  * @category transforming
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const fieldEvolve = firestoreModel.fieldEvolve;
 
@@ -100,7 +100,7 @@ export const fieldEvolve = firestoreModel.fieldEvolve;
  * {@link Class} makes it.
  *
  * @category converting
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const extract = firestoreModel.extract;
 
@@ -108,7 +108,7 @@ export const extract = firestoreModel.extract;
  * The field definitions a class or group was built from.
  *
  * @category getters
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const fields: <A extends VariantSchema.Struct<any>>(
   self: A,
@@ -118,7 +118,7 @@ export const fields: <A extends VariantSchema.Struct<any>>(
  * Any document schema, whatever it holds.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export type Any = Schema.Top & {
   readonly fields: Schema.Struct.Fields;
@@ -151,7 +151,7 @@ type UnionToIntersection<U> = (U extends unknown ? (u: U) => void : never) exten
  * and each group a partial of its own.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export type UpdateFields<Fields extends VariantSchema.Struct.Fields> = {
   readonly [
@@ -176,7 +176,7 @@ export type UpdateFields<Fields extends VariantSchema.Struct.Fields> = {
  * else.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export type UpdatePaths<
   Fields extends VariantSchema.Struct.Fields,
@@ -220,7 +220,7 @@ export type UpdatePaths<
  * fails.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface Update<Fields extends VariantSchema.Struct.Fields> extends Schema.decodeTo<
   Schema.toType<Schema.Struct<UpdateFields<Fields>>>,
@@ -231,7 +231,7 @@ export interface Update<Fields extends VariantSchema.Struct.Fields> extends Sche
  * A document schema, together with the shapes it is written in.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface Class<
   Self,
@@ -260,7 +260,7 @@ type MissingSelfGeneric =
  * {@link Class.update} hang off it.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const Class: <Self = never>(
   identifier: string,
@@ -276,7 +276,7 @@ export const Class: <Self = never>(
  * A union of document schemas, in every variant.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const Union = firestoreModel.Union;
 
@@ -284,7 +284,7 @@ export const Union = firestoreModel.Union;
  * Type-level representation of {@link Immutable}.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface Immutable<S extends Schema.Top> extends VariantSchema.Field<{
   readonly read: S;
@@ -298,7 +298,7 @@ export interface Immutable<S extends Schema.Top> extends VariantSchema.Field<{
  * the field cannot be changed by one.
  *
  * @category schemas
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const Immutable: <S extends Schema.Top>(schema: S) => Immutable<S> =
   firestoreModel.Immutable;
@@ -307,7 +307,7 @@ export const Immutable: <S extends Schema.Top>(schema: S) => Immutable<S> =
  * Type-level representation of {@link Timestamp}.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface Timestamp<
   S extends Schema.Codec<unknown, Timestamp_.TimestampLike, unknown, unknown>,
@@ -331,8 +331,13 @@ export interface Timestamp<
  * where a `DateTime.Utc` is the easier value to hold onto.
  *
  * ```ts
- * createdAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp)
- * seenAt: FirestoreModel.Timestamp(FirestoreSchema.DateTimeUtcFromTimestamp)
+ * import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
+ * import * as FirestoreSchema from "@visiolab/effect-firebase/firestore/FirestoreSchema";
+ *
+ * class Session extends FirestoreModel.Class<Session>("Session")({
+ *   createdAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
+ *   seenAt: FirestoreModel.Timestamp(FirestoreSchema.DateTimeUtcFromTimestamp),
+ * }) {}
  * ```
  *
  * Where the server is to decide, a call site hands it
@@ -340,7 +345,7 @@ export interface Timestamp<
  * directly, which goes into every variant as it stands.
  *
  * @category schemas
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const Timestamp: <
   S extends Schema.Codec<unknown, Timestamp_.TimestampLike, unknown, unknown>,
@@ -352,7 +357,7 @@ export const Timestamp: <
  * Type-level representation of {@link Number}.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface Number<
   S extends Schema.Codec<unknown, number, unknown, unknown>,
@@ -377,8 +382,13 @@ export interface Number<
  * since the sum is the server's to work out and only the next read sees it.
  *
  * ```ts
- * visits: FirestoreModel.Number(Schema.Int)
- * balance: FirestoreModel.Number(Schema.Finite)
+ * import { Schema } from "effect";
+ * import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
+ *
+ * class Account extends FirestoreModel.Class<Account>("Account")({
+ *   visits: FirestoreModel.Number(Schema.Int),
+ *   balance: FirestoreModel.Number(Schema.Finite),
+ * }) {}
  * ```
  *
  * Where the server is to move it, a call site hands it
@@ -386,7 +396,7 @@ export interface Number<
  * may, name the schema directly, which goes into every variant as it stands.
  *
  * @category schemas
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const Number: <S extends Schema.Codec<unknown, number, unknown, unknown>>(
   schema: S,
@@ -398,7 +408,7 @@ export const Number: <S extends Schema.Codec<unknown, number, unknown, unknown>>
  * It carries the group it was made of, which is what an update reaches into.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface OptionalGroup<G extends VariantSchema.Struct<any>> extends VariantSchema.Field<{
   readonly read: Schema.optionalKey<VariantSchema.Extract<"read", G>>;
@@ -414,7 +424,7 @@ export interface OptionalGroup<G extends VariantSchema.Struct<any>> extends Vari
  * Type-level representation of {@link Optional}.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export type Optional<F extends VariantSchema.Field<any> | VariantSchema.Struct<any> | Schema.Top> =
   F extends VariantSchema.Struct<any>
@@ -447,9 +457,19 @@ export type Optional<F extends VariantSchema.Field<any> | VariantSchema.Struct<a
  * optional too:
  *
  * ```ts
- * nickname: FirestoreModel.Optional(Schema.String)
- * lastSeenAt: FirestoreModel.Optional(FirestoreModel.Timestamp(FirestoreSchema.Timestamp))
- * address: FirestoreModel.Optional(Address)
+ * import { Schema } from "effect";
+ * import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
+ * import * as FirestoreSchema from "@visiolab/effect-firebase/firestore/FirestoreSchema";
+ *
+ * const Address = FirestoreModel.Struct({
+ *   city: Schema.String,
+ * });
+ *
+ * class User extends FirestoreModel.Class<User>("User")({
+ *   nickname: FirestoreModel.Optional(Schema.String),
+ *   lastSeenAt: FirestoreModel.Optional(FirestoreModel.Timestamp(FirestoreSchema.Timestamp)),
+ *   address: FirestoreModel.Optional(Address),
+ * }) {}
  * ```
  *
  * A field with no `update` variant - {@link Immutable}, say - is made optional
@@ -461,7 +481,7 @@ export type Optional<F extends VariantSchema.Field<any> | VariantSchema.Struct<a
  * at its paths - see {@link Update}.
  *
  * @category schemas
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const Optional: <
   F extends VariantSchema.Field<any> | VariantSchema.Struct<any> | Schema.Top,

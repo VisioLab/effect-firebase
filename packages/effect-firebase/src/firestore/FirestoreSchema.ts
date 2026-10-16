@@ -7,7 +7,7 @@
  * {@link FirestoreEncoder}, so a document schema is written once and reads the same under
  * the Admin SDK and the web SDK.
  *
- * @since 0.0.0
+ * @since 0.2.0
  */
 import type { Schema } from "effect";
 import type * as FieldValue from "./FieldValue.ts";
@@ -19,7 +19,7 @@ import type * as Timestamp_ from "./Timestamp.ts";
  * Type-level representation of {@link Timestamp}.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface Timestamp extends Schema.decodeTo<
   Schema.declare<Timestamp_.Timestamp>,
@@ -38,7 +38,7 @@ export interface Timestamp extends Schema.decodeTo<
  * expected to come out unchanged.
  *
  * @category schemas
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const Timestamp: Timestamp = firestoreSchema.Timestamp;
 
@@ -46,7 +46,7 @@ export const Timestamp: Timestamp = firestoreSchema.Timestamp;
  * Type-level representation of {@link DateTimeUtcFromTimestamp}.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface DateTimeUtcFromTimestamp extends Schema.decodeTo<
   Schema.DateTimeUtc,
@@ -66,7 +66,7 @@ export interface DateTimeUtcFromTimestamp extends Schema.decodeTo<
  * matters.
  *
  * @category schemas
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const DateTimeUtcFromTimestamp: DateTimeUtcFromTimestamp =
   firestoreSchema.DateTimeUtcFromTimestamp;
@@ -84,7 +84,7 @@ interface ServerTimestampSentinel extends Schema.decodeTo<
  * Type-level representation of {@link ServerTimestamp}.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface ServerTimestamp extends Schema.withConstructorDefault<ServerTimestampSentinel> {
   readonly Rebuild: ServerTimestamp;
@@ -105,7 +105,7 @@ export interface ServerTimestamp extends Schema.withConstructorDefault<ServerTim
  * see {@link FirestoreModel.Timestamp} for the pair.
  *
  * @category schemas
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const ServerTimestamp: ServerTimestamp = firestoreSchema.ServerTimestamp;
 
@@ -113,7 +113,7 @@ export const ServerTimestamp: ServerTimestamp = firestoreSchema.ServerTimestamp;
  * Type-level representation of {@link ServerTimestampOr}.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface ServerTimestampOr<
   S extends Schema.Codec<unknown, Timestamp_.TimestampLike, unknown, unknown>,
@@ -135,7 +135,7 @@ export interface ServerTimestampOr<
  * the same.
  *
  * @category schemas
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const ServerTimestampOr: <
   S extends Schema.Codec<unknown, Timestamp_.TimestampLike, unknown, unknown>,
@@ -147,7 +147,7 @@ export const ServerTimestampOr: <
  * Type-level representation of {@link Increment}.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface Increment extends Schema.decodeTo<
   Schema.declare<FieldValue.Increment>,
@@ -170,7 +170,7 @@ export interface Increment extends Schema.decodeTo<
  * same field is a plain number - see {@link IncrementOr} for the pair.
  *
  * @category schemas
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const Increment: Increment = firestoreSchema.Increment;
 
@@ -178,7 +178,7 @@ export const Increment: Increment = firestoreSchema.Increment;
  * Type-level representation of {@link IncrementOr}.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface IncrementOr<
   S extends Schema.Codec<unknown, number, unknown, unknown>,
@@ -201,7 +201,7 @@ export interface IncrementOr<
  * written through, against a `read` of the same.
  *
  * @category schemas
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const IncrementOr: <S extends Schema.Codec<unknown, number, unknown, unknown>>(
   schema: S,
@@ -211,7 +211,7 @@ export const IncrementOr: <S extends Schema.Codec<unknown, number, unknown, unkn
  * Type-level representation of {@link DeleteField}.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface DeleteField extends Schema.decodeTo<
   Schema.declare<FieldValue.DeleteField>,
@@ -234,7 +234,7 @@ export interface DeleteField extends Schema.decodeTo<
  * {@link DeleteFieldOr} for the pair.
  *
  * @category schemas
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const DeleteField: DeleteField = firestoreSchema.DeleteField;
 
@@ -242,7 +242,7 @@ export const DeleteField: DeleteField = firestoreSchema.DeleteField;
  * Type-level representation of {@link DeleteFieldOr}.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface DeleteFieldOr<S extends Schema.Top> extends Schema.Union<
   readonly [DeleteField, S]
@@ -261,7 +261,7 @@ export interface DeleteFieldOr<S extends Schema.Top> extends Schema.Union<
  * every key is optional, say - would take it too, and strip it to nothing.
  *
  * @category schemas
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const DeleteFieldOr: <S extends Schema.Top>(schema: S) => DeleteFieldOr<S> =
   firestoreSchema.DeleteFieldOr;

@@ -1,7 +1,7 @@
 /**
  * Firebase Authentication, as exposed by the Firebase Admin SDK.
  *
- * @since 0.0.0
+ * @since 0.1.0
  */
 import { Context, Effect, Layer, Schema } from "effect";
 import { FirebaseError } from "firebase-admin/app";
@@ -12,7 +12,7 @@ import * as App from "./App.ts";
  * Raised when a Firebase Authentication call fails.
  *
  * @category errors
- * @since 0.0.0
+ * @since 0.1.0
  */
 export class AuthError extends Schema.TaggedError<AuthError>()("AuthError", {
   message: Schema.String,
@@ -35,7 +35,7 @@ const authError = (message: string) => (cause: unknown) =>
  * the Admin SDK offers is available through {@link Auth.use}.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export interface Auth {
   /**
@@ -70,7 +70,7 @@ export interface Auth {
  * Service key for Firebase Authentication.
  *
  * @category services
- * @since 0.0.0
+ * @since 0.1.0
  */
 export const Auth = Context.Service<Auth>("@visiolab/effect-firebase-admin/Auth");
 
@@ -87,7 +87,7 @@ export const Auth = Context.Service<Auth>("@visiolab/effect-firebase-admin/Auth"
  * their call to completion even when the fiber is interrupted.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.1.0
  */
 export const make = Effect.gen(function* () {
   const app = yield* App.App;
@@ -141,6 +141,6 @@ export const make = Effect.gen(function* () {
  * @see {@link make} for why building the service cannot fail.
  *
  * @category layers
- * @since 0.0.0
+ * @since 0.1.0
  */
 export const layer: Layer.Layer<Auth, never, App.App> = Layer.effect(Auth, make);

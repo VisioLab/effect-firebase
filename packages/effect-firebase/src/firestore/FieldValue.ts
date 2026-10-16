@@ -11,7 +11,7 @@
  * a {@link FirestoreEncoder.FirestoreEncoder}, and the codecs that reach for it
  * live in `firestore/FirestoreSchema`.
  *
- * @since 0.0.0
+ * @since 0.2.0
  */
 import type { Equal, Inspectable } from "effect";
 import * as fieldValue from "./internal/fieldValue.ts";
@@ -26,7 +26,7 @@ const ServerTimestampTypeId = fieldValue.ServerTimestampTypeId;
  * rather than the time at whichever client happened to write it.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface ServerTimestamp extends Inspectable.Inspectable {
   readonly [ServerTimestampTypeId]: typeof ServerTimestampTypeId;
@@ -39,13 +39,13 @@ export interface ServerTimestamp extends Inspectable.Inspectable {
  * requests for the server's time are the same request.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const serverTimestamp: ServerTimestamp = fieldValue.serverTimestamp;
 
 /**
  * @category guards
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const isServerTimestamp: (u: unknown) => u is ServerTimestamp = fieldValue.isServerTimestamp;
 
@@ -63,7 +63,7 @@ const IncrementTypeId = fieldValue.IncrementTypeId;
  * zero, so an increment lands on a document whether or not the field was there.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface Increment extends Equal.Equal, Inspectable.Inspectable {
   readonly [IncrementTypeId]: typeof IncrementTypeId;
@@ -73,7 +73,7 @@ export interface Increment extends Equal.Equal, Inspectable.Inspectable {
 
 /**
  * @category guards
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const isIncrement: (u: unknown) => u is Increment = fieldValue.isIncrement;
 
@@ -85,7 +85,7 @@ export const isIncrement: (u: unknown) => u is Increment = fieldValue.isIncremen
  * double comes back a double.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const increment: (by: number) => Increment = fieldValue.increment;
 
@@ -97,7 +97,7 @@ export const increment: (by: number) => Increment = fieldValue.increment;
  * site that counts down should say so rather than negate by hand.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const decrement: (by: number) => Increment = fieldValue.decrement;
 
@@ -115,7 +115,7 @@ const DeleteFieldTypeId = fieldValue.DeleteFieldTypeId;
  * sentinel there.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface DeleteField extends Inspectable.Inspectable {
   readonly [DeleteFieldTypeId]: typeof DeleteFieldTypeId;
@@ -129,12 +129,12 @@ export interface DeleteField extends Inspectable.Inspectable {
  * itself - the web SDK calls its own `deleteField` for the same reason.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const deleteField: DeleteField = fieldValue.deleteField;
 
 /**
  * @category guards
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const isDeleteField: (u: unknown) => u is DeleteField = fieldValue.isDeleteField;
