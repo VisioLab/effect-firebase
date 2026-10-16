@@ -280,7 +280,9 @@ export const Timestamp: Timestamp = Field({
  * @category models
  * @since 0.0.0
  */
-export interface Number<S extends Schema.Top> extends VariantSchema.Field<{
+export interface Number<
+  S extends Schema.Codec<unknown, number, unknown, unknown>,
+> extends VariantSchema.Field<{
   readonly read: S;
   readonly create: FirestoreSchema.IncrementOr<S>;
   readonly update: FirestoreSchema.IncrementOr<S>;

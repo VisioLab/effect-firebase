@@ -350,6 +350,15 @@ describe("Number", () => {
     ).toThrow();
   });
 
+  it("is only built from a schema stored as a number", () => {
+    // @ts-expect-error the server has no number to add to
+    FirestoreModel.Number(Schema.Boolean);
+    expectTypeOf<
+      // @ts-expect-error the type is held to the same as the constructor
+      FirestoreModel.Number<Schema.Boolean>
+    >().not.toBeNever();
+  });
+
   it.effect("holds the schema it was handed in every variant", () =>
     Effect.gen(function* () {
       // `Schema.Int` is the caller's, so a fraction is refused reading a

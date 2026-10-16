@@ -239,7 +239,9 @@ export const Increment: Increment = Schema.Unknown.pipe(
  * @category models
  * @since 0.0.0
  */
-export interface IncrementOr<S extends Schema.Top> extends Schema.Union<readonly [S, Increment]> {
+export interface IncrementOr<
+  S extends Schema.Codec<unknown, number, unknown, unknown>,
+> extends Schema.Union<readonly [S, Increment]> {
   readonly Rebuild: IncrementOr<S>;
 }
 

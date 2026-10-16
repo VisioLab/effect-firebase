@@ -299,4 +299,15 @@ describe("IncrementOr", () => {
       number | FieldValue.Increment
     >();
   });
+
+  it("is only built from a schema stored as a number", () => {
+    // @ts-expect-error the server has no number to add to
+    FirestoreSchema.IncrementOr(Schema.String);
+    // @ts-expect-error read as a number, but stored as a string
+    FirestoreSchema.IncrementOr(Schema.FiniteFromString);
+    expectTypeOf<
+      // @ts-expect-error the type is held to the same as the constructor
+      FirestoreSchema.IncrementOr<Schema.String>
+    >().not.toBeNever();
+  });
 });
