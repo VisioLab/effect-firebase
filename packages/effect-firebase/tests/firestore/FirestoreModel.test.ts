@@ -1,5 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { DateTime, Effect, Exit, Layer, Schema } from "effect";
+import * as Collection from "../../src/firestore/Collection.ts";
 import * as FieldValue from "../../src/firestore/FieldValue.ts";
 import { FirestoreEncoder } from "../../src/firestore/FirestoreEncoder.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
@@ -35,9 +36,22 @@ class SdkArrayRemove {
   constructor(readonly elements: ReadonlyArray<unknown>) {}
 }
 
+/** Stands in for an SDK's own `DocumentReference`. */
+class SdkDocumentReference implements Collection.DocumentReferenceLike {
+  readonly firestore = {};
+  constructor(readonly path: string) {}
+  get id(): string {
+    return this.path.slice(this.path.lastIndexOf("/") + 1);
+  }
+  get parent(): string {
+    return this.path.slice(0, this.path.lastIndexOf("/"));
+  }
+}
+
 const encoder = Layer.succeed(FirestoreEncoder)(
   FirestoreEncoder.of({
     timestamp: (value) => new SdkTimestamp(value.seconds, value.nanoseconds),
+    documentReference: (ref) => new SdkDocumentReference(ref.path),
     serverTimestamp: () => new SdkServerTimestamp(),
     increment: (by) => new SdkIncrement(by),
     deleteField: () => new SdkDeleteField(),
@@ -825,4 +839,58 @@ describe("a group a document may go without", () => {
       Place.create.make({ name: "a", address: FieldValue.deleteField }),
     ).toThrow();
   });
+});
+
+describe("a field holding a document reference", () => {
+  const Users = Collection.make("users", Schema.Struct({ name: Schema.String }));
+  const Categories = Collection.make("categories", Schema.Struct({ label: Schema.String }));
+
+  class Post extends FirestoreModel.Class<Post>("Post")({
+    title: Schema.String,
+    author: FirestoreSchema.DocumentReference(Users),
+    meta: FirestoreModel.Struct({
+      category: FirestoreSchema.DocumentReference(Categories),
+    }),
+  }) {}
+
+  const alice = Users.doc(Users.id.make("alice"));
+  const news = Categories.doc(Categories.id.make("news"));
+
+  it.effect("decodes the references a snapshot holds, typed by collection", () =>
+    Effect.gen(function* () {
+      const post = yield* Schema.decodeEffect(Post)({
+        title: "hello",
+        author: new SdkDocumentReference("users/alice"),
+        meta: { category: new SdkDocumentReference("categories/news") },
+      });
+      expectTypeOf(post.author).toEqualTypeOf<Collection.DocumentReference<typeof Users>>();
+      expect(post.author.collection).toBe(Users);
+      expect(post.author.id).toBe("alice");
+      expect(post.meta.category.collection).toBe(Categories);
+      expect(post.meta.category.id).toBe("news");
+    }),
+  );
+
+  it.effect("writes the SDK's own references on create", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Post.create)(
+        Post.create.make({ title: "hello", author: alice, meta: { category: news } }),
+      );
+      expect(encoded.author).toBeInstanceOf(SdkDocumentReference);
+      expect(encoded.author.path).toBe("users/alice");
+      expect(encoded.meta.category).toBeInstanceOf(SdkDocumentReference);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("writes the SDK's own references on update, at their path", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Post.update)(
+        Post.update.make({ author: alice, meta: { category: news } }),
+      );
+      expect(Object.keys(encoded).sort()).toEqual(["author", "meta.category"]);
+      expect(encoded.author).toBeInstanceOf(SdkDocumentReference);
+      expect(encoded["meta.category"]).toBeInstanceOf(SdkDocumentReference);
+      expect(encoded["meta.category"]?.path).toBe("categories/news");
+    }).pipe(Effect.provide(encoder)),
+  );
 });

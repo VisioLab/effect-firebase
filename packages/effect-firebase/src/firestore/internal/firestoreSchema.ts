@@ -8,10 +8,12 @@ import {
   SchemaIssue,
   SchemaParser,
 } from "effect";
+import type * as Collection from "../Collection.ts";
 import type * as FieldValue from "../FieldValue.ts";
 import { FirestoreEncoder } from "../FirestoreEncoder.ts";
 import type * as FirestoreSchema from "../FirestoreSchema.ts";
 import type * as Timestamp_ from "../Timestamp.ts";
+import * as collection_ from "./collection.ts";
 import * as fieldValue from "./fieldValue.ts";
 import * as timestamp from "./timestamp.ts";
 
@@ -53,6 +55,57 @@ export const DateTimeUtcFromTimestamp: FirestoreSchema.DateTimeUtcFromTimestamp 
       ),
     }),
   );
+
+/** Accepts a reference in the shape Firestore hands back, whichever SDK read it. */
+const DocumentReferenceLikeValue = Schema.declare<Collection.DocumentReferenceLike>(
+  collection_.isDocumentReferenceLike,
+  {
+    representation: {
+      id: "@visiolab/effect-firebase/firestore/DocumentReference/Like",
+      payload: null,
+    },
+    expected: "a Firestore document reference",
+    toEquivalence: () => (self, that) => self.path === that.path,
+  },
+);
+
+/** @internal */
+export const DocumentReference = <C extends Collection.Any>(
+  collection: C,
+): FirestoreSchema.DocumentReference<C> => {
+  const pattern = collection_.pattern(collection);
+  const DocumentReferenceValue = Schema.declare<Collection.DocumentReference<C>>(
+    (u): u is Collection.DocumentReference<C> =>
+      collection_.isDocumentReference(u) && u.collection === collection,
+    {
+      representation: {
+        id: "@visiolab/effect-firebase/firestore/DocumentReference",
+        payload: null,
+      },
+      expected: `a reference to a document in ${pattern}`,
+      toEquivalence: () => Equal.equals,
+    },
+  );
+  return DocumentReferenceLikeValue.pipe(
+    Schema.decodeTo(DocumentReferenceValue, {
+      decode: SchemaGetter.transformEffect((like: Collection.DocumentReferenceLike, options) =>
+        Effect.fromOption(collection_.fromPath(collection, like.path)).pipe(
+          Effect.mapError(
+            () =>
+              new SchemaIssue.InvalidValue(
+                { message: `Expected a document in ${pattern}, got "${like.path}"` },
+                like,
+                options,
+              ),
+          ),
+        ),
+      ),
+      encode: SchemaGetter.transformEffect((ref: Collection.DocumentReference<C>) =>
+        Effect.map(FirestoreEncoder, (encoder) => encoder.documentReference(ref)),
+      ),
+    }),
+  );
+};
 
 const ServerTimestampValue = Schema.declare<FieldValue.ServerTimestamp>(
   fieldValue.isServerTimestamp,

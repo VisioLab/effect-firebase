@@ -17,6 +17,11 @@ import { FieldValue, Timestamp } from "firebase-admin/firestore";
  */
 export const make: FirestoreEncoder = {
   timestamp: ({ seconds, nanoseconds }) => new Timestamp(seconds, nanoseconds),
+  // Building the SDK's reference takes the database it points into, which this
+  // encoder is not built from yet.
+  documentReference: (ref) => {
+    throw new Error(`Writing a document reference is not supported yet: ${ref.path}`);
+  },
   serverTimestamp: () => FieldValue.serverTimestamp(),
   increment: (by) => FieldValue.increment(by),
   deleteField: () => FieldValue.delete(),
