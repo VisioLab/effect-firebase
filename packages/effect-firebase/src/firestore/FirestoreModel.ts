@@ -425,6 +425,57 @@ export const Number: <S extends Schema.Codec<unknown, number, unknown, unknown>>
 ) => Number<S> = firestoreModel.Number;
 
 /**
+ * Type-level representation of {@link Array}.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface Array<S extends Schema.Top> extends VariantSchema.Field<{
+  readonly read: Schema.$Array<S>;
+  readonly create: Schema.$Array<S>;
+  readonly update: FirestoreSchema.ArrayOr<S>;
+}> {}
+
+/**
+ * An array field: written whole, or grown and shrunk by the server.
+ *
+ * An update takes the array, {@link FieldValue.arrayUnion} or
+ * {@link FieldValue.arrayRemove}, and the read takes the array alone, since a
+ * document holds what the server made of the request. Growing or shrinking is
+ * what keeps an element another client added at the same time, which reading
+ * the array and writing it back does not.
+ *
+ * A create takes the array alone. Growing an array that is not there yet writes
+ * the elements as they are, which the array already says, and shrinking one
+ * writes it empty, which is not what anyone asking for it meant.
+ *
+ * ```ts
+ * import { Schema } from "effect";
+ * import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
+ * import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
+ *
+ * class Article extends FirestoreModel.Class<Article>("Article")({
+ *   tags: FirestoreModel.Array(Schema.String),
+ * }) {}
+ *
+ * Article.update.make({ tags: FieldValue.arrayUnion("news") });
+ * ```
+ *
+ * The elements are matched by value, all the way down, so taking a map out of
+ * the array means handing over every key it holds as it holds it - see
+ * {@link FieldValue.ArrayRemove}. `item` is what each element is held as: not an
+ * array, which Firestore does not nest, and not a field, since an element is
+ * written whole wherever the array is. It goes through the sentinels too, so an
+ * element is encoded the same whichever way the array is written.
+ *
+ * @stability unstable
+ * @category schemas
+ * @since 0.2.0
+ */
+export const Array: <S extends Schema.Top>(item: S) => Array<S> = firestoreModel.Array;
+
+/**
  * Type-level representation of {@link Optional}, made of a group.
  *
  * It carries the group it was made of, which is what an update reaches into.

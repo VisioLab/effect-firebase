@@ -282,3 +282,120 @@ export interface DeleteFieldOr<S extends Schema.Top> extends Schema.Union<
  */
 export const DeleteFieldOr: <S extends Schema.Top>(schema: S) => DeleteFieldOr<S> =
   firestoreSchema.DeleteFieldOr;
+
+interface ArrayUnionValue<S extends Schema.Top> extends Schema.declareConstructor<
+  FieldValue.ArrayUnion<S["Type"]>,
+  FieldValue.ArrayUnion<S["Encoded"]>,
+  readonly [S]
+> {}
+
+/**
+ * Type-level representation of {@link ArrayUnion}.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface ArrayUnion<S extends Schema.Top> extends Schema.decodeTo<
+  ArrayUnionValue<S>,
+  Schema.Unknown,
+  never,
+  FirestoreEncoder
+> {
+  readonly Rebuild: ArrayUnion<S>;
+}
+
+/**
+ * Schema that writes the sentinel standing in for an array grown by the
+ * elements it lacks.
+ *
+ * A call site hands it {@link FieldValue.arrayUnion}, and each element is
+ * encoded through `item` before the encoder turns the lot into the sentinel its
+ * SDK writes - so a timestamp among them is stored as a timestamp, and an
+ * element `item` refuses is refused here too.
+ *
+ * `item` is what the array holds, and Firestore asks two things of it: that it
+ * is not an array itself, since an array may not hold one, and that it does not
+ * write a sentinel, since one may not sit inside an array.
+ *
+ * This one only goes one way, as the other sentinels do. A document holds the
+ * array the server wrote rather than the request to grow it - see
+ * {@link ArrayOr} for the pair.
+ *
+ * @stability unstable
+ * @category schemas
+ * @since 0.2.0
+ */
+export const ArrayUnion: <S extends Schema.Top>(item: S) => ArrayUnion<S> =
+  firestoreSchema.ArrayUnion;
+
+interface ArrayRemoveValue<S extends Schema.Top> extends Schema.declareConstructor<
+  FieldValue.ArrayRemove<S["Type"]>,
+  FieldValue.ArrayRemove<S["Encoded"]>,
+  readonly [S]
+> {}
+
+/**
+ * Type-level representation of {@link ArrayRemove}.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface ArrayRemove<S extends Schema.Top> extends Schema.decodeTo<
+  ArrayRemoveValue<S>,
+  Schema.Unknown,
+  never,
+  FirestoreEncoder
+> {
+  readonly Rebuild: ArrayRemove<S>;
+}
+
+/**
+ * Schema that writes the sentinel standing in for an array rid of the elements
+ * it matches.
+ *
+ * A call site hands it {@link FieldValue.arrayRemove}, and each element is
+ * encoded through `item` as {@link ArrayUnion} has it. Encoding through the same
+ * schema the array was written with is what gives a match a chance: the server
+ * compares what it is handed with what it holds, exactly.
+ *
+ * This one only goes one way, as the other sentinels do - see {@link ArrayOr}
+ * for the pair.
+ *
+ * @stability unstable
+ * @category schemas
+ * @since 0.2.0
+ */
+export const ArrayRemove: <S extends Schema.Top>(item: S) => ArrayRemove<S> =
+  firestoreSchema.ArrayRemove;
+
+/**
+ * Type-level representation of {@link ArrayOr}.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface ArrayOr<S extends Schema.Top> extends Schema.Union<
+  readonly [Schema.$Array<S>, ArrayUnion<S>, ArrayRemove<S>]
+> {
+  readonly Rebuild: ArrayOr<S>;
+}
+
+/**
+ * Schema for an array written whole, or grown or shrunk by the server.
+ *
+ * This is the update side of an array of `item`, against a read of
+ * `Schema.Array(item)`. Writing the array whole replaces whatever the server
+ * holds, so a client that read it, added one and wrote it back loses whatever
+ * was added in between; growing or shrinking it is what does not.
+ *
+ * A read is only ever the array - the sentinels resolved before the document
+ * came back - so this belongs in the variants a document is written through.
+ *
+ * @stability unstable
+ * @category schemas
+ * @since 0.2.0
+ */
+export const ArrayOr: <S extends Schema.Top>(item: S) => ArrayOr<S> = firestoreSchema.ArrayOr;

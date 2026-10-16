@@ -78,3 +78,41 @@ describe("deleteField", () => {
     expect(FieldValue.deleteField.toString()).toContain("DeleteField");
   });
 });
+
+describe("arrayUnion", () => {
+  it("carries the elements the array is to gain, in order", () => {
+    expect(FieldValue.arrayUnion("a", "b").elements).toEqual(["a", "b"]);
+    expect(FieldValue.arrayUnion().elements).toEqual([]);
+  });
+
+  it("is told apart from the other sentinels", () => {
+    expect(FieldValue.isArrayUnion(FieldValue.arrayUnion("a"))).toBe(true);
+    expect(FieldValue.isArrayUnion(FieldValue.arrayRemove("a"))).toBe(false);
+    expect(FieldValue.isArrayUnion(FieldValue.deleteField)).toBe(false);
+    expect(FieldValue.isArrayUnion(["a"])).toBe(false);
+    expect(FieldValue.isArrayRemove(FieldValue.arrayUnion("a"))).toBe(false);
+    expect(FieldValue.isIncrement(FieldValue.arrayUnion("a"))).toBe(false);
+  });
+
+  it("says what it is when printed", () => {
+    expect(FieldValue.arrayUnion("a").toJSON()).toEqual({ _id: "ArrayUnion", elements: ["a"] });
+    expect(FieldValue.arrayUnion("a").toString()).toContain("ArrayUnion");
+  });
+});
+
+describe("arrayRemove", () => {
+  it("carries the elements the array is to lose", () => {
+    expect(FieldValue.arrayRemove(1, 2).elements).toEqual([1, 2]);
+  });
+
+  it("is told apart from the other sentinels", () => {
+    expect(FieldValue.isArrayRemove(FieldValue.arrayRemove("a"))).toBe(true);
+    expect(FieldValue.isArrayRemove(FieldValue.serverTimestamp)).toBe(false);
+    expect(FieldValue.isArrayRemove(["a"])).toBe(false);
+  });
+
+  it("says what it is when printed", () => {
+    expect(FieldValue.arrayRemove("a").toJSON()).toEqual({ _id: "ArrayRemove", elements: ["a"] });
+    expect(FieldValue.arrayRemove("a").toString()).toContain("ArrayRemove");
+  });
+});

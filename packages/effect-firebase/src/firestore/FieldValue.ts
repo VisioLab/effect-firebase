@@ -149,3 +149,96 @@ export const deleteField: DeleteField = fieldValue.deleteField;
  * @since 0.2.0
  */
 export const isDeleteField: (u: unknown) => u is DeleteField = fieldValue.isDeleteField;
+
+const ArrayUnionTypeId = fieldValue.ArrayUnionTypeId;
+
+/**
+ * A stand-in for an array, grown by whichever of `elements` it lacks.
+ *
+ * The server reads the array, appends each element it does not already hold,
+ * and writes the result, so two clients that each add one leave both in place -
+ * which is not what reading the array and writing it back would do, since the
+ * second write would carry the array as it was before the first.
+ *
+ * A field that holds no array yet, or holds something else entirely, ends up
+ * holding just `elements`.
+ *
+ * Whether an element is already there is the server's to say, and it compares
+ * by value, all the way down: a map matches one with the same keys holding the
+ * same values, whatever order they were written in.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface ArrayUnion<A> extends Inspectable.Inspectable {
+  readonly [ArrayUnionTypeId]: typeof ArrayUnionTypeId;
+  /** What the array is to gain, in the order it is appended. */
+  readonly elements: ReadonlyArray<A>;
+}
+
+/**
+ * @stability unstable
+ * @category guards
+ * @since 0.2.0
+ */
+export const isArrayUnion: (u: unknown) => u is ArrayUnion<unknown> = fieldValue.isArrayUnion;
+
+/**
+ * Asks the server to add `elements` to an array, skipping any it holds already.
+ *
+ * Handed nothing, it changes nothing - though a field that held no array comes
+ * back holding an empty one.
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.2.0
+ */
+export const arrayUnion: <A>(...elements: ReadonlyArray<A>) => ArrayUnion<A> =
+  fieldValue.arrayUnion;
+
+const ArrayRemoveTypeId = fieldValue.ArrayRemoveTypeId;
+
+/**
+ * A stand-in for an array, rid of every element equal to one of `elements`.
+ *
+ * The server reads the array, drops each element that matches, and writes what
+ * is left, so it lands whatever else was written to the array in the meantime.
+ *
+ * A match is by value, as {@link ArrayUnion} has it, and it is exact: an element
+ * holding a key the stored one lacks, or a number where the stored one holds
+ * another, is a different element and leaves the stored one where it is. Taking
+ * a map out of an array means handing over every key it holds as it holds it,
+ * so where an element has an identity of its own, a map keyed by it is the
+ * easier thing to take one out of.
+ *
+ * A field that holds no array, or holds something else entirely, ends up
+ * holding an empty one.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface ArrayRemove<A> extends Inspectable.Inspectable {
+  readonly [ArrayRemoveTypeId]: typeof ArrayRemoveTypeId;
+  /** What the array is to lose, wherever it holds it. */
+  readonly elements: ReadonlyArray<A>;
+}
+
+/**
+ * @stability unstable
+ * @category guards
+ * @since 0.2.0
+ */
+export const isArrayRemove: (u: unknown) => u is ArrayRemove<unknown> = fieldValue.isArrayRemove;
+
+/**
+ * Asks the server to take every element equal to one of `elements` out of an
+ * array.
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.2.0
+ */
+export const arrayRemove: <A>(...elements: ReadonlyArray<A>) => ArrayRemove<A> =
+  fieldValue.arrayRemove;

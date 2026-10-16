@@ -73,3 +73,47 @@ export const deleteField: FieldValue.DeleteField = Object.create(
 /** @internal */
 export const isDeleteField = (u: unknown): u is FieldValue.DeleteField =>
   Predicate.hasProperty(u, DeleteFieldTypeId);
+
+/** @internal */
+export const ArrayUnionTypeId = "~@visiolab/effect-firebase/firestore/FieldValue/ArrayUnion";
+
+const ArrayUnionProto: Omit<FieldValue.ArrayUnion<unknown>, "elements"> = {
+  ...Inspectable.BaseProto,
+  [ArrayUnionTypeId]: ArrayUnionTypeId,
+  toJSON(this: FieldValue.ArrayUnion<unknown>) {
+    return {
+      _id: "ArrayUnion",
+      elements: this.elements.map((element) => Inspectable.toJson(element)),
+    };
+  },
+};
+
+/** @internal */
+export const isArrayUnion = (u: unknown): u is FieldValue.ArrayUnion<unknown> =>
+  Predicate.hasProperty(u, ArrayUnionTypeId);
+
+/** @internal */
+export const arrayUnion = <A>(...elements: ReadonlyArray<A>): FieldValue.ArrayUnion<A> =>
+  Object.assign(Object.create(ArrayUnionProto) as typeof ArrayUnionProto, { elements });
+
+/** @internal */
+export const ArrayRemoveTypeId = "~@visiolab/effect-firebase/firestore/FieldValue/ArrayRemove";
+
+const ArrayRemoveProto: Omit<FieldValue.ArrayRemove<unknown>, "elements"> = {
+  ...Inspectable.BaseProto,
+  [ArrayRemoveTypeId]: ArrayRemoveTypeId,
+  toJSON(this: FieldValue.ArrayRemove<unknown>) {
+    return {
+      _id: "ArrayRemove",
+      elements: this.elements.map((element) => Inspectable.toJson(element)),
+    };
+  },
+};
+
+/** @internal */
+export const isArrayRemove = (u: unknown): u is FieldValue.ArrayRemove<unknown> =>
+  Predicate.hasProperty(u, ArrayRemoveTypeId);
+
+/** @internal */
+export const arrayRemove = <A>(...elements: ReadonlyArray<A>): FieldValue.ArrayRemove<A> =>
+  Object.assign(Object.create(ArrayRemoveProto) as typeof ArrayRemoveProto, { elements });

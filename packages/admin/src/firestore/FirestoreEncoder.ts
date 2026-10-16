@@ -20,6 +20,8 @@ export const make: FirestoreEncoder = {
   serverTimestamp: () => FieldValue.serverTimestamp(),
   increment: (by) => FieldValue.increment(by),
   deleteField: () => FieldValue.delete(),
+  arrayUnion: (elements) => FieldValue.arrayUnion(...elements),
+  arrayRemove: (elements) => FieldValue.arrayRemove(...elements),
 };
 
 /**

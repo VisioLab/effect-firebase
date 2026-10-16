@@ -187,6 +187,14 @@ export const Number = <S extends Schema.Codec<unknown, number, unknown, unknown>
     update: firestoreSchema.IncrementOr(schema),
   });
 
+/** @internal */
+export const Array = <S extends Schema.Top>(item: S): FirestoreModel.Array<S> =>
+  Field({
+    read: Schema.Array(item),
+    create: Schema.Array(item),
+    update: firestoreSchema.ArrayOr(item),
+  });
+
 const optionalField = fieldEvolve({
   read: Schema.optionalKey,
   create: Schema.optionalKey,

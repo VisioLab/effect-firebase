@@ -1,4 +1,13 @@
-import { DateTime, Effect, Equal, Schema, SchemaGetter } from "effect";
+import {
+  Array,
+  DateTime,
+  Effect,
+  Equal,
+  Schema,
+  SchemaGetter,
+  SchemaIssue,
+  SchemaParser,
+} from "effect";
 import type * as FieldValue from "../FieldValue.ts";
 import { FirestoreEncoder } from "../FirestoreEncoder.ts";
 import type * as FirestoreSchema from "../FirestoreSchema.ts";
@@ -124,3 +133,79 @@ export const DeleteField: FirestoreSchema.DeleteField = Schema.Unknown.pipe(
 /** @internal */
 export const DeleteFieldOr = <S extends Schema.Top>(schema: S): FirestoreSchema.DeleteFieldOr<S> =>
   Schema.Union([DeleteField, schema]);
+
+/**
+ * Declares a sentinel that carries elements, each of them run through `item` -
+ * decoded on the way in and encoded on the way out, as `Schema.Option` does
+ * with what it holds - so a timestamp among them reaches the encoder as the
+ * SDK's own.
+ */
+const elementsValue =
+  <Sentinel extends { readonly elements: ReadonlyArray<unknown> }>(
+    name: string,
+    is: (u: unknown) => u is Sentinel,
+    make: (...elements: ReadonlyArray<unknown>) => Sentinel,
+  ) =>
+  <S extends Schema.Top>(item: S) =>
+    Schema.declareConstructor<Sentinel, Sentinel>()(
+      [item],
+      ([item]) => {
+        const elements = Schema.Array(item);
+        return (input, ast, options) =>
+          is(input)
+            ? SchemaParser.decodeEffect(elements)(input.elements, options).pipe(
+                Effect.mapBothEager({
+                  onSuccess: (decoded) => make(...decoded),
+                  onFailure: (issue) => new SchemaIssue.Pointer(["elements"], issue),
+                }),
+              )
+            : Effect.fail(new SchemaIssue.InvalidType(ast, input, options));
+      },
+      {
+        representation: {
+          id: `@visiolab/effect-firebase/firestore/FieldValue/${name}`,
+          payload: null,
+        },
+        expected: `an ${name}`,
+        toEquivalence: ([item]) => {
+          const elements = Array.makeEquivalence(item);
+          return (self, that) => elements(self.elements, that.elements);
+        },
+      },
+    );
+
+const ArrayUnionValue = elementsValue("ArrayUnion", fieldValue.isArrayUnion, fieldValue.arrayUnion);
+
+/** @internal */
+export const ArrayUnion = <S extends Schema.Top>(item: S): FirestoreSchema.ArrayUnion<S> =>
+  Schema.Unknown.pipe(
+    Schema.decodeTo(ArrayUnionValue(item), {
+      decode: SchemaGetter.forbidden(() => "An array union is only ever written, never read back"),
+      encode: SchemaGetter.transformEffect((value: FieldValue.ArrayUnion<unknown>) =>
+        Effect.map(FirestoreEncoder, (encoder) => encoder.arrayUnion(value.elements)),
+      ),
+    }),
+  );
+
+const ArrayRemoveValue = elementsValue(
+  "ArrayRemove",
+  fieldValue.isArrayRemove,
+  fieldValue.arrayRemove,
+);
+
+/** @internal */
+export const ArrayRemove = <S extends Schema.Top>(item: S): FirestoreSchema.ArrayRemove<S> =>
+  Schema.Unknown.pipe(
+    Schema.decodeTo(ArrayRemoveValue(item), {
+      decode: SchemaGetter.forbidden(
+        () => "An array removal is only ever written, never read back",
+      ),
+      encode: SchemaGetter.transformEffect((value: FieldValue.ArrayRemove<unknown>) =>
+        Effect.map(FirestoreEncoder, (encoder) => encoder.arrayRemove(value.elements)),
+      ),
+    }),
+  );
+
+/** @internal */
+export const ArrayOr = <S extends Schema.Top>(item: S): FirestoreSchema.ArrayOr<S> =>
+  Schema.Union([Schema.Array(item), ArrayUnion(item), ArrayRemove(item)]);
