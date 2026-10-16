@@ -7,14 +7,14 @@ catalogMode: prefer
 
 catalog:
   "@changesets/cli": ^3.0.3
-  "@effect/tsgo": 0.48.1
+  "@effect/tsgo": 0.51.0
   "@effect/vitest": ^4.0.1
   effect: ^4.0.1
   firebase-admin: ^14.2.0
   typescript: ^7.0.2
-  vite: npm:@voidzero-dev/vite-plus-core@1.0.0
-  vite-plus: 1.0.0
-  vitest: 5.0.1
+  vite: npm:@voidzero-dev/vite-plus-core@1.1.0
+  vite-plus: 1.1.0
+  vitest: 5.0.4
 overrides:
   vite@*: "catalog:"
   vitest@*: "catalog:"
@@ -23,13 +23,30 @@ allowBuilds:
   msgpackr-extract: true
   protobufjs: false
 minimumReleaseAgeExclude:
-  - "@effect/tsgo-darwin-arm64@0.48.1"
-  - "@effect/tsgo-darwin-x64@0.48.1"
-  - "@effect/tsgo-linux-arm64@0.48.1"
-  - "@effect/tsgo-linux-arm@0.48.1"
-  - "@effect/tsgo-linux-x64@0.48.1"
-  - "@effect/tsgo-win32-arm64@0.48.1"
-  - "@effect/tsgo-win32-x64@0.48.1"
-  - "@effect/tsgo@0.48.1"
+  - "@effect/tsgo-darwin-arm64@0.48.1 || 0.51.0"
+  - "@effect/tsgo-darwin-x64@0.48.1 || 0.51.0"
+  - "@effect/tsgo-linux-arm64@0.48.1 || 0.51.0"
+  - "@effect/tsgo-linux-arm@0.48.1 || 0.51.0"
+  - "@effect/tsgo-linux-x64@0.48.1 || 0.51.0"
+  - "@effect/tsgo-win32-arm64@0.48.1 || 0.51.0"
+  - "@effect/tsgo-win32-x64@0.48.1 || 0.51.0"
+  - "@effect/tsgo@0.48.1 || 0.51.0"
   - "@effect/vitest@4.0.1"
   - effect@4.0.1
+  - "@voidzero-dev/vite-plus-core@1.1.0"
+  - "@voidzero-dev/vite-plus-darwin-arm64@1.1.0"
+  - "@voidzero-dev/vite-plus-darwin-x64@1.1.0"
+  - "@voidzero-dev/vite-plus-linux-arm64-gnu@1.1.0"
+  - "@voidzero-dev/vite-plus-linux-arm64-musl@1.1.0"
+  - "@voidzero-dev/vite-plus-linux-x64-gnu@1.1.0"
+  - "@voidzero-dev/vite-plus-linux-x64-musl@1.1.0"
+  - "@voidzero-dev/vite-plus-win32-arm64-msvc@1.1.0"
+  - "@voidzero-dev/vite-plus-win32-x64-msvc@1.1.0"
+  - vite-plus@1.1.0
+peerDependencyRules:
+  allowAny:
+    - vite
+    - vitest
+  allowedVersions:
+    vite: "*"
+    vitest: "*"
