@@ -145,3 +145,29 @@ describe("Increment", () => {
     }).pipe(Effect.provide(FirestoreEncoder.layer)),
   );
 });
+
+class Profile extends FirestoreModel.Class<Profile>("Profile")({
+  name: Schema.String,
+  nickname: FirestoreModel.Optional(Schema.String),
+}) {}
+
+describe("DeleteField", () => {
+  it.effect("writes the sentinel the Admin SDK removes the field with", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(FirestoreSchema.DeleteField)(
+        FieldValue.deleteField,
+      );
+      expect(encoded).toBeInstanceOf(NativeFieldValue);
+      expect(encoded).toStrictEqual(NativeFieldValue.delete());
+    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+  );
+
+  it.effect("writes an update the Admin SDK can apply as it stands", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Profile.update)(
+        Profile.update.make({ nickname: FieldValue.deleteField }),
+      );
+      expect(encoded).toStrictEqual({ nickname: NativeFieldValue.delete() });
+    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+  );
+});

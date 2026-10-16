@@ -21,11 +21,15 @@ class SdkIncrement {
   constructor(readonly by: number) {}
 }
 
+/** Stands in for an SDK's own sentinel. */
+class SdkDeleteField {}
+
 const encoder = Layer.succeed(FirestoreEncoder)(
   FirestoreEncoder.of({
     timestamp: (value) => new SdkTimestamp(value.seconds, value.nanoseconds),
     serverTimestamp: () => new SdkServerTimestamp(),
     increment: (by) => new SdkIncrement(by),
+    deleteField: () => new SdkDeleteField(),
   }),
 );
 
@@ -324,5 +328,60 @@ describe("IncrementOr", () => {
       // @ts-expect-error the type is held to the same as the constructor
       FirestoreSchema.IncrementOr<Schema.String>
     >().not.toBeNever();
+  });
+});
+
+describe("DeleteField", () => {
+  it.effect("writes the sentinel the encoder builds", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(FirestoreSchema.DeleteField)(
+        FieldValue.deleteField,
+      );
+      expect(encoded).toBeInstanceOf(SdkDeleteField);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("refuses to be read, since a field removed is not there to read", () =>
+    Effect.gen(function* () {
+      const failure = yield* Effect.flip(
+        Schema.decodeEffect(FirestoreSchema.DeleteField)(new SdkDeleteField()),
+      );
+      expect(failure).toBeDefined();
+    }),
+  );
+
+  it("asks for an encoder to write", () => {
+    expectTypeOf<
+      (typeof FirestoreSchema.DeleteField)["EncodingServices"]
+    >().toEqualTypeOf<FirestoreEncoder>();
+  });
+
+  it("keeps its own name through a rebuild", () => {
+    expectTypeOf(
+      FirestoreSchema.DeleteField.annotate({}),
+    ).toEqualTypeOf<FirestoreSchema.DeleteField>();
+  });
+});
+
+describe("DeleteFieldOr", () => {
+  const Nickname = FirestoreSchema.DeleteFieldOr(Schema.String);
+  const encode = Schema.encodeEffect(Nickname);
+
+  it.effect("writes the value it was handed", () =>
+    Effect.gen(function* () {
+      expect(yield* encode("ally")).toBe("ally");
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("writes the sentinel just as readily", () =>
+    Effect.gen(function* () {
+      expect(yield* encode(FieldValue.deleteField)).toBeInstanceOf(SdkDeleteField);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it("keeps the schema it was handed", () => {
+    expectTypeOf<FirestoreSchema.DeleteFieldOr<Schema.String>["Type"]>().toEqualTypeOf<
+      string | FieldValue.DeleteField
+    >();
   });
 });

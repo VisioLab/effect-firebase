@@ -36,6 +36,13 @@ export interface FirestoreEncoder {
    * is as opaque here as the one above.
    */
   readonly increment: (by: number) => unknown;
+  /**
+   * The sentinel standing in for a field the write removes.
+   *
+   * It carries nothing, as the server timestamp carries nothing, and what
+   * comes back is that SDK's `FieldValue`, as opaque here as the others.
+   */
+  readonly deleteField: () => unknown;
 }
 
 /**

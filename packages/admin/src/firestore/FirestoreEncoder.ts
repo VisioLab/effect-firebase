@@ -17,6 +17,7 @@ export const make: FirestoreEncoder = {
   timestamp: ({ seconds, nanoseconds }) => new Timestamp(seconds, nanoseconds),
   serverTimestamp: () => FieldValue.serverTimestamp(),
   increment: (by) => FieldValue.increment(by),
+  deleteField: () => FieldValue.delete(),
 };
 
 /**

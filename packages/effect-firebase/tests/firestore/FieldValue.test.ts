@@ -58,3 +58,23 @@ describe("decrement", () => {
     expect(Equal.equals(FieldValue.decrement(2), FieldValue.increment(-2))).toBe(true);
   });
 });
+
+describe("deleteField", () => {
+  it("is the one sentinel there is", () => {
+    expect(FieldValue.isDeleteField(FieldValue.deleteField)).toBe(true);
+    expect(FieldValue.isDeleteField({})).toBe(false);
+    expect(Equal.equals(FieldValue.deleteField, FieldValue.deleteField)).toBe(true);
+  });
+
+  it("is told apart from the other sentinels", () => {
+    expect(FieldValue.isDeleteField(FieldValue.serverTimestamp)).toBe(false);
+    expect(FieldValue.isDeleteField(FieldValue.increment(1))).toBe(false);
+    expect(FieldValue.isServerTimestamp(FieldValue.deleteField)).toBe(false);
+    expect(FieldValue.isIncrement(FieldValue.deleteField)).toBe(false);
+  });
+
+  it("says what it is when printed", () => {
+    expect(FieldValue.deleteField.toJSON()).toEqual({ _id: "DeleteField" });
+    expect(FieldValue.deleteField.toString()).toContain("DeleteField");
+  });
+});

@@ -130,3 +130,50 @@ export const increment = (by: number): Increment => {
  * @since 0.0.0
  */
 export const decrement = (by: number): Increment => increment(-by);
+
+const DeleteFieldTypeId = "~@visiolab/effect-firebase/firestore/FieldValue/DeleteField";
+
+/**
+ * A stand-in for a field the write removes.
+ *
+ * Leaving a field out of an update leaves it as it is, so taking one away has
+ * to be asked for. This is how: the server drops the field from the document,
+ * and a read that follows finds no key at all rather than one holding nothing.
+ *
+ * Only an update asks for it. A document written whole - `set` without
+ * `merge` - removes a field by leaving it out, and Firestore refuses the
+ * sentinel there.
+ *
+ * @category models
+ * @since 0.0.0
+ */
+export interface DeleteField extends Inspectable.Inspectable {
+  readonly [DeleteFieldTypeId]: typeof DeleteFieldTypeId;
+}
+
+const DeleteFieldProto: DeleteField = {
+  ...Inspectable.BaseProto,
+  [DeleteFieldTypeId]: DeleteFieldTypeId,
+  toJSON() {
+    return { _id: "DeleteField" };
+  },
+};
+
+/**
+ * The only {@link DeleteField} there is.
+ *
+ * It carries nothing, as {@link serverTimestamp} carries nothing, so one is
+ * enough. It is not called `delete`, which is a word JavaScript keeps for
+ * itself - the web SDK calls its own `deleteField` for the same reason.
+ *
+ * @category constructors
+ * @since 0.0.0
+ */
+export const deleteField: DeleteField = Object.create(DeleteFieldProto) as DeleteField;
+
+/**
+ * @category guards
+ * @since 0.0.0
+ */
+export const isDeleteField = (u: unknown): u is DeleteField =>
+  Predicate.hasProperty(u, DeleteFieldTypeId);

@@ -276,3 +276,74 @@ export interface IncrementOr<
 export const IncrementOr = <S extends Schema.Codec<unknown, number, unknown, unknown>>(
   schema: S,
 ): IncrementOr<S> => Schema.Union([schema, Increment]);
+
+const DeleteFieldValue = Schema.declare<FieldValue.DeleteField>(FieldValue.isDeleteField, {
+  representation: {
+    id: "@visiolab/effect-firebase/firestore/FieldValue/DeleteField",
+    payload: null,
+  },
+  expected: "a field deletion",
+});
+
+/**
+ * Type-level representation of {@link DeleteField}.
+ *
+ * @category models
+ * @since 0.0.0
+ */
+export interface DeleteField extends Schema.decodeTo<
+  Schema.declare<FieldValue.DeleteField>,
+  Schema.Unknown,
+  never,
+  FirestoreEncoder
+> {
+  readonly Rebuild: DeleteField;
+}
+
+/**
+ * Schema that writes the sentinel standing in for a field the write removes.
+ *
+ * A call site hands it {@link FieldValue.deleteField}, and the encoder turns it
+ * into the sentinel its SDK writes. Unlike {@link ServerTimestamp} it does not
+ * fill itself in, since a field is removed on purpose or not at all.
+ *
+ * This one only goes one way, as the other sentinels do. A field removed is
+ * not there to read, so a read of the same is an optional key - see
+ * {@link DeleteFieldOr} for the pair.
+ *
+ * @category schemas
+ * @since 0.0.0
+ */
+export const DeleteField: DeleteField = Schema.Unknown.pipe(
+  Schema.decodeTo(DeleteFieldValue, {
+    decode: SchemaGetter.forbidden(() => "A field deletion is only ever written, never read back"),
+    encode: SchemaGetter.transformEffect(() =>
+      Effect.map(FirestoreEncoder, (encoder) => encoder.deleteField()),
+    ),
+  }),
+);
+
+/**
+ * Type-level representation of {@link DeleteFieldOr}.
+ *
+ * @category models
+ * @since 0.0.0
+ */
+export interface DeleteFieldOr<S extends Schema.Top> extends Schema.Union<
+  readonly [S, DeleteField]
+> {
+  readonly Rebuild: DeleteFieldOr<S>;
+}
+
+/**
+ * Schema for a field an update either writes or removes.
+ *
+ * This is the update side of an optional field, and `schema` is what the field
+ * holds while it is there. It belongs in an update and nowhere else: a read
+ * never holds the sentinel, and a document written whole refuses it.
+ *
+ * @category schemas
+ * @since 0.0.0
+ */
+export const DeleteFieldOr = <S extends Schema.Top>(schema: S): DeleteFieldOr<S> =>
+  Schema.Union([schema, DeleteField]);
