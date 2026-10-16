@@ -212,11 +212,11 @@ catalogs:
       specifier: 0.51.0
       version: 0.51.0
     '@effect/vitest':
-      specifier: ^4.0.1
-      version: 4.0.1
+      specifier: ^4.0.4
+      version: 4.0.4
     effect:
-      specifier: ^4.0.1
-      version: 4.0.1
+      specifier: ^4.0.4
+      version: 4.0.4
     firebase-admin:
       specifier: ^14.2.0
       version: 14.4.0
@@ -258,13 +258,13 @@ importers:
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
-        version: 4.0.1(effect@4.0.1)(vitest@5.0.4(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(@vitest/browser-preview@5.0.3)(@voidzero-dev/vite-plus-core@1.1.0(@types/node@26.2.0)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)))
+        version: 4.0.4(effect@4.0.4)(vitest@5.0.4(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(@vitest/browser-preview@5.0.3)(@voidzero-dev/vite-plus-core@1.1.0(@types/node@26.2.0)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)))
       '@visiolab/effect-firebase':
         specifier: workspace:^
         version: link:../effect-firebase
       effect:
         specifier: 'catalog:'
-        version: 4.0.1
+        version: 4.0.4
       firebase-admin:
         specifier: 'catalog:'
         version: 14.4.0
@@ -285,10 +285,10 @@ importers:
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
-        version: 4.0.1(effect@4.0.1)(vitest@5.0.4(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(@vitest/browser-preview@5.0.3)(@voidzero-dev/vite-plus-core@1.1.0(@types/node@26.2.0)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)))
+        version: 4.0.4(effect@4.0.4)(vitest@5.0.4(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(@vitest/browser-preview@5.0.3)(@voidzero-dev/vite-plus-core@1.1.0(@types/node@26.2.0)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)))
       effect:
         specifier: 'catalog:'
-        version: 4.0.1
+        version: 4.0.4
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -427,10 +427,10 @@ packages:
     resolution: {integrity: sha512-USDPT8AJCq1xc8+C8gyroohI0aJ9SZmmnSQRUEKzEMiBMJFpVuadXKqkHQ1DGOwZDeu2NDz/tLXxDD/vtel1bA==}
     hasBin: true
 
-  '@effect/vitest@4.0.1':
-    resolution: {integrity: sha512-DbY9kf/018zBxRIX7rJwBnPVPzSarnUpcshm0vfYPFiDkSa7AFrXTh2BlDNUbrdrmqcIOBhVZ7GkEtxf8WiQrg==}
+  '@effect/vitest@4.0.4':
+    resolution: {integrity: sha512-l5KN46RbDVpqZxWzwXZtX6FVQiyzd+/hTYqL543uSDRo7hC0m19IeICh6O9U/nqCtfersqsNZnBjgHFfkuHsBw==}
     peerDependencies:
-      effect: ^4.0.1
+      effect: ^4.0.4
       vitest: 5.0.4
 
   '@fastify/busboy@3.2.2':
@@ -1466,8 +1466,8 @@ packages:
   ecdsa-sig-formatter@1.0.11:
     resolution: {integrity: sha512-nagl3RYrbNv6kQkeJIpt6NJZy8twLB/2vtz6yN9Z4vRKHN4/QZJIEbqohALSgwKdnksuY3k5Addp5lg8sVoVcQ==}
 
-  effect@4.0.1:
-    resolution: {integrity: sha512-b1VlQG9g8fwxE5QnIZuPoOP/0MsqHJSRKxUijjoM80E5q95FXrX5yWtY5XI8G+GJsBQAVSDbLS458z9a++uVvw==}
+  effect@4.0.4:
+    resolution: {integrity: sha512-Sr50OeVSC3M5UkoUYUhFf3EULryhGaZZUf6OzDHTvaznOw7HRlxOKdF3/4nvQXHL22StOyMG3Cvo8Bt7xUp+Ng==}
 
   emoji-regex@8.0.0:
     resolution: {integrity: sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A==}
@@ -2439,9 +2439,9 @@ snapshots:
       '@effect/tsgo-win32-arm64': 0.51.0
       '@effect/tsgo-win32-x64': 0.51.0
 
-  '@effect/vitest@4.0.1(effect@4.0.1)(vitest@5.0.4(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(@vitest/browser-preview@5.0.3)(@voidzero-dev/vite-plus-core@1.1.0(@types/node@26.2.0)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)))':
+  '@effect/vitest@4.0.4(effect@4.0.4)(vitest@5.0.4(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(@vitest/browser-preview@5.0.3)(@voidzero-dev/vite-plus-core@1.1.0(@types/node@26.2.0)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)))':
     dependencies:
-      effect: 4.0.1
+      effect: 4.0.4
       vitest: 5.0.4(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(@vitest/browser-preview@5.0.3)(@voidzero-dev/vite-plus-core@1.1.0(@types/node@26.2.0)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0))
 
   '@fastify/busboy@3.2.2': {}
@@ -3175,7 +3175,7 @@ snapshots:
     dependencies:
       safe-buffer: 5.2.1
 
-  effect@4.0.1: {}
+  effect@4.0.4: {}
 
   emoji-regex@8.0.0:
     optional: true

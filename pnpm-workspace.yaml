@@ -8,8 +8,8 @@ catalogMode: prefer
 catalog:
   "@changesets/cli": ^3.0.3
   "@effect/tsgo": 0.51.0
-  "@effect/vitest": ^4.0.1
-  effect: ^4.0.1
+  "@effect/vitest": ^4.0.4
+  effect: ^4.0.4
   firebase-admin: ^14.2.0
   typescript: ^7.0.2
   vite: npm:@voidzero-dev/vite-plus-core@1.1.0
