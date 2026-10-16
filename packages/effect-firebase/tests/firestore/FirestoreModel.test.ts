@@ -5,6 +5,7 @@ import * as FieldValue from "../../src/firestore/FieldValue.ts";
 import { FirestoreEncoder } from "../../src/firestore/FirestoreEncoder.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
 import * as FirestoreSchema from "../../src/firestore/FirestoreSchema.ts";
+import * as GeoPoint from "../../src/firestore/GeoPoint.ts";
 import * as Timestamp from "../../src/firestore/Timestamp.ts";
 
 /** Stands in for an SDK's own `Timestamp`. */
@@ -12,6 +13,14 @@ class SdkTimestamp implements Timestamp.TimestampLike {
   constructor(
     readonly seconds: number,
     readonly nanoseconds: number,
+  ) {}
+}
+
+/** Stands in for an SDK's own `GeoPoint`. */
+class SdkGeoPoint implements GeoPoint.GeoPointLike {
+  constructor(
+    readonly latitude: number,
+    readonly longitude: number,
   ) {}
 }
 
@@ -51,6 +60,7 @@ class SdkDocumentReference implements Collection.DocumentReferenceLike {
 const encoder = Layer.succeed(FirestoreEncoder)(
   FirestoreEncoder.of({
     timestamp: (value) => new SdkTimestamp(value.seconds, value.nanoseconds),
+    geoPoint: (value) => new SdkGeoPoint(value.latitude, value.longitude),
     documentReference: (ref) => new SdkDocumentReference(ref.path),
     serverTimestamp: () => new SdkServerTimestamp(),
     increment: (by) => new SdkIncrement(by),
@@ -891,6 +901,43 @@ describe("a field holding a document reference", () => {
       expect(encoded.author).toBeInstanceOf(SdkDocumentReference);
       expect(encoded["meta.category"]).toBeInstanceOf(SdkDocumentReference);
       expect(encoded["meta.category"]?.path).toBe("categories/news");
+    }).pipe(Effect.provide(encoder)),
+  );
+});
+
+class Landmark extends FirestoreModel.Class<Landmark>("Landmark")({
+  name: Schema.String,
+  location: FirestoreSchema.GeoPoint,
+}) {}
+
+describe("a geopoint field", () => {
+  it.effect("decodes from a snapshot", () =>
+    Effect.gen(function* () {
+      const landmark = yield* Schema.decodeEffect(Landmark)({
+        name: "Fernsehturm",
+        location: new SdkGeoPoint(52.52, 13.405),
+      });
+      expect(GeoPoint.isGeoPoint(landmark.location)).toBe(true);
+      expect(landmark.location.latitude).toBe(52.52);
+    }),
+  );
+
+  it.effect("is written as the SDK's own by create", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Landmark.create)(
+        Landmark.create.make({ name: "Fernsehturm", location: GeoPoint.makeUnsafe(52.52, 13.405) }),
+      );
+      expect(encoded.location).toBeInstanceOf(SdkGeoPoint);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("is written as the SDK's own by update, rather than flattened as a map", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Landmark.update)(
+        Landmark.update.make({ location: GeoPoint.makeUnsafe(52.52, 13.405) }),
+      );
+      expect(Object.keys(encoded)).toEqual(["location"]);
+      expect(encoded.location).toBeInstanceOf(SdkGeoPoint);
     }).pipe(Effect.provide(encoder)),
   );
 });

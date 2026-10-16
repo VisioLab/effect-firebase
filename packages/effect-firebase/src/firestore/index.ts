@@ -29,4 +29,9 @@ export * as FirestoreSchema from "./FirestoreSchema.ts";
  * @stability unstable
  * @since 0.2.0
  */
+export * as GeoPoint from "./GeoPoint.ts";
+/**
+ * @stability unstable
+ * @since 0.2.0
+ */
 export * as Timestamp from "./Timestamp.ts";
