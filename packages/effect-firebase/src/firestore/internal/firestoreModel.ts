@@ -1,4 +1,4 @@
-import { Predicate, Schema, SchemaGetter } from "effect";
+import { Predicate, Schema, SchemaAST, SchemaGetter } from "effect";
 import { VariantSchema } from "effect/schema";
 import type * as FirestoreModel from "../FirestoreModel.ts";
 import type * as Timestamp_ from "../Timestamp.ts";
@@ -48,6 +48,30 @@ interface Groups {
 const updateSchema = (field: unknown): Schema.Top | undefined =>
   VariantSchema.isField(field) ? (field.schemas as any).update : (field as Schema.Top);
 
+// What Effect itself strips a default with, though it is left out of the
+// typings.
+const replaceContext = (SchemaAST as any).replaceContext as <A extends SchemaAST.AST>(
+  ast: A,
+  context: SchemaAST.Context,
+) => A;
+
+/**
+ * Drops the default a field is constructed with. A patch leaves a key out to
+ * keep what the document holds, so filling one in would overwrite it.
+ */
+const withoutConstructorDefault = (schema: Schema.Top): Schema.Top => {
+  const context = schema.ast.context;
+  if (context?.constructorDefault === undefined) {
+    return schema;
+  }
+  return Schema.make(
+    replaceContext(
+      schema.ast,
+      new SchemaAST.Context(context.isOptional, context.isMutable, undefined, context.annotations),
+    ),
+  );
+};
+
 /** The fields of the group a field reaches into, if it is one. */
 const groupOf = (
   field: unknown,
@@ -93,8 +117,9 @@ const build = (
       }
       groups[key] = inner.groups;
     } else {
-      const schema = updateSchema(field);
-      if (schema !== undefined) {
+      const update = updateSchema(field);
+      if (update !== undefined) {
+        const schema = withoutConstructorDefault(update);
         schemas[key] = Schema.optionalKey(schema);
         paths[path] = Schema.optionalKey(schema);
       }

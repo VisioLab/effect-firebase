@@ -851,6 +851,61 @@ describe("a group a document may go without", () => {
   });
 });
 
+describe("a field with a constructor default", () => {
+  const Archived = Schema.Boolean.pipe(Schema.withConstructorDefault(Effect.succeed(false)));
+
+  class Doc extends FirestoreModel.Class<Doc>("Doc")({
+    name: Schema.String,
+    archived: Archived,
+    meta: FirestoreModel.Struct({ title: Schema.String, archived: Archived }),
+    extra: FirestoreModel.Optional(
+      FirestoreModel.Struct({ note: Schema.String, archived: Archived }),
+    ),
+  }) {}
+
+  it.effect("fills it in where a document is created", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Doc.create)(
+        Doc.create.make({ name: "a", meta: { title: "t" } }),
+      );
+      expect(encoded).toStrictEqual({
+        name: "a",
+        archived: false,
+        meta: { title: "t", archived: false },
+      });
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("leaves it out of an update handed nothing for it", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Doc.update)(Doc.update.make({ name: "b" }));
+      expect(encoded).toStrictEqual({ name: "b" });
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("leaves it out at any depth", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Doc.update)(
+        Doc.update.make({ meta: { title: "t" }, extra: { note: "n" } }),
+      );
+      expect(encoded).toStrictEqual({ "meta.title": "t", "extra.note": "n" });
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("writes it where an update was handed it", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Doc.update)(
+        Doc.update.make({ archived: true, meta: { archived: true }, extra: { archived: true } }),
+      );
+      expect(encoded).toStrictEqual({
+        archived: true,
+        "meta.archived": true,
+        "extra.archived": true,
+      });
+    }).pipe(Effect.provide(encoder)),
+  );
+});
+
 describe("a field holding a document reference", () => {
   const Users = Collection.make("users", Schema.Struct({ name: Schema.String }));
   const Categories = Collection.make("categories", Schema.Struct({ label: Schema.String }));
