@@ -6,7 +6,7 @@
  * that definition, so a path can only be built out of the ids that actually
  * locate it.
  *
- * @since 0.0.0
+ * @since 0.1.0
  */
 import type { Brand, Equal, Inspectable, Schema } from "effect";
 import * as collection from "./internal/collection.ts";
@@ -19,7 +19,7 @@ const DocumentReferenceTypeId = collection.DocumentReferenceTypeId;
  * A path segment together with the schema of the documents stored under it.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export type Level = readonly [segment: string, schema: Schema.Top];
 
@@ -31,7 +31,7 @@ export type Level = readonly [segment: string, schema: Schema.Top];
  * what lets the ids that address a collection stay typed all the way up.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export type Levels = readonly [Level, ...ReadonlyArray<Level>];
 
@@ -83,7 +83,7 @@ type AncestorsOf<L extends Levels> = L extends readonly [...infer I, Level]
  * an id a compile-time check rather than a runtime throw.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export interface IdSchema<T extends string> extends Schema.Codec<T, string> {
   readonly "~type.make.in": string;
@@ -98,7 +98,7 @@ export interface IdSchema<T extends string> extends Schema.Codec<T, string> {
  * reference once the ids that address it are known.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export interface Collection<L extends Levels> extends Inspectable.Inspectable {
   readonly [CollectionTypeId]: typeof CollectionTypeId;
@@ -152,7 +152,7 @@ export interface Collection<L extends Levels> extends Inspectable.Inspectable {
  * position in {@link Collection.doc}, which makes it invariant.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export type Any = Collection<any>;
 
@@ -160,7 +160,7 @@ export type Any = Collection<any>;
  * The id of a document in `C`.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export type Id<C extends Any> = IdOf<C["~levels"]>;
 
@@ -168,7 +168,7 @@ export type Id<C extends Any> = IdOf<C["~levels"]>;
  * One id per ancestor of `C`, ordered from the root down.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export type Ancestors<C extends Any> = AncestorsOf<C["~levels"]>;
 
@@ -176,7 +176,7 @@ export type Ancestors<C extends Any> = AncestorsOf<C["~levels"]>;
  * The schema of the documents in `C`.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export type DocumentSchema<C extends Any> = Leaf<C["~levels"]>[1];
 
@@ -184,7 +184,7 @@ export type DocumentSchema<C extends Any> = Leaf<C["~levels"]>[1];
  * A reference to one collection, addressed by the ids of its ancestors.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export interface CollectionReference<C extends Any> extends Inspectable.Inspectable, Equal.Equal {
   readonly [CollectionReferenceTypeId]: typeof CollectionReferenceTypeId;
@@ -209,7 +209,7 @@ export interface CollectionReference<C extends Any> extends Inspectable.Inspecta
  * A reference to one document.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export interface DocumentReference<C extends Any> extends Inspectable.Inspectable, Equal.Equal {
   readonly [DocumentReferenceTypeId]: typeof DocumentReferenceTypeId;
@@ -227,20 +227,20 @@ export interface DocumentReference<C extends Any> extends Inspectable.Inspectabl
 
 /**
  * @category guards
- * @since 0.0.0
+ * @since 0.1.0
  */
 export const isCollection: (u: unknown) => u is Any = collection.isCollection;
 
 /**
  * @category guards
- * @since 0.0.0
+ * @since 0.1.0
  */
 export const isCollectionReference: (u: unknown) => u is CollectionReference<Any> =
   collection.isCollectionReference;
 
 /**
  * @category guards
- * @since 0.0.0
+ * @since 0.1.0
  */
 export const isDocumentReference: (u: unknown) => u is DocumentReference<Any> =
   collection.isDocumentReference;
@@ -256,7 +256,7 @@ export const isDocumentReference: (u: unknown) => u is DocumentReference<Any> =
  * can recover from.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.1.0
  */
 export const make: <const Segment extends string, S extends Schema.Top>(
   segment: Segment,

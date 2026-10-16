@@ -6,7 +6,7 @@
  * it is, it would be stored as a nested map rather than as a timestamp, and
  * nothing would report it.
  *
- * @since 0.0.0
+ * @since 0.2.0
  */
 import { Context } from "effect";
 import type * as Timestamp from "./Timestamp.ts";
@@ -15,7 +15,7 @@ import type * as Timestamp from "./Timestamp.ts";
  * Builds the values one SDK writes.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface FirestoreEncoder {
   readonly timestamp: (value: Timestamp.Timestamp) => Timestamp.TimestampLike;
@@ -53,7 +53,7 @@ export interface FirestoreEncoder {
  * a sentinel is gone by the time a document is read.
  *
  * @category services
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const FirestoreEncoder = Context.Service<FirestoreEncoder>(
   "@visiolab/effect-firebase/firestore/FirestoreEncoder",

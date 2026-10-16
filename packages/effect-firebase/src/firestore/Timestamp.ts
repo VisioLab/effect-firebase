@@ -9,7 +9,7 @@
  * The codecs that read and write it live in `Firestore/FirestoreSchema`, which keeps this
  * module free of the schema machinery.
  *
- * @since 0.0.0
+ * @since 0.2.0
  */
 import type { DateTime, Effect, Equal, Inspectable, Option, Order as order } from "effect";
 import * as timestamp from "./internal/timestamp.ts";
@@ -23,7 +23,7 @@ const TypeId = timestamp.TypeId;
  * fields, so this is the shape a document arrives in whichever one read it.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface TimestampLike {
   /** Seconds since the Unix epoch, which is negative before it. */
@@ -40,7 +40,7 @@ export interface TimestampLike {
  * trip through the database intact.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface Timestamp extends TimestampLike, Equal.Equal, Inspectable.Inspectable {
   readonly [TypeId]: typeof TypeId;
@@ -50,7 +50,7 @@ export interface Timestamp extends TimestampLike, Equal.Equal, Inspectable.Inspe
  * Whether `u` is a {@link Timestamp} this module built.
  *
  * @category guards
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const isTimestamp: (u: unknown) => u is Timestamp = timestamp.isTimestamp;
 
@@ -62,7 +62,7 @@ export const isTimestamp: (u: unknown) => u is Timestamp = timestamp.isTimestamp
  * own `Timestamp` passes, because it carries the same two fields.
  *
  * @category guards
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const isTimestampLike: (u: unknown) => u is TimestampLike = timestamp.isTimestampLike;
 
@@ -73,7 +73,7 @@ export const isTimestampLike: (u: unknown) => u is TimestampLike = timestamp.isT
  * @see {@link make} for the same check without the throw.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const makeUnsafe: (seconds: number, nanoseconds: number) => Timestamp = timestamp.makeUnsafe;
 
@@ -82,7 +82,7 @@ export const makeUnsafe: (seconds: number, nanoseconds: number) => Timestamp = t
  * do not describe an instant Firestore can address.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const make: (seconds: number, nanoseconds: number) => Option.Option<Timestamp> =
   timestamp.make;
@@ -92,7 +92,7 @@ export const make: (seconds: number, nanoseconds: number) => Option.Option<Times
  * fall outside the range Firestore addresses.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const fromMillisUnsafe: (millis: number) => Timestamp = timestamp.fromMillisUnsafe;
 
@@ -101,7 +101,7 @@ export const fromMillisUnsafe: (millis: number) => Timestamp = timestamp.fromMil
  * they fall outside the range Firestore addresses.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const fromMillis: (millis: number) => Option.Option<Timestamp> = timestamp.fromMillis;
 
@@ -112,7 +112,7 @@ export const fromMillis: (millis: number) => Option.Option<Timestamp> = timestam
  * which is to say those outside the years 1 to 9999.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const fromDateTimeUnsafe: (dateTime: DateTime.Utc) => Timestamp =
   timestamp.fromDateTimeUnsafe;
@@ -122,7 +122,7 @@ export const fromDateTimeUnsafe: (dateTime: DateTime.Utc) => Timestamp =
  * instants a `DateTime` can hold and Firestore cannot.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const fromDateTime: (dateTime: DateTime.Utc) => Option.Option<Timestamp> =
   timestamp.fromDateTime;
@@ -133,7 +133,7 @@ export const fromDateTime: (dateTime: DateTime.Utc) => Option.Option<Timestamp> 
  * Throws when the fields fall outside the range Firestore addresses.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const fromTimestampLikeUnsafe: (like: TimestampLike) => Timestamp =
   timestamp.fromTimestampLikeUnsafe;
@@ -144,7 +144,7 @@ export const fromTimestampLikeUnsafe: (like: TimestampLike) => Timestamp =
  * This is the time here rather than the time at the database.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const now: Effect.Effect<Timestamp> = timestamp.now;
 
@@ -152,7 +152,7 @@ export const now: Effect.Effect<Timestamp> = timestamp.now;
  * Milliseconds since the Unix epoch, dropping the finer digits.
  *
  * @category conversions
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const toMillis: (self: Timestamp) => number = timestamp.toMillis;
 
@@ -160,7 +160,7 @@ export const toMillis: (self: Timestamp) => number = timestamp.toMillis;
  * The same instant as a `DateTime.Utc`, to the millisecond.
  *
  * @category conversions
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const toDateTime: (self: Timestamp) => DateTime.Utc = timestamp.toDateTime;
 
@@ -168,6 +168,6 @@ export const toDateTime: (self: Timestamp) => DateTime.Utc = timestamp.toDateTim
  * Orders timestamps by when they happened, to the full precision they carry.
  *
  * @category ordering
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const Order: order.Order<TimestampLike> = timestamp.Order;

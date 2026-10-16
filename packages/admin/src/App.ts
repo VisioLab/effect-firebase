@@ -1,7 +1,7 @@
 /**
  * The Firebase Admin SDK app.
  *
- * @since 0.0.0
+ * @since 0.1.0
  */
 import { Context, Effect, Layer, Schema } from "effect";
 import type * as Admin from "firebase-admin/app";
@@ -11,7 +11,7 @@ import * as internalApp from "./internal/app.ts";
  * A Firebase Admin SDK app.
  *
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export interface App extends Admin.App {}
 
@@ -19,7 +19,7 @@ export interface App extends Admin.App {}
  * Service key for the Firebase Admin SDK app.
  *
  * @category services
- * @since 0.0.0
+ * @since 0.1.0
  */
 export const App = Context.Service<App>("@visiolab/effect-firebase-admin/App");
 
@@ -27,7 +27,7 @@ export const App = Context.Service<App>("@visiolab/effect-firebase-admin/App");
  * Raised when an app cannot be initialized.
  *
  * @category errors
- * @since 0.0.0
+ * @since 0.1.0
  */
 export class AppError extends Schema.TaggedError<AppError>()("AppError", {
   message: Schema.String,
@@ -50,7 +50,7 @@ export class AppError extends Schema.TaggedError<AppError>()("AppError", {
  * host initialized.
  *
  * @category constructors
- * @since 0.0.0
+ * @since 0.1.0
  */
 export const make = Effect.fn("App.make")(function* (options?: Admin.AppOptions, name?: string) {
   const { app } = yield* Effect.acquireRelease(
@@ -75,7 +75,7 @@ export const make = Effect.fn("App.make")(function* (options?: Admin.AppOptions,
  * @see {@link make} for how the app is initialized and torn down.
  *
  * @category layers
- * @since 0.0.0
+ * @since 0.1.0
  */
 export const layer = (options?: Admin.AppOptions, name?: string): Layer.Layer<App, AppError> =>
   Layer.effect(App, make(options, name));
