@@ -15,11 +15,12 @@
  * ```ts
  * import { Schema } from "effect";
  * import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
+ * import * as FirestoreSchema from "@visiolab/effect-firebase/firestore/FirestoreSchema";
  *
  * class User extends FirestoreModel.Class<User>("User")({
  *   displayName: Schema.String,
  *   signupSource: FirestoreModel.Immutable(Schema.String),
- *   createdAt: FirestoreModel.Timestamp,
+ *   createdAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
  * }) {}
  *
  * User        // what a snapshot decodes into
@@ -32,6 +33,7 @@
 import { Schema, Struct as Struct_ } from "effect";
 import { VariantSchema } from "effect/schema";
 import * as FirestoreSchema from "./FirestoreSchema.ts";
+import type * as Timestamp_ from "./Timestamp.ts";
 
 /**
  * The shapes a document is read and written in.
@@ -246,33 +248,49 @@ export const Immutable = <S extends Schema.Top>(schema: S): Immutable<S> =>
  * @category models
  * @since 0.0.0
  */
-export interface Timestamp extends VariantSchema.Field<{
-  readonly read: FirestoreSchema.Timestamp;
-  readonly create: FirestoreSchema.TimestampOrServer;
-  readonly update: FirestoreSchema.TimestampOrServer;
+export interface Timestamp<
+  S extends Schema.Codec<unknown, Timestamp_.TimestampLike, unknown, unknown>,
+> extends VariantSchema.Field<{
+  readonly read: S;
+  readonly create: FirestoreSchema.ServerTimestampOr<S>;
+  readonly update: FirestoreSchema.ServerTimestampOr<S>;
 }> {}
 
 /**
  * A timestamp field: stamped by this client, or left to the server.
  *
- * Both writes take either, and the read takes the timestamp alone, since that
- * is all a document ever holds. Leaving the sentinel open costs a call site
- * that never uses it nothing, and spares it from redeclaring the field the day
- * it does.
+ * Both writes take either, and the read takes `schema` alone, since the
+ * sentinel is gone by the time a document comes back. Leaving it open costs a
+ * call site that never uses it nothing, and spares it from redeclaring the
+ * field the day it does.
+ *
+ * What the instant is held as is `schema`'s to say:
+ * {@link FirestoreSchema.Timestamp} where the digits finer than a millisecond
+ * are to survive a round trip, {@link FirestoreSchema.DateTimeUtcFromTimestamp}
+ * where a `DateTime.Utc` is the easier value to hold onto.
+ *
+ * ```ts
+ * createdAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp)
+ * seenAt: FirestoreModel.Timestamp(FirestoreSchema.DateTimeUtcFromTimestamp)
+ * ```
  *
  * Where the server is to decide, a call site hands it
- * {@link FieldValue.serverTimestamp}. Where it never may, name
- * {@link FirestoreSchema.Timestamp} directly, which goes into every variant as
- * it stands.
+ * {@link FieldValue.serverTimestamp}. Where it never may, name the schema
+ * directly, which goes into every variant as it stands.
  *
  * @category schemas
  * @since 0.0.0
  */
-export const Timestamp: Timestamp = Field({
-  read: FirestoreSchema.Timestamp,
-  create: FirestoreSchema.TimestampOrServer,
-  update: FirestoreSchema.TimestampOrServer,
-});
+export const Timestamp = <
+  S extends Schema.Codec<unknown, Timestamp_.TimestampLike, unknown, unknown>,
+>(
+  schema: S,
+): Timestamp<S> =>
+  Field({
+    read: schema,
+    create: FirestoreSchema.ServerTimestampOr(schema),
+    update: FirestoreSchema.ServerTimestampOr(schema),
+  });
 
 /**
  * Type-level representation of {@link Number}.

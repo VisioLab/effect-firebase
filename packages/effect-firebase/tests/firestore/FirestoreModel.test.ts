@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { Effect, Layer, Schema } from "effect";
+import { DateTime, Effect, Layer, Schema } from "effect";
 import * as FieldValue from "../../src/firestore/FieldValue.ts";
 import { FirestoreEncoder } from "../../src/firestore/FirestoreEncoder.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
@@ -38,9 +38,9 @@ class User extends FirestoreModel.Class<User>("User")({
   // hand, since there is no named field for the shape yet.
   createdAt: FirestoreModel.Field({
     read: FirestoreSchema.Timestamp,
-    create: FirestoreSchema.TimestampOrServer,
+    create: FirestoreSchema.ServerTimestampOr(FirestoreSchema.Timestamp),
   }),
-  updatedAt: FirestoreModel.Timestamp,
+  updatedAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
 }) {}
 
 /** The shape a snapshot hands back, which is only ever known at runtime. */
@@ -219,43 +219,11 @@ describe("fields", () => {
   });
 });
 
-describe("fields", () => {
-  it("carries a group through every variant", () => {
-    const Address = FirestoreModel.Struct({
-      city: Schema.String,
-      verifiedAt: FirestoreModel.FieldOnly(["read"])(Schema.String),
-    });
-
-    class Place extends FirestoreModel.Class<Place>("Place")({
-      name: Schema.String,
-      address: Address,
-    }) {}
-
-    expect(Object.keys(Place.read.fields.address.fields).sort()).toEqual(["city", "verifiedAt"]);
-    expect(Object.keys(Place.create.fields.address.fields)).toEqual(["city"]);
-  });
-
-  it("holds a field only the named variants see", () => {
-    const field = FirestoreModel.FieldOnly(["create"])(Schema.String);
-    expect(Object.keys(field.schemas)).toEqual(["create"]);
-  });
-
-  it("hands back the definitions it was built from", () => {
-    expect(Object.keys(FirestoreModel.fields(User)).sort()).toEqual([
-      "createdAt",
-      "displayName",
-      "plan",
-      "signupSource",
-      "updatedAt",
-    ]);
-  });
-});
-
 describe("a field written either way", () => {
   /** Reads as a timestamp, and is written as one or left to the server. */
   class Event extends FirestoreModel.Class<Event>("Event")({
     name: Schema.String,
-    occurredAt: FirestoreModel.Timestamp,
+    occurredAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
   }) {}
 
   it("keeps the encoder it asks for, rather than widening to unknown", () => {
@@ -288,6 +256,29 @@ describe("a field written either way", () => {
       } as unknown);
       expect(Timestamp.isTimestamp(event.occurredAt)).toBe(true);
     }),
+  );
+
+  it.effect("holds the instant the way the schema it was handed does", () =>
+    Effect.gen(function* () {
+      class Visit extends FirestoreModel.Class<Visit>("Visit")({
+        seenAt: FirestoreModel.Timestamp(FirestoreSchema.DateTimeUtcFromTimestamp),
+      }) {}
+
+      const visit = yield* Schema.decodeEffect(Visit)({
+        seenAt: new SdkTimestamp(1_700_000_000, 123_000_000),
+      });
+      expect(visit.seenAt).toStrictEqual(DateTime.makeUnsafe(1_700_000_000_123));
+
+      const stamped = yield* Schema.encodeEffect(Visit.update)(
+        Visit.update.make({ seenAt: DateTime.makeUnsafe(1_700_000_000_123) }),
+      );
+      expect(stamped.seenAt).toBeInstanceOf(SdkTimestamp);
+
+      const left = yield* Schema.encodeEffect(Visit.update)(
+        Visit.update.make({ seenAt: FieldValue.serverTimestamp }),
+      );
+      expect(left.seenAt).toBeInstanceOf(SdkServerTimestamp);
+    }).pipe(Effect.provide(encoder)),
   );
 });
 
