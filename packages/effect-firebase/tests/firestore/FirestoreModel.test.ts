@@ -1,11 +1,13 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { DateTime, Effect, Exit, Layer, Schema } from "effect";
+import type { VariantSchema } from "effect/schema";
 import * as Collection from "../../src/firestore/Collection.ts";
 import * as FieldValue from "../../src/firestore/FieldValue.ts";
 import { FirestoreEncoder } from "../../src/firestore/FirestoreEncoder.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
 import * as FirestoreSchema from "../../src/firestore/FirestoreSchema.ts";
 import * as GeoPoint from "../../src/firestore/GeoPoint.ts";
+import * as Patch from "../../src/firestore/Patch.ts";
 import * as Timestamp from "../../src/firestore/Timestamp.ts";
 
 /** Stands in for an SDK's own `Timestamp`. */
@@ -82,6 +84,13 @@ class User extends FirestoreModel.Class<User>("User")({
   }),
   updatedAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
 }) {}
+
+/** A model's update in either mode, for a test that holds for both. */
+const modes = <M extends FirestoreModel.Any>(model: M) =>
+  [
+    { mode: "update", update: model.update as M["update"] },
+    { mode: "updateUnchecked", update: model.updateUnchecked as M["updateUnchecked"] },
+  ] as const;
 
 /** The shape a snapshot hands back, which is only ever known at runtime. */
 const read = (overrides?: Partial<Record<string, unknown>>): unknown => ({
@@ -656,10 +665,10 @@ describe("an update reaching into a group", () => {
     expectTypeOf<keyof T>().toEqualTypeOf<"name" | "visits" | "address" | "tags">();
     type A = NonNullable<T["address"]>;
     expectTypeOf<keyof A>().toEqualTypeOf<"city" | "nickname" | "verifiedAt" | "geo">();
-    expectTypeOf<NonNullable<A["geo"]>>().toEqualTypeOf<{
-      readonly lat?: number;
-      readonly lng?: number;
-    }>();
+    expectTypeOf<NonNullable<A["geo"]>>().toEqualTypeOf<
+      | { readonly lat?: number; readonly lng?: number }
+      | Patch.Replace<{ readonly lat: number; readonly lng: number }>
+    >();
     expectTypeOf<NonNullable<T["tags"]>>().toEqualTypeOf<{ readonly primary: string }>();
   });
 
@@ -725,6 +734,7 @@ describe("an update reaching into a group", () => {
       | "address.city"
       | "address.nickname"
       | "address.verifiedAt"
+      | "address.geo"
       | "address.geo.lat"
       | "address.geo.lng"
       | "tags"
@@ -737,6 +747,7 @@ describe("an update reaching into a group", () => {
     >();
     expect(Object.keys(Place.update.from.fields).sort()).toEqual([
       "address.city",
+      "address.geo",
       "address.geo.lat",
       "address.geo.lng",
       "address.nickname",
@@ -745,6 +756,31 @@ describe("an update reaching into a group", () => {
       "tags",
       "visits",
     ]);
+  });
+
+  it.effect.each(modes(Place))(
+    "writes a group handed a replacement whole, at its path ($mode)",
+    ({ update }) =>
+      Effect.gen(function* () {
+        const encoded = yield* Schema.encodeEffect(update)(
+          update.make({ address: { geo: Patch.replace({ lat: 1, lng: 2 }) } }),
+        );
+        expect(encoded).toStrictEqual({ "address.geo": { lat: 1, lng: 2 } });
+      }).pipe(Effect.provide(encoder)),
+  );
+
+  it("refuses to replace a group holding a field no update writes", () => {
+    expect(() =>
+      Place.update.make({
+        // @ts-expect-error replacing the address would write `country`, which is written once
+        address: Patch.replace({
+          city: "Paris",
+          country: "FR",
+          verifiedAt: Timestamp.makeUnsafe(1, 2),
+          geo: { lat: 1, lng: 2 },
+        }),
+      }),
+    ).toThrow();
   });
 
   it("refuses a field name a path would read as two", () => {
@@ -757,10 +793,18 @@ describe("an update reaching into a group", () => {
 });
 
 describe("a group a document may go without", () => {
+  const Geo = FirestoreModel.Struct({
+    lat: Schema.Finite,
+    lng: Schema.Finite,
+  });
+
   const Address = FirestoreModel.Struct({
     city: Schema.String,
     nickname: FirestoreModel.Optional(Schema.String),
     verifiedAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
+    geo: Geo,
+    // Every field optional, so only a replacement writes it empty.
+    notes: FirestoreModel.Struct({ text: FirestoreModel.Optional(Schema.String) }),
   });
 
   class Place extends FirestoreModel.Class<Place>("Place")({
@@ -768,36 +812,88 @@ describe("a group a document may go without", () => {
     address: FirestoreModel.Optional(Address),
   }) {}
 
+  /** An address the way `set` would write it. */
+  const address = {
+    city: "Berlin",
+    verifiedAt: FieldValue.serverTimestamp,
+    geo: { lat: 1, lng: 2 },
+    notes: {},
+  } as const;
+
   it("is an optional key where it is read and created", () => {
     expectTypeOf<(typeof Place)["Type"]["address"]>().toEqualTypeOf<
       | {
           readonly city: string;
           readonly nickname?: string;
           readonly verifiedAt: Timestamp.Timestamp;
-        }
-      | undefined
-    >();
-    expectTypeOf<(typeof Place.create)["Type"]["address"]>().toEqualTypeOf<
-      | {
-          readonly city: string;
-          readonly nickname?: string;
-          readonly verifiedAt: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+          readonly geo: { readonly lat: number; readonly lng: number };
+          readonly notes: { readonly text?: string };
         }
       | undefined
     >();
   });
 
-  it("is a patch or a removal where it is updated", () => {
+  it("is a replacement or a removal where it is updated", () => {
     expectTypeOf<NonNullable<(typeof Place.update)["Type"]["address"]>>().toEqualTypeOf<
-      | {
-          readonly city?: string;
-          readonly nickname?: string | FieldValue.DeleteField;
-          readonly verifiedAt?: Timestamp.Timestamp | FieldValue.ServerTimestamp;
-        }
+      | Patch.Replace<{
+          readonly city: string;
+          readonly nickname?: string;
+          readonly verifiedAt: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+          readonly geo: { readonly lat: number; readonly lng: number };
+          readonly notes: { readonly text?: string };
+        }>
       | FieldValue.DeleteField
     >();
+  });
+
+  it("takes a patch besides where it is updated unchecked", () => {
+    type T = NonNullable<(typeof Place.updateUnchecked)["Type"]["address"]>;
+    expectTypeOf<Exclude<T, Patch.Replace<any> | FieldValue.DeleteField>>().toEqualTypeOf<{
+      readonly city?: string;
+      readonly nickname?: string | FieldValue.DeleteField;
+      readonly verifiedAt?: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+      readonly geo?:
+        | { readonly lat?: number; readonly lng?: number }
+        | Patch.Replace<{ readonly lat: number; readonly lng: number }>;
+      readonly notes?:
+        | { readonly text?: string | FieldValue.DeleteField }
+        | Patch.Replace<{ readonly text?: string }>;
+    }>();
+    expectTypeOf<Extract<T, Patch.Replace<any> | FieldValue.DeleteField>>().toEqualTypeOf<
+      NonNullable<(typeof Place.update)["Type"]["address"]>
+    >();
+  });
+
+  it("is written at the same paths in either mode", () => {
     expectTypeOf<keyof (typeof Place.update)["Encoded"]>().toEqualTypeOf<
-      "name" | "address" | "address.city" | "address.nickname" | "address.verifiedAt"
+      | "name"
+      | "address"
+      | "address.city"
+      | "address.nickname"
+      | "address.verifiedAt"
+      | "address.geo"
+      | "address.geo.lat"
+      | "address.geo.lng"
+      | "address.notes"
+      | "address.notes.text"
+    >();
+    expectTypeOf<(typeof Place.updateUnchecked)["Encoded"]>().toEqualTypeOf<
+      (typeof Place.update)["Encoded"]
+    >();
+  });
+
+  it("names the mode in the types an update is built from", () => {
+    type Fields = (typeof Place)[typeof VariantSchema.TypeId];
+    expectTypeOf<typeof Place.update>().toEqualTypeOf<FirestoreModel.Update<Fields>>();
+    expectTypeOf<typeof Place.update>().toEqualTypeOf<FirestoreModel.Update<Fields, "checked">>();
+    expectTypeOf<typeof Place.updateUnchecked>().toEqualTypeOf<
+      FirestoreModel.Update<Fields, "unchecked">
+    >();
+    expectTypeOf<FirestoreModel.UpdateFields<Fields, "unchecked">>().not.toEqualTypeOf<
+      FirestoreModel.UpdateFields<Fields, "checked">
+    >();
+    expectTypeOf<FirestoreModel.UpdatePaths<Fields, "unchecked">>().toEqualTypeOf<
+      FirestoreModel.UpdatePaths<Fields, "checked">
     >();
   });
 
@@ -808,7 +904,12 @@ describe("a group a document may go without", () => {
 
       const holding = yield* Schema.decodeUnknownEffect(Place)({
         name: "a",
-        address: { city: "Berlin", verifiedAt: new SdkTimestamp(1, 2) },
+        address: {
+          city: "Berlin",
+          verifiedAt: new SdkTimestamp(1, 2),
+          geo: { lat: 1, lng: 2 },
+          notes: {},
+        },
       } as unknown);
       expect(holding.address?.city).toBe("Berlin");
     }),
@@ -821,34 +922,225 @@ describe("a group a document may go without", () => {
     }).pipe(Effect.provide(encoder)),
   );
 
-  it.effect("removes the whole map", () =>
+  it.effect.each(modes(Place))("removes the whole map ($mode)", ({ update }) =>
     Effect.gen(function* () {
-      const encoded = yield* Schema.encodeEffect(Place.update)(
-        Place.update.make({ address: FieldValue.deleteField }),
+      const encoded = yield* Schema.encodeEffect(update)(
+        update.make({ address: FieldValue.deleteField }),
       );
       expect(Object.keys(encoded)).toEqual(["address"]);
       expect(encoded.address).toBeInstanceOf(SdkDeleteField);
     }).pipe(Effect.provide(encoder)),
   );
 
-  it.effect("still writes a patch field by field", () =>
+  it.effect.each(modes(Place))(
+    "writes a replacement whole, empty maps and sentinels and all ($mode)",
+    ({ update }) =>
+      Effect.gen(function* () {
+        const encoded = yield* Schema.encodeEffect(update)(
+          update.make({ address: Patch.replace(address) }),
+        );
+        expect(Object.keys(encoded)).toEqual(["address"]);
+        expect(encoded.address).toStrictEqual({
+          city: "Berlin",
+          verifiedAt: new SdkServerTimestamp(),
+          geo: { lat: 1, lng: 2 },
+          notes: {},
+        });
+      }).pipe(Effect.provide(encoder)),
+  );
+
+  it("refuses a patch, which would create a missing group holding only the patch", () => {
+    expect(() =>
+      // @ts-expect-error a missing address would be created holding only `city`
+      Place.update.make({ address: { city: "Berlin" } }),
+    ).toThrow();
+  });
+
+  it.effect("rejects encoding one too", () =>
     Effect.gen(function* () {
-      const encoded = yield* Schema.encodeEffect(Place.update)(
-        Place.update.make({
-          address: { city: "Berlin", nickname: FieldValue.deleteField },
-        }),
-      );
-      expect(Object.keys(encoded).sort()).toEqual(["address.city", "address.nickname"]);
-      expect(encoded["address.nickname"]).toBeInstanceOf(SdkDeleteField);
+      const exit = yield* Schema.encodeUnknownEffect(Place.update)({
+        address: { city: "Berlin" },
+      }).pipe(Effect.exit);
+      expect(Exit.isFailure(exit)).toBe(true);
     }).pipe(Effect.provide(encoder)),
   );
 
-  it("refuses the removal where a document is written whole", () => {
+  it("refuses a replacement that is not a whole group", () => {
+    expect(() =>
+      // @ts-expect-error a replacement is written whole, so it needs `verifiedAt`, `geo` and `notes`
+      Place.update.make({ address: Patch.replace({ city: "Berlin" }) }),
+    ).toThrow();
+  });
+
+  it.effect("writes a patch field by field where updated unchecked", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Place.updateUnchecked)(
+        Place.updateUnchecked.make({
+          address: {
+            city: "Berlin",
+            geo: { lat: 1 },
+            nickname: FieldValue.deleteField,
+            verifiedAt: FieldValue.serverTimestamp,
+          },
+        }),
+      );
+      expect(Object.keys(encoded).sort()).toEqual([
+        "address.city",
+        "address.geo.lat",
+        "address.nickname",
+        "address.verifiedAt",
+      ]);
+      expect(encoded["address.nickname"]).toBeInstanceOf(SdkDeleteField);
+      expect(encoded["address.verifiedAt"]).toBeInstanceOf(SdkServerTimestamp);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it("refuses the removal and the replacement where a document is written whole", () => {
     expect(() =>
       // @ts-expect-error `set` removes a map by leaving it out
       Place.create.make({ name: "a", address: FieldValue.deleteField }),
     ).toThrow();
+    expect(() =>
+      // @ts-expect-error `set` writes every map whole already
+      Place.create.make({ name: "a", address: Patch.replace(address) }),
+    ).toThrow();
   });
+});
+
+describe("a group a document may go without, inside one every document holds", () => {
+  class User extends FirestoreModel.Class<User>("User")({
+    profile: FirestoreModel.Struct({
+      bio: Schema.String,
+      address: FirestoreModel.Optional(
+        FirestoreModel.Struct({ city: Schema.String, zip: Schema.String }),
+      ),
+    }),
+  }) {}
+
+  it.effect("is replaced or removed at its path", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(User.update)(
+        User.update.make({
+          profile: { bio: "hi", address: Patch.replace({ city: "Berlin", zip: "10115" }) },
+        }),
+      );
+      expect(encoded).toStrictEqual({
+        "profile.bio": "hi",
+        "profile.address": { city: "Berlin", zip: "10115" },
+      });
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it("is not patched", () => {
+    expect(() =>
+      // @ts-expect-error a missing address would be created holding only `city`
+      User.update.make({ profile: { address: { city: "Berlin" } } }),
+    ).toThrow();
+  });
+});
+
+describe("a group holding a field no update writes", () => {
+  class Shop extends FirestoreModel.Class<Shop>("Shop")({
+    address: FirestoreModel.Optional(
+      FirestoreModel.Struct({
+        city: Schema.String,
+        country: FirestoreModel.Immutable(Schema.String),
+      }),
+    ),
+  }) {}
+
+  it("is only removed, since replacing it would write that field", () => {
+    expect(() =>
+      // @ts-expect-error `country` is written once
+      Shop.update.make({ address: Patch.replace({ city: "Berlin", country: "DE" }) }),
+    ).toThrow();
+    expect(() =>
+      // @ts-expect-error a missing address would be created holding only `city`
+      Shop.update.make({ address: { city: "Berlin" } }),
+    ).toThrow();
+    Shop.update.make({ address: FieldValue.deleteField });
+  });
+
+  it("is patched where updated unchecked", () => {
+    expect(Shop.updateUnchecked.make({ address: { city: "Berlin" } })).toStrictEqual({
+      address: { city: "Berlin" },
+    });
+  });
+
+  it("has no path of its own but the removal", () => {
+    expect(Object.keys(Shop.update.from.fields).sort()).toEqual(["address", "address.city"]);
+  });
+});
+
+describe("a group holding a field no set writes", () => {
+  class Doc extends FirestoreModel.Class<Doc>("Doc")({
+    group: FirestoreModel.Struct({
+      name: Schema.String,
+      // Kept up by updates alone, so a replacement written as `set` would drop it.
+      rank: FirestoreModel.FieldOnly(["read", "update"])(Schema.Finite),
+    }),
+  }) {}
+
+  it("is not replaced, since the replacement would drop that field", () => {
+    expect(() =>
+      // @ts-expect-error `rank` is never written by `set`
+      Doc.update.make({ group: Patch.replace({ name: "a", rank: 1 }) }),
+    ).toThrow();
+  });
+
+  it.effect("is still patched", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Doc.update)(
+        Doc.update.make({ group: { rank: 2 } }),
+      );
+      expect(encoded).toStrictEqual({ "group.rank": 2 });
+    }).pipe(Effect.provide(encoder)),
+  );
+});
+
+describe("a replacement handed to a field that is no group", () => {
+  class Doc extends FirestoreModel.Class<Doc>("Doc")({
+    anything: Schema.Unknown,
+  }) {}
+
+  it.effect("is written as it was handed, since only a group is replaced", () =>
+    Effect.gen(function* () {
+      const replacement = Patch.replace({ x: 1 });
+      const encoded = yield* Schema.encodeEffect(Doc.update)(
+        Doc.update.make({ anything: replacement }),
+      );
+      expect(encoded.anything).toBe(replacement);
+    }).pipe(Effect.provide(encoder)),
+  );
+});
+
+describe("the update of a group every document holds", () => {
+  const Address = FirestoreModel.Struct({
+    city: Schema.String,
+    zip: Schema.String,
+  });
+
+  class User extends FirestoreModel.Class<User>("User")({
+    address: Address,
+  }) {}
+
+  it.effect.each(modes(User))("takes a partial patch ($mode)", ({ update }) =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(update)(
+        update.make({ address: { city: "Berlin" } }),
+      );
+      expect(encoded).toStrictEqual({ "address.city": "Berlin" });
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect.each(modes(User))("takes a replacement ($mode)", ({ update }) =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(update)(
+        update.make({ address: Patch.replace({ city: "Berlin", zip: "10115" }) }),
+      );
+      expect(encoded).toStrictEqual({ address: { city: "Berlin", zip: "10115" } });
+    }).pipe(Effect.provide(encoder)),
+  );
 });
 
 describe("a field with a constructor default", () => {
@@ -885,17 +1177,36 @@ describe("a field with a constructor default", () => {
 
   it.effect("leaves it out at any depth", () =>
     Effect.gen(function* () {
-      const encoded = yield* Schema.encodeEffect(Doc.update)(
-        Doc.update.make({ meta: { title: "t" }, extra: { note: "n" } }),
+      const encoded = yield* Schema.encodeEffect(Doc.updateUnchecked)(
+        Doc.updateUnchecked.make({ meta: { title: "t" }, extra: { note: "n" } }),
       );
       expect(encoded).toStrictEqual({ "meta.title": "t", "extra.note": "n" });
     }).pipe(Effect.provide(encoder)),
   );
 
-  it.effect("writes it where an update was handed it", () =>
+  it.effect("fills it in where a group is replaced, as where it is created", () =>
     Effect.gen(function* () {
       const encoded = yield* Schema.encodeEffect(Doc.update)(
-        Doc.update.make({ archived: true, meta: { archived: true }, extra: { archived: true } }),
+        Doc.update.make({
+          meta: Patch.replace({ title: "t" }),
+          extra: Patch.replace({ note: "n" }),
+        }),
+      );
+      expect(encoded).toStrictEqual({
+        meta: { title: "t", archived: false },
+        extra: { note: "n", archived: false },
+      });
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("writes it where an update was handed it", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Doc.updateUnchecked)(
+        Doc.updateUnchecked.make({
+          archived: true,
+          meta: { archived: true },
+          extra: { archived: true },
+        }),
       );
       expect(encoded).toStrictEqual({
         archived: true,
