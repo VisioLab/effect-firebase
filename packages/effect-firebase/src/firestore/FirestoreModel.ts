@@ -14,8 +14,7 @@
  *
  * ```ts
  * import { Schema } from "effect";
- * import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
- * import * as FirestoreSchema from "@visiolab/effect-firebase/firestore/FirestoreSchema";
+ * import { FirestoreModel, FirestoreSchema } from "@visiolab/effect-firebase/firestore";
  *
  * class User extends FirestoreModel.Class<User>("User")({
  *   displayName: Schema.String,
@@ -499,8 +498,7 @@ export interface Timestamp<
  * where a `DateTime.Utc` is the easier value to hold onto.
  *
  * ```ts
- * import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
- * import * as FirestoreSchema from "@visiolab/effect-firebase/firestore/FirestoreSchema";
+ * import { FirestoreModel, FirestoreSchema } from "@visiolab/effect-firebase/firestore";
  *
  * class Session extends FirestoreModel.Class<Session>("Session")({
  *   createdAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
@@ -553,7 +551,7 @@ export interface Number<
  *
  * ```ts
  * import { Schema } from "effect";
- * import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
+ * import { FirestoreModel } from "@visiolab/effect-firebase/firestore";
  *
  * class Account extends FirestoreModel.Class<Account>("Account")({
  *   visits: FirestoreModel.Number(Schema.Int),
@@ -601,8 +599,7 @@ export interface Array<S extends Schema.Top> extends VariantSchema.Field<{
  *
  * ```ts
  * import { Schema } from "effect";
- * import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
- * import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
+ * import { FieldValue, FirestoreModel } from "@visiolab/effect-firebase/firestore";
  *
  * class Article extends FirestoreModel.Class<Article>("Article")({
  *   tags: FirestoreModel.Array(Schema.String),
@@ -680,8 +677,7 @@ export type Optional<F extends VariantSchema.Field<any> | VariantSchema.Struct<a
  *
  * ```ts
  * import { Schema } from "effect";
- * import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
- * import * as FirestoreSchema from "@visiolab/effect-firebase/firestore/FirestoreSchema";
+ * import { FirestoreModel, FirestoreSchema } from "@visiolab/effect-firebase/firestore";
  *
  * const Address = FirestoreModel.Struct({
  *   city: Schema.String,
@@ -709,9 +705,7 @@ export type Optional<F extends VariantSchema.Field<any> | VariantSchema.Struct<a
  *
  * ```ts
  * import { Schema } from "effect";
- * import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
- * import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
- * import * as Patch from "@visiolab/effect-firebase/firestore/Patch";
+ * import { FieldValue, FirestoreModel, Patch } from "@visiolab/effect-firebase/firestore";
  *
  * const Address = FirestoreModel.Struct({ city: Schema.String, zip: Schema.String });
  *
