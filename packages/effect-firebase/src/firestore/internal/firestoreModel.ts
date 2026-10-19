@@ -179,7 +179,13 @@ const recordKeys = (key: Schema.Top): { readonly known: Array<string>; readonly 
     if (typeof name === "symbol") {
       throw new Error(`Invalid Firestore field name ${String(name)}: it must be a string`);
     }
-    return String(name);
+    const segment = String(name);
+    if (segment === "" || segment.includes(".")) {
+      throw new Error(
+        `Invalid Firestore field name "${segment}": it must not be empty or contain "."`,
+      );
+    }
+    return segment;
   });
   const rest = ast.indexSignatures.length > 0;
   if (rest && known.length > 0) {
@@ -218,7 +224,7 @@ const recordNode = (
     create,
     optional,
     // A value no update writes leaves nothing of the Record to write either.
-    writable: nodeOf(value) !== undefined || updateSchema(value) !== undefined,
+    writable: nodeOf(value)?.writable ?? updateSchema(value) !== undefined,
   };
 };
 

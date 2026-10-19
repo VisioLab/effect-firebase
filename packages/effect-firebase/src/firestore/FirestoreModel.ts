@@ -144,7 +144,8 @@ const OptionalGroupTypeId = firestoreModel.OptionalGroupTypeId;
 const RecordTypeId = firestoreModel.RecordTypeId;
 
 /**
- * Anything a field is declared as: a schema, a field, or a group.
+ * Anything a field is declared as: a schema, a field, a group or a
+ * {@link Record}.
  *
  * @stability unstable
  * @category models
@@ -218,6 +219,7 @@ type RecordOf<F> = F extends { readonly [OptionalGroupTypeId]: VariantSchema.Str
     ? RecordParts<R>
     : RecordParts<F>;
 
+/** The key and the value a Record field carries, or `never` where it is none. */
 type RecordParts<F> = F extends {
   readonly [RecordTypeId]: {
     readonly key: infer K extends Schema.Record.Key;
@@ -235,9 +237,14 @@ type IsNode<V> = V extends
   ? true
   : false;
 
-/** Whether an update writes anything into a Record of `V`. */
-type IsWritable<V extends Value> =
-  IsNode<V> extends true ? true : [UpdateSchema<V>] extends [never] ? false : true;
+/** Whether an update writes anything into a Record of `V`, at any depth. */
+type IsWritable<V extends Value> = [RecordOf<V>] extends [never]
+  ? IsNode<V> extends true
+    ? true
+    : [UpdateSchema<V>] extends [never]
+      ? false
+      : true
+  : IsWritable<RecordOf<V>["value"]>;
 
 /** The fields of a Record at the keys of `K` known up front, as a group holds them. */
 type KnownFields<K extends Schema.Record.Key, V extends Value> = {
@@ -899,7 +906,8 @@ export interface Record<
  * `value` holds a field that `set` or an update leaves out.
  *
  * The path of a key is the key as `key` encodes it. A key no path can name -
- * empty, or holding a `.` - fails the update when it is encoded. A value made
+ * empty, or holding a `.` - fails the update when it is encoded, or, where it
+ * is a literal, throws when the Record is declared. A value made
  * {@link Optional} takes the removal it would take anyway, and a value no
  * update writes, such as {@link Immutable}, leaves the whole Record out of the
  * update.

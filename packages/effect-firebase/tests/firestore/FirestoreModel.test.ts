@@ -1618,6 +1618,12 @@ describe("a Record keyed by literals", () => {
     }).pipe(Effect.provide(encoder)),
   );
 
+  it.each(["", "a.b"])("refuses a literal no path can name (%j)", (literal) => {
+    expect(() => FirestoreModel.Record(Schema.Literals([literal, "b"]), Schema.String)).toThrow(
+      /Invalid Firestore field name/,
+    );
+  });
+
   it("refuses the removal of a key every document holds", () => {
     expect(() =>
       // @ts-expect-error `yes` is a key every survey holds
@@ -1694,6 +1700,18 @@ describe("a Record of a value no update writes", () => {
   it("is left out of the update", () => {
     expectTypeOf<keyof (typeof Archive.update)["Type"]>().toEqualTypeOf<"name">();
     expect(Object.keys(Archive.update.from.fields)).toEqual(["name"]);
+  });
+
+  it("is left out at any depth", () => {
+    class Nested extends FirestoreModel.Class<Nested>("Nested")({
+      name: Schema.String,
+      frozen: FirestoreModel.Record(
+        Schema.String,
+        FirestoreModel.Record(Schema.String, FirestoreModel.Immutable(Schema.String)),
+      ),
+    }) {}
+    expectTypeOf<keyof (typeof Nested.update)["Type"]>().toEqualTypeOf<"name">();
+    expect(Object.keys(Nested.update.from.fields)).toEqual(["name"]);
   });
 
   it.effect("is still read and created", () =>
