@@ -85,6 +85,13 @@ class User extends FirestoreModel.Class<User>("User")({
   updatedAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
 }) {}
 
+/** A model's update in either mode, for a test that holds for both. */
+const modes = <M extends FirestoreModel.Any>(model: M) =>
+  [
+    { mode: "update", update: model.update as M["update"] },
+    { mode: "updateUnchecked", update: model.updateUnchecked as M["updateUnchecked"] },
+  ] as const;
+
 /** The shape a snapshot hands back, which is only ever known at runtime. */
 const read = (overrides?: Partial<Record<string, unknown>>): unknown => ({
   displayName: "alice",
@@ -751,16 +758,15 @@ describe("an update reaching into a group", () => {
     ]);
   });
 
-  it.effect("writes a group handed a replacement whole, at its path", () =>
-    Effect.gen(function* () {
-      const patch = { address: { geo: Patch.replace({ lat: 1, lng: 2 }) } };
-      const checked = yield* Schema.encodeEffect(Place.update)(Place.update.make(patch));
-      const unchecked = yield* Schema.encodeEffect(Place.updateUnchecked)(
-        Place.updateUnchecked.make(patch),
-      );
-      expect(checked).toStrictEqual({ "address.geo": { lat: 1, lng: 2 } });
-      expect(unchecked).toStrictEqual(checked);
-    }).pipe(Effect.provide(encoder)),
+  it.effect.each(modes(Place))(
+    "writes a group handed a replacement whole, at its path ($mode)",
+    ({ update }) =>
+      Effect.gen(function* () {
+        const encoded = yield* Schema.encodeEffect(update)(
+          update.make({ address: { geo: Patch.replace({ lat: 1, lng: 2 }) } }),
+        );
+        expect(encoded).toStrictEqual({ "address.geo": { lat: 1, lng: 2 } });
+      }).pipe(Effect.provide(encoder)),
   );
 
   it("refuses to replace a group holding a field no update writes", () => {
@@ -916,21 +922,20 @@ describe("a group a document may go without", () => {
     }).pipe(Effect.provide(encoder)),
   );
 
-  it.effect("removes the whole map, checked or not", () =>
+  it.effect.each(modes(Place))("removes the whole map ($mode)", ({ update }) =>
     Effect.gen(function* () {
-      for (const update of [Place.update, Place.updateUnchecked]) {
-        const encoded = yield* Schema.encodeEffect(update)(
-          update.make({ address: FieldValue.deleteField }),
-        );
-        expect(Object.keys(encoded)).toEqual(["address"]);
-        expect(encoded.address).toBeInstanceOf(SdkDeleteField);
-      }
+      const encoded = yield* Schema.encodeEffect(update)(
+        update.make({ address: FieldValue.deleteField }),
+      );
+      expect(Object.keys(encoded)).toEqual(["address"]);
+      expect(encoded.address).toBeInstanceOf(SdkDeleteField);
     }).pipe(Effect.provide(encoder)),
   );
 
-  it.effect("writes a replacement whole, empty maps and sentinels and all, checked or not", () =>
-    Effect.gen(function* () {
-      for (const update of [Place.update, Place.updateUnchecked]) {
+  it.effect.each(modes(Place))(
+    "writes a replacement whole, empty maps and sentinels and all ($mode)",
+    ({ update }) =>
+      Effect.gen(function* () {
         const encoded = yield* Schema.encodeEffect(update)(
           update.make({ address: Patch.replace(address) }),
         );
@@ -941,8 +946,7 @@ describe("a group a document may go without", () => {
           geo: { lat: 1, lng: 2 },
           notes: {},
         });
-      }
-    }).pipe(Effect.provide(encoder)),
+      }).pipe(Effect.provide(encoder)),
   );
 
   it("refuses a patch, which would create a missing group holding only the patch", () => {
@@ -1120,25 +1124,21 @@ describe("the update of a group every document holds", () => {
     address: Address,
   }) {}
 
-  it.effect("takes a partial patch, checked or not", () =>
+  it.effect.each(modes(User))("takes a partial patch ($mode)", ({ update }) =>
     Effect.gen(function* () {
-      for (const update of [User.update, User.updateUnchecked]) {
-        const encoded = yield* Schema.encodeEffect(update)(
-          update.make({ address: { city: "Berlin" } }),
-        );
-        expect(encoded).toStrictEqual({ "address.city": "Berlin" });
-      }
+      const encoded = yield* Schema.encodeEffect(update)(
+        update.make({ address: { city: "Berlin" } }),
+      );
+      expect(encoded).toStrictEqual({ "address.city": "Berlin" });
     }).pipe(Effect.provide(encoder)),
   );
 
-  it.effect("takes a replacement, checked or not", () =>
+  it.effect.each(modes(User))("takes a replacement ($mode)", ({ update }) =>
     Effect.gen(function* () {
-      for (const update of [User.update, User.updateUnchecked]) {
-        const encoded = yield* Schema.encodeEffect(update)(
-          update.make({ address: Patch.replace({ city: "Berlin", zip: "10115" }) }),
-        );
-        expect(encoded).toStrictEqual({ address: { city: "Berlin", zip: "10115" } });
-      }
+      const encoded = yield* Schema.encodeEffect(update)(
+        update.make({ address: Patch.replace({ city: "Berlin", zip: "10115" }) }),
+      );
+      expect(encoded).toStrictEqual({ address: { city: "Berlin", zip: "10115" } });
     }).pipe(Effect.provide(encoder)),
   );
 });
