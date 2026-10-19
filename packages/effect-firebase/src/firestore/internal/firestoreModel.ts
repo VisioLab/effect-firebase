@@ -48,6 +48,25 @@ interface Groups {
 const updateSchema = (field: unknown): Schema.Top | undefined =>
   VariantSchema.isField(field) ? (field.schemas as any).update : (field as Schema.Top);
 
+/** Whether a document cannot be read without the field. */
+const isRequired = (field: unknown): boolean => {
+  const read: Schema.Top | undefined = VariantSchema.isField(field)
+    ? (field.schemas as any).read
+    : (field as Schema.Top);
+  return read !== undefined && read.ast.context?.isOptional !== true;
+};
+
+/**
+ * How a set of fields is patched.
+ *
+ * - `checked` and `unchecked` are the modes an update is built in, and only
+ *   tell apart where a group may be missing.
+ * - `complete` is what a group that may be missing is patched in under
+ *   `checked`, since the patch may be what creates it: every field it cannot
+ *   be read without has to be there, at any depth.
+ */
+type Mode = FirestoreModel.UpdateMode | "complete";
+
 // What Effect itself strips a default with, though it is left out of the
 // typings.
 const replaceContext = (SchemaAST as any).replaceContext as <A extends SchemaAST.AST>(
@@ -87,9 +106,9 @@ const groupOf = (
 };
 
 /**
- * Builds the patch a set of fields is updated through, along with where its
- * groups sit, and gathers the schema of each path it can write at into
- * `paths`.
+ * Builds the patch a set of fields is updated through in `mode`, along with
+ * where its groups sit, and gathers the schema of each path it can write at
+ * into `paths`.
  *
  * Throws on a field name holding a dot, which a path would read as two.
  */
@@ -97,6 +116,7 @@ const build = (
   fields: VariantSchema.Struct.Fields,
   prefix: string,
   paths: Record<string, Schema.Top>,
+  mode: Mode,
 ): { readonly patch: Schema.Top; readonly groups: Groups } => {
   const schemas: Record<string, Schema.Top> = {};
   const groups: Record<string, Groups> = {};
@@ -108,20 +128,28 @@ const build = (
     const path = prefix + key;
     const group = groupOf(field);
     if (group !== undefined) {
-      const inner = build(group.fields, `${path}.`, paths);
+      // A group a document may go without may be created by the patch.
+      const innerMode = group.optional && mode !== "unchecked" ? "complete" : mode;
+      const inner = build(group.fields, `${path}.`, paths, innerMode);
       if (group.optional) {
         schemas[key] = Schema.optionalKey(firestoreSchema.DeleteFieldOr(inner.patch));
         paths[path] = Schema.optionalKey(firestoreSchema.DeleteField);
       } else {
-        schemas[key] = Schema.optionalKey(inner.patch);
+        schemas[key] = mode === "complete" ? inner.patch : Schema.optionalKey(inner.patch);
       }
       groups[key] = inner.groups;
     } else {
       const update = updateSchema(field);
-      if (update !== undefined) {
-        const schema = withoutConstructorDefault(update);
-        schemas[key] = Schema.optionalKey(schema);
+      const schema = update === undefined ? undefined : withoutConstructorDefault(update);
+      if (schema !== undefined) {
         paths[path] = Schema.optionalKey(schema);
+      }
+      if (mode === "complete" && isRequired(field)) {
+        // A field no update writes leaves the group unable to be created by
+        // one, so the patch cannot be made at all and the group only removed.
+        schemas[key] = schema ?? Schema.Never;
+      } else if (schema !== undefined) {
+        schemas[key] = Schema.optionalKey(schema);
       }
     }
   }
@@ -150,9 +178,12 @@ const flatten = (
   return out;
 };
 
-const update = (fields: VariantSchema.Struct.Fields): Schema.Top => {
+const update = (
+  fields: VariantSchema.Struct.Fields,
+  mode: FirestoreModel.UpdateMode,
+): Schema.Top => {
   const paths: Record<string, Schema.Top> = {};
-  const { patch, groups } = build(fields, "", paths);
+  const { patch, groups } = build(fields, "", paths, mode);
   return Schema.Struct(paths).pipe(
     Schema.decodeTo(Schema.toType(patch), {
       decode: SchemaGetter.forbidden(() => "An update is only ever written, never read back"),
@@ -178,9 +209,15 @@ export const Class =
     // one.
     class Model extends Base {}
     Object.defineProperty(Model, "update", {
-      value: update(fields).annotate({
+      value: update(fields, "checked").annotate({
         id: `${identifier}.update`,
         title: `${identifier}.update`,
+      }),
+    });
+    Object.defineProperty(Model, "updateUnchecked", {
+      value: update(fields, "unchecked").annotate({
+        id: `${identifier}.updateUnchecked`,
+        title: `${identifier}.updateUnchecked`,
       }),
     });
     return Model;
@@ -232,7 +269,7 @@ const optionalGroup = (self: VariantSchema.Struct<any>): unknown =>
       read: Schema.optionalKey(extract(self, "read") as Schema.Top),
       create: Schema.optionalKey(extract(self, "create") as Schema.Top),
       update: Schema.optionalKey(
-        firestoreSchema.DeleteFieldOr(build(VariantSchema.fields(self), "", {}).patch),
+        firestoreSchema.DeleteFieldOr(build(VariantSchema.fields(self), "", {}, "unchecked").patch),
       ),
     }),
     { [OptionalGroupTypeId]: self },
