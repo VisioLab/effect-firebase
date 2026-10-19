@@ -141,6 +141,17 @@ export type Any = Schema.Top & {
 
 const OptionalGroupTypeId = firestoreModel.OptionalGroupTypeId;
 
+const RecordTypeId = firestoreModel.RecordTypeId;
+
+/**
+ * Anything a field is declared as: a schema, a field, or a group.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export type Value = VariantSchema.Field<any> | VariantSchema.Struct<any> | Schema.Top;
+
 /** The schema a field is written through in `V`, or `never` where it is not. */
 type VariantSchemaOf<F, V extends "create" | "update"> =
   F extends VariantSchema.Field<infer S>
@@ -161,6 +172,164 @@ type UnionToIntersection<U> = (U extends unknown ? (u: U) => void : never) exten
 ) => void
   ? I
   : never;
+
+/** The schema `S` is made from, where it is made an optional key. */
+type WithoutOptionalKey<S extends Schema.Top> =
+  S extends Schema.optionalKey<infer X extends Schema.Top> ? X : S;
+
+/** The keys out of `K` that are known up front, which a Record holds every one of. */
+type KnownKeys<K> = K extends PropertyKey
+  ? {} extends { readonly [_ in K]: unknown }
+    ? never
+    : K
+  : never;
+
+/** Whether a Record keyed by `K` holds keys only the data names. */
+type IsOpen<K extends Schema.Record.Key> = [Exclude<K["Type"], KnownKeys<K["Type"]>>] extends [
+  never,
+]
+  ? false
+  : true;
+
+/** The schema `V` is declared as in `Variant`, or `never` where it has none. */
+type ValueSchema<V, Variant extends "read" | "create"> =
+  V extends VariantSchema.Struct<any>
+    ? VariantSchema.Extract<Variant, V>
+    : V extends VariantSchema.Field<infer S>
+      ? Variant extends keyof S
+        ? S[Variant] extends Schema.Top
+          ? S[Variant]
+          : never
+        : never
+      : V extends Schema.Top
+        ? V
+        : never;
+
+/** A Record of `S` keyed by `K`, as a document holds it. */
+type RecordSchema<K extends Schema.Record.Key, S extends Schema.Top> = Schema.$Record<
+  K,
+  IsOpen<K> extends true ? WithoutOptionalKey<S> : S
+>;
+
+/** The key and the value of a Record a field is, or `never` where it is none. */
+type RecordOf<F> = F extends { readonly [OptionalGroupTypeId]: VariantSchema.Struct<any> }
+  ? never
+  : F extends { readonly [OptionalGroupTypeId]: infer R }
+    ? RecordParts<R>
+    : RecordParts<F>;
+
+type RecordParts<F> = F extends {
+  readonly [RecordTypeId]: {
+    readonly key: infer K extends Schema.Record.Key;
+    readonly value: infer V extends Value;
+  };
+}
+  ? { readonly key: K; readonly value: V }
+  : never;
+
+/** Whether `V` is something an update reaches into: a group or a Record. */
+type IsNode<V> = V extends
+  | VariantSchema.Struct<any>
+  | { readonly [OptionalGroupTypeId]: any }
+  | { readonly [RecordTypeId]: any }
+  ? true
+  : false;
+
+/** Whether an update writes anything into a Record of `V`. */
+type IsWritable<V extends Value> =
+  IsNode<V> extends true ? true : [UpdateSchema<V>] extends [never] ? false : true;
+
+/** The fields of a Record at the keys of `K` known up front, as a group holds them. */
+type KnownFields<K extends Schema.Record.Key, V extends Value> = {
+  readonly [_ in KnownKeys<K["Type"]> & string]: V;
+};
+
+/** What a key of a Record only the data names takes, which may be missing. */
+type EntryUpdate<V extends Value, Mode extends UpdateMode> =
+  V extends VariantSchema.Struct<infer G>
+    ? GroupTakes<G, true, Mode>
+    : V extends { readonly [OptionalGroupTypeId]: VariantSchema.Struct<infer G> }
+      ? GroupTakes<G, true, Mode>
+      : [RecordOf<V>] extends [never]
+        ? FirestoreSchema.DeleteFieldOr<WithoutOptionalKey<UpdateSchema<V>>>
+        : RecordTakes<RecordOf<V>["key"], RecordOf<V>["value"], true, Mode>;
+
+/** The patch of a Record: key by key. */
+type RecordPatch<K extends Schema.Record.Key, V extends Value, Mode extends UpdateMode> =
+  IsOpen<K> extends true
+    ? Schema.$Record<Schema.toType<K>, EntryUpdate<V, Mode>>
+    : Schema.Struct<UpdateFields<KnownFields<K, V>, Mode>>;
+
+/**
+ * What a Record takes in `Mode`. One keyed by keys only the data names is
+ * patched even where it may be missing, since every key of it may be missing
+ * as well.
+ */
+type RecordTakes<
+  K extends Schema.Record.Key,
+  V extends Value,
+  Optional extends boolean,
+  Mode extends UpdateMode,
+> = Schema.Union<
+  readonly [
+    ...(Optional extends true
+      ? Mode extends "unchecked"
+        ? [RecordPatch<K, V, Mode>]
+        : IsOpen<K> extends true
+          ? [RecordPatch<K, V, Mode>]
+          : []
+      : [RecordPatch<K, V, Mode>]),
+    ...(IsReplaceable<{ readonly _: V }> extends true
+      ? [ReplaceSchema<RecordSchema<K, ValueSchema<V, "create">>>]
+      : []),
+    ...(Optional extends true ? [FirestoreSchema.DeleteField] : []),
+  ]
+>;
+
+/** The schemas written anywhere at or below a key of a Record only the data names. */
+type EntryPaths<V extends Value, Mode extends UpdateMode> = WithoutOptionalKey<
+  Extract<
+    UpdatePaths<{ readonly _: AsEntry<V> }, Mode>[keyof UpdatePaths<
+      { readonly _: AsEntry<V> },
+      Mode
+    >],
+    Schema.Top
+  >
+>;
+
+/** `V` as a key of a Record only the data names, which may be missing. */
+type AsEntry<V extends Value> = V extends { readonly [OptionalGroupTypeId]: any }
+  ? V
+  : IsNode<V> extends true
+    ? Optional<V>
+    : VariantSchema.Field<{
+        readonly update: FirestoreSchema.DeleteFieldOr<WithoutOptionalKey<UpdateSchema<V>>>;
+      }>;
+
+/** The paths a Record at `Path` is written at. */
+type RecordPaths<
+  K extends Schema.Record.Key,
+  V extends Value,
+  Optional extends boolean,
+  Mode extends UpdateMode,
+  Path extends string,
+> =
+  IsWritable<V> extends false
+    ? {}
+    : (Optional extends true
+        ? {
+            readonly [_ in Path]: Schema.optionalKey<
+              IsReplaceable<{ readonly _: V }> extends true
+                ? FirestoreSchema.DeleteFieldOr<RecordSchema<K, ValueSchema<V, "create">>>
+                : FirestoreSchema.DeleteField
+            >;
+          }
+        : IsReplaceable<{ readonly _: V }> extends true
+          ? { readonly [_ in Path]: Schema.optionalKey<RecordSchema<K, ValueSchema<V, "create">>> }
+          : {}) &
+        (IsOpen<K> extends true
+          ? { readonly [_ in `${Path}.${string}`]: EntryPaths<V, Mode> }
+          : UpdatePaths<KnownFields<K, V>, Mode, `${Path}.`>);
 
 /**
  * Which patches an update takes.
@@ -197,13 +366,17 @@ type GroupOf<F> =
  * takes, and by an update.
  */
 type IsReplaceable<Fields extends VariantSchema.Struct.Fields> = false extends {
-  [K in keyof Fields]: [GroupOf<Fields[K]>] extends [never]
-    ? [UpdateSchema<Fields[K]>] extends [never]
-      ? false
-      : [VariantSchemaOf<Fields[K], "create">] extends [never]
+  [K in keyof Fields]: [RecordOf<Fields[K]>] extends [never]
+    ? [GroupOf<Fields[K]>] extends [never]
+      ? [UpdateSchema<Fields[K]>] extends [never]
         ? false
-        : true
-    : IsReplaceable<GroupOf<Fields[K]>>;
+        : [VariantSchemaOf<Fields[K], "create">] extends [never]
+          ? false
+          : true
+      : IsReplaceable<GroupOf<Fields[K]>>
+    : IsWritable<RecordOf<Fields[K]>["value"]> extends true
+      ? IsReplaceable<{ readonly _: RecordOf<Fields[K]>["value"] }>
+      : false;
 }[keyof Fields]
   ? false
   : true;
@@ -234,18 +407,23 @@ type GroupUpdate<
   Fields extends VariantSchema.Struct.Fields,
   Optional extends boolean,
   Mode extends UpdateMode,
-> = Schema.optionalKey<
-  Schema.Union<
-    readonly [
-      ...(Optional extends true
-        ? Mode extends "unchecked"
-          ? [Schema.Struct<UpdateFields<Fields, Mode>>]
-          : []
-        : [Schema.Struct<UpdateFields<Fields, Mode>>]),
-      ...(IsReplaceable<Fields> extends true ? [ReplaceSchema<WholeGroup<Fields>>] : []),
-      ...(Optional extends true ? [FirestoreSchema.DeleteField] : []),
-    ]
-  >
+> = Schema.optionalKey<GroupTakes<Fields, Optional, Mode>>;
+
+/** What a group takes in `Mode`. */
+type GroupTakes<
+  Fields extends VariantSchema.Struct.Fields,
+  Optional extends boolean,
+  Mode extends UpdateMode,
+> = Schema.Union<
+  readonly [
+    ...(Optional extends true
+      ? Mode extends "unchecked"
+        ? [Schema.Struct<UpdateFields<Fields, Mode>>]
+        : []
+      : [Schema.Struct<UpdateFields<Fields, Mode>>]),
+    ...(IsReplaceable<Fields> extends true ? [ReplaceSchema<WholeGroup<Fields>>] : []),
+    ...(Optional extends true ? [FirestoreSchema.DeleteField] : []),
+  ]
 >;
 
 /**
@@ -266,19 +444,33 @@ export type UpdateFields<
   Mode extends UpdateMode = "checked",
 > = {
   readonly [
-    K in keyof Fields as [GroupOf<Fields[K]>] extends [never]
-      ? [UpdateSchema<Fields[K]>] extends [never]
-        ? never
-        : K
-      : K
-  ]: [GroupOf<Fields[K]>] extends [never]
-    ? Schema.optionalKey<UpdateSchema<Fields[K]>>
-    : GroupUpdate<
-        GroupOf<Fields[K]>,
-        Fields[K] extends VariantSchema.Struct<any> ? false : true,
-        Mode
-      >;
+    K in keyof Fields as FieldUpdate<Fields[K], Mode> extends never ? never : K
+  ]: FieldUpdate<Fields[K], Mode>;
 };
+
+/** What a field takes in an update in `Mode`, or `never` where it takes nothing. */
+type FieldUpdate<F, Mode extends UpdateMode> =
+  F extends VariantSchema.Struct<infer G>
+    ? GroupUpdate<G, false, Mode>
+    : F extends { readonly [OptionalGroupTypeId]: infer N }
+      ? N extends VariantSchema.Struct<infer G>
+        ? GroupUpdate<G, true, Mode>
+        : RecordUpdate<RecordParts<N>, true, Mode>
+      : F extends { readonly [RecordTypeId]: any }
+        ? RecordUpdate<RecordParts<F>, false, Mode>
+        : [UpdateSchema<F>] extends [never]
+          ? never
+          : Schema.optionalKey<UpdateSchema<F>>;
+
+/** What a Record takes as a field of the group it sits in. */
+type RecordUpdate<
+  P extends { readonly key: Schema.Record.Key; readonly value: Value },
+  Optional extends boolean,
+  Mode extends UpdateMode,
+> =
+  IsWritable<P["value"]> extends true
+    ? Schema.optionalKey<RecordTakes<P["key"], P["value"], Optional, Mode>>
+    : never;
 
 /**
  * The fields an update is written as: one optional key per path it can write
@@ -316,9 +508,17 @@ export type UpdatePaths<
                   : FirestoreSchema.DeleteField
               >;
             } & UpdatePaths<G, Mode, `${Prefix}${K}.`>
-          : [UpdateSchema<Fields[K]>] extends [never]
-            ? {}
-            : { readonly [_ in `${Prefix}${K}`]: Schema.optionalKey<UpdateSchema<Fields[K]>> };
+          : [RecordOf<Fields[K]>] extends [never]
+            ? [UpdateSchema<Fields[K]>] extends [never]
+              ? {}
+              : { readonly [_ in `${Prefix}${K}`]: Schema.optionalKey<UpdateSchema<Fields[K]>> }
+            : RecordPaths<
+                RecordOf<Fields[K]>["key"],
+                RecordOf<Fields[K]>["value"],
+                Fields[K] extends { readonly [OptionalGroupTypeId]: any } ? true : false,
+                Mode,
+                `${Prefix}${K}`
+              >;
     }[keyof Fields & string]
   > & {}
 >;
@@ -625,6 +825,122 @@ export interface Array<S extends Schema.Top> extends VariantSchema.Field<{
 export const Array: <S extends Schema.Top>(item: S) => Array<S> = firestoreModel.Array;
 
 /**
+ * Type-level representation of {@link Record}.
+ *
+ * It carries the key and the value it was made of, which is what an update
+ * reaches into.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface Record<
+  // Declared rather than measured, which recursing through the value makes
+  // too deep for the compiler.
+  in out K extends Schema.Record.Key,
+  in out V extends Value,
+> extends VariantSchema.Field<
+  IsWritable<V> extends true
+    ? {
+        readonly read: RecordSchema<K, ValueSchema<V, "read">>;
+        readonly create: RecordSchema<K, ValueSchema<V, "create">>;
+        readonly update: Schema.optionalKey<RecordTakes<K, V, false, "unchecked">>;
+      }
+    : {
+        readonly read: RecordSchema<K, ValueSchema<V, "read">>;
+        readonly create: RecordSchema<K, ValueSchema<V, "create">>;
+      }
+> {
+  readonly [RecordTypeId]: { readonly key: K; readonly value: V };
+}
+
+/**
+ * A map field whose keys come from the data: a counter per option, a map per
+ * member, a lookup table. An update writes it key by key.
+ *
+ * The read and the create hold it as `Schema.Record(key, value)`, with each
+ * value in the form `value` is read or created in, so a create takes the
+ * sentinels `value` takes. An update takes a patch of it, writing each key it
+ * carries at its own path, in the form `value` is updated in: a
+ * {@link Number} takes {@link FieldValue.increment}, an {@link Array}
+ * {@link FieldValue.arrayUnion}, a {@link Timestamp}
+ * {@link FieldValue.serverTimestamp}. That is what lets two clients each write
+ * a key of the same map without either reading it first.
+ *
+ * ```ts
+ * import { Schema } from "effect";
+ * import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
+ * import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
+ *
+ * class Poll extends FirestoreModel.Class<Poll>("Poll")({
+ *   votes: FirestoreModel.Record(Schema.String, FirestoreModel.Number(Schema.Int)),
+ *   aliases: FirestoreModel.Record(Schema.String, Schema.String),
+ * }) {}
+ *
+ * Poll.update.make({
+ *   votes: { pizza: FieldValue.increment(1) }, // "votes.pizza"
+ *   aliases: { old: FieldValue.deleteField }, // "aliases.old"
+ * });
+ * ```
+ *
+ * Where `key` is a string, refined or not, any key may be missing from a
+ * document, so each takes {@link FieldValue.deleteField} to remove it, and a
+ * value that is a group or a Record itself is treated as one a document may go
+ * without - written whole with {@link Patch.replace} or removed, and only
+ * patched by {@link Class.updateUnchecked}, the way an {@link Optional} group
+ * is. The Record itself is patched even where it may be missing, since a patch
+ * only ever writes keys it may hold or not.
+ *
+ * Where `key` is a union of literals, the Record holds every one of them, and
+ * an update treats it as a group with a field per key: no key is removed
+ * unless `value` is {@link Optional}, and the encoded update names each path.
+ *
+ * Either way it takes {@link Patch.replace} to be written whole, unless
+ * `value` holds a field that `set` or an update leaves out.
+ *
+ * The path of a key is the key as `key` encodes it. A key no path can name -
+ * empty, or holding a `.` - fails the update when it is encoded. A value made
+ * {@link Optional} takes the removal it would take anyway, and a value no
+ * update writes, such as {@link Immutable}, leaves the whole Record out of the
+ * update.
+ *
+ * @stability unstable
+ * @category schemas
+ * @since 0.2.0
+ */
+export const Record: <K extends Schema.Record.Key, V extends Value>(
+  key: K,
+  value: V,
+) => Record<K, V> = firestoreModel.Record;
+
+/** Any {@link Record}, whatever it holds. */
+type AnyRecord = VariantSchema.Field<any> & { readonly [RecordTypeId]: any };
+
+/**
+ * Type-level representation of {@link Optional}, made of a {@link Record}.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface OptionalRecord<in out R extends AnyRecord> extends VariantSchema.Field<
+  IsWritable<RecordOf<R>["value"]> extends true
+    ? {
+        readonly read: Schema.optionalKey<R["schemas"]["read"]>;
+        readonly create: Schema.optionalKey<R["schemas"]["create"]>;
+        readonly update: Schema.optionalKey<
+          RecordTakes<RecordOf<R>["key"], RecordOf<R>["value"], true, "unchecked">
+        >;
+      }
+    : {
+        readonly read: Schema.optionalKey<R["schemas"]["read"]>;
+        readonly create: Schema.optionalKey<R["schemas"]["create"]>;
+      }
+> {
+  readonly [OptionalGroupTypeId]: R;
+}
+
+/**
  * Type-level representation of {@link Optional}, made of a group.
  *
  * It carries the group it was made of, which is what an update reaches into.
@@ -648,24 +964,26 @@ export interface OptionalGroup<G extends VariantSchema.Struct<any>> extends Vari
  * @category models
  * @since 0.2.0
  */
-export type Optional<F extends VariantSchema.Field<any> | VariantSchema.Struct<any> | Schema.Top> =
+export type Optional<F extends Value> =
   F extends VariantSchema.Struct<any>
     ? OptionalGroup<F>
-    : F extends Schema.Top
-      ? VariantSchema.Field<{
-          readonly read: Schema.optionalKey<F>;
-          readonly create: Schema.optionalKey<F>;
-          readonly update: Schema.optionalKey<FirestoreSchema.DeleteFieldOr<F>>;
-        }>
-      : F extends VariantSchema.Field<infer S>
+    : F extends AnyRecord
+      ? OptionalRecord<F>
+      : F extends Schema.Top
         ? VariantSchema.Field<{
-            readonly [K in keyof S]: S[K] extends Schema.Top
-              ? K extends "update"
-                ? Schema.optionalKey<FirestoreSchema.DeleteFieldOr<S[K]>>
-                : Schema.optionalKey<S[K]>
-              : never;
+            readonly read: Schema.optionalKey<F>;
+            readonly create: Schema.optionalKey<F>;
+            readonly update: Schema.optionalKey<FirestoreSchema.DeleteFieldOr<F>>;
           }>
-        : never;
+        : F extends VariantSchema.Field<infer S>
+          ? VariantSchema.Field<{
+              readonly [K in keyof S]: S[K] extends Schema.Top
+                ? K extends "update"
+                  ? Schema.optionalKey<FirestoreSchema.DeleteFieldOr<S[K]>>
+                  : Schema.optionalKey<S[K]>
+                : never;
+            }>
+          : never;
 
 /**
  * A field a document may go without, and an update may take away.
@@ -675,8 +993,8 @@ export type Optional<F extends VariantSchema.Field<any> | VariantSchema.Struct<a
  * {@link FieldValue.deleteField} besides, because leaving a field out of an
  * update leaves it as it is, and removing it has to be asked for.
  *
- * It takes a schema, a field or a group, so it makes any of the others
- * optional too:
+ * It takes a schema, a field, a group or a {@link Record}, so it makes any of
+ * the others optional too:
  *
  * ```ts
  * import { Schema } from "effect";
@@ -728,8 +1046,4 @@ export type Optional<F extends VariantSchema.Field<any> | VariantSchema.Struct<a
  * @category schemas
  * @since 0.2.0
  */
-export const Optional: <
-  F extends VariantSchema.Field<any> | VariantSchema.Struct<any> | Schema.Top,
->(
-  self: F,
-) => Optional<F> = firestoreModel.Optional;
+export const Optional: <F extends Value>(self: F) => Optional<F> = firestoreModel.Optional;
