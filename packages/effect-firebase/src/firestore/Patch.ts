@@ -21,8 +21,7 @@
  * `FirestoreModel.Update`.
  *
  * ```ts
- * import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
- * import * as Patch from "@visiolab/effect-firebase/firestore/Patch";
+ * import { FieldValue, Patch } from "@visiolab/effect-firebase/firestore";
  *
  * User.update.make({
  *   address: Patch.replace({ city: "Berlin", zip: "10115" }),

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
-import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
-import * as FirestoreSchema from "@visiolab/effect-firebase/firestore/FirestoreSchema";
-import * as GeoPoint from "@visiolab/effect-firebase/firestore/GeoPoint";
-import * as Timestamp from "@visiolab/effect-firebase/firestore/Timestamp";
+import {
+  FieldValue,
+  FirestoreModel,
+  FirestoreSchema,
+  GeoPoint,
+  Timestamp,
+} from "@visiolab/effect-firebase/firestore";
 import {
   GeoPoint as NativeGeoPoint,
   FieldValue as NativeFieldValue,
