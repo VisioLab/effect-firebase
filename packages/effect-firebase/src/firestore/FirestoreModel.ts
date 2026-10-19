@@ -32,10 +32,11 @@
  * @stability unstable
  * @since 0.2.0
  */
-import type { Schema, Struct as Struct_ } from "effect";
+import type { Schema, SchemaAST, Struct as Struct_ } from "effect";
 import type { VariantSchema } from "effect/schema";
 import type * as FirestoreSchema from "./FirestoreSchema.ts";
 import * as firestoreModel from "./internal/firestoreModel.ts";
+import type * as Patch from "./Patch.ts";
 import type * as Timestamp_ from "./Timestamp.ts";
 
 /**
@@ -140,36 +141,20 @@ export type Any = Schema.Top & {
 
 const OptionalGroupTypeId = firestoreModel.OptionalGroupTypeId;
 
-/** The schema a field is updated through, or `never` where it cannot be. */
-type UpdateSchema<F> =
+/** The schema a field is written through in `V`, or `never` where it is not. */
+type VariantSchemaOf<F, V extends "create" | "update"> =
   F extends VariantSchema.Field<infer S>
-    ? "update" extends keyof S
-      ? S["update"] extends Schema.Top
-        ? S["update"]
+    ? V extends keyof S
+      ? S[V] extends Schema.Top
+        ? S[V]
         : never
       : never
     : F extends Schema.Top
       ? F
       : never;
 
-/** Whether a document cannot be read without the field. */
-type IsRequired<F> =
-  F extends VariantSchema.Field<infer S>
-    ? "read" extends keyof S
-      ? S["read"] extends { readonly "~type.optionality": "required" }
-        ? true
-        : false
-      : false
-    : F extends { readonly "~type.optionality": "required" }
-      ? true
-      : false;
-
-/**
- * Drops the default a field is constructed with, which a patch never fills
- * in.
- */
-type WithoutConstructorDefault<S> =
-  S extends Schema.withConstructorDefault<infer Inner> ? Inner : S;
+/** The schema a field is updated through, or `never` where it cannot be. */
+type UpdateSchema<F> = VariantSchemaOf<F, "update">;
 
 type UnionToIntersection<U> = (U extends unknown ? (u: U) => void : never) extends (
   u: infer I,
@@ -181,15 +166,16 @@ type UnionToIntersection<U> = (U extends unknown ? (u: U) => void : never) exten
  * Which patches an update takes.
  *
  * - `checked` takes only the patches that leave any document it may be
- *   written to readable: one into an {@link Optional} group either removes it
- *   or carries every field the group cannot go without, so that it holds
- *   whether the patch creates the group or overwrites it. That goes for every
- *   group inside it too.
- * - `unchecked` takes any partial patch into an {@link Optional} group as
- *   well, which is only right where the group is known to be there.
+ *   written to readable. An {@link Optional} group is written whole with
+ *   {@link Patch.replace} or removed, and never patched: a patch written into
+ *   a group the document goes without would create it holding only what the
+ *   patch carried.
+ * - `unchecked` takes a patch into an {@link Optional} group as well, which is
+ *   only right where the group is known to be there.
  *
- * The two only tell apart at an {@link Optional} group. What a field takes,
- * and the paths it is written at, are the same in both.
+ * They differ only in which patches they take, and only at an
+ * {@link Optional} group: a patch both take is written the same by both. What
+ * a field takes, and the paths it is written at, are the same in both.
  *
  * @stability unstable
  * @category models
@@ -197,64 +183,79 @@ type UnionToIntersection<U> = (U extends unknown ? (u: U) => void : never) exten
  */
 export type UpdateMode = "checked" | "unchecked";
 
+/** The fields of the group a field reaches into, or `never` where it is none. */
+type GroupOf<F> =
+  F extends VariantSchema.Struct<infer G>
+    ? G
+    : F extends { readonly [OptionalGroupTypeId]: VariantSchema.Struct<infer G> }
+      ? G
+      : never;
+
 /**
- * The mode a set of fields is patched in. `complete` is what an
- * {@link Optional} group is patched in under `checked`, since the patch may
- * be what creates it.
+ * Whether a group may be written whole by an update: only where every field it
+ * holds, at any depth, is written both by `set`, whose shape a replacement
+ * takes, and by an update.
  */
-type PatchMode = UpdateMode | "complete";
+type IsReplaceable<Fields extends VariantSchema.Struct.Fields> = false extends {
+  [K in keyof Fields]: [GroupOf<Fields[K]>] extends [never]
+    ? [UpdateSchema<Fields[K]>] extends [never]
+      ? false
+      : [VariantSchemaOf<Fields[K], "create">] extends [never]
+        ? false
+        : true
+    : IsReplaceable<GroupOf<Fields[K]>>;
+}[keyof Fields]
+  ? false
+  : true;
 
-type OptionalGroupFields<F> = F extends {
-  readonly [OptionalGroupTypeId]: VariantSchema.Struct<infer G>;
-}
-  ? G
-  : never;
+/** The shape a group is written whole in, as `set` would write it. */
+type WholeGroup<Fields extends VariantSchema.Struct.Fields> = VariantSchema.Extract<
+  "create",
+  VariantSchema.Struct<Fields>
+>;
 
-type PatchFields<Fields extends VariantSchema.Struct.Fields, Mode extends PatchMode> = {
-  readonly [
-    K in keyof Fields as Fields[K] extends VariantSchema.Struct<any>
-      ? K
-      : [OptionalGroupFields<Fields[K]>] extends [never]
-        ? [UpdateSchema<Fields[K]>] extends [never]
-          ? Mode extends "complete"
-            ? IsRequired<Fields[K]> extends true
-              ? K
-              : never
-            : never
-          : K
-        : K
-  ]: Fields[K] extends VariantSchema.Struct<infer G>
-    ? Mode extends "complete"
-      ? Schema.Struct<PatchFields<G, Mode>>
-      : Schema.optionalKey<Schema.Struct<PatchFields<G, Mode>>>
-    : [OptionalGroupFields<Fields[K]>] extends [never]
-      ? Mode extends "complete"
-        ? IsRequired<Fields[K]> extends true
-          ? [UpdateSchema<Fields[K]>] extends [never]
-            ? Schema.Never
-            : WithoutConstructorDefault<UpdateSchema<Fields[K]>>
-          : Schema.optionalKey<UpdateSchema<Fields[K]>>
-        : Schema.optionalKey<UpdateSchema<Fields[K]>>
-      : Schema.optionalKey<
-          FirestoreSchema.DeleteFieldOr<
-            Schema.Struct<
-              PatchFields<
-                OptionalGroupFields<Fields[K]>,
-                Mode extends "unchecked" ? "unchecked" : "complete"
-              >
-            >
-          >
-        >;
-};
+/**
+ * The schema of a {@link Patch.replace} of a group written whole as `S`. It is
+ * made from what `S` is made from, so the constructor defaults of the group
+ * are filled in.
+ */
+interface ReplaceSchema<S extends Schema.Top> extends Schema.Bottom<
+  Patch.Replace<S["Type"]>,
+  Patch.Replace<S["Type"]>,
+  never,
+  never,
+  SchemaAST.Declaration,
+  ReplaceSchema<S>,
+  Patch.Replace<S["~type.make.in"]>
+> {}
+
+/** What a group takes in `Mode`, as a field of the group it sits in. */
+type GroupUpdate<
+  Fields extends VariantSchema.Struct.Fields,
+  Optional extends boolean,
+  Mode extends UpdateMode,
+> = Schema.optionalKey<
+  Schema.Union<
+    readonly [
+      ...(Optional extends true
+        ? Mode extends "unchecked"
+          ? [Schema.Struct<UpdateFields<Fields, Mode>>]
+          : []
+        : [Schema.Struct<UpdateFields<Fields, Mode>>]),
+      ...(IsReplaceable<Fields> extends true ? [ReplaceSchema<WholeGroup<Fields>>] : []),
+      ...(Optional extends true ? [FirestoreSchema.DeleteField] : []),
+    ]
+  >
+>;
 
 /**
  * The fields of an update in `Mode`: every one that may change, each of them
- * optional, and each group a patch of its own.
+ * optional.
  *
- * A group every document holds takes a partial patch. An {@link Optional}
- * group takes a removal, or a patch that is partial under `unchecked` and
- * carries every field it cannot go without under `checked` - see
- * {@link UpdateMode}.
+ * A group every document holds takes a patch of its own, and an
+ * {@link Optional} group takes the removal, and a patch only under
+ * `unchecked` - see {@link UpdateMode}. Either takes {@link Patch.replace}
+ * where an update writes every field it holds.
  *
  * @stability unstable
  * @category models
@@ -263,15 +264,30 @@ type PatchFields<Fields extends VariantSchema.Struct.Fields, Mode extends PatchM
 export type UpdateFields<
   Fields extends VariantSchema.Struct.Fields,
   Mode extends UpdateMode = "checked",
-> = PatchFields<Fields, Mode>;
+> = {
+  readonly [
+    K in keyof Fields as [GroupOf<Fields[K]>] extends [never]
+      ? [UpdateSchema<Fields[K]>] extends [never]
+        ? never
+        : K
+      : K
+  ]: [GroupOf<Fields[K]>] extends [never]
+    ? Schema.optionalKey<UpdateSchema<Fields[K]>>
+    : GroupUpdate<
+        GroupOf<Fields[K]>,
+        Fields[K] extends VariantSchema.Struct<any> ? false : true,
+        Mode
+      >;
+};
 
 /**
  * The fields an update is written as: one optional key per path it can write
  * at.
  *
- * A group has no key of its own, since it is only ever written field by field,
- * unless it is {@link Optional} - then its key takes the removal and nothing
- * else.
+ * A group's own key takes the group written whole, where an update writes
+ * every field it holds, and the removal, where it is {@link Optional}. Where
+ * it takes neither, it has no key of its own, and is only written field by
+ * field.
  *
  * The paths are the same in either {@link UpdateMode}, which only tells apart
  * the patches an update takes, not where it writes them.
@@ -288,10 +304,17 @@ export type UpdatePaths<
   UnionToIntersection<
     {
       [K in keyof Fields & string]: Fields[K] extends VariantSchema.Struct<infer G>
-        ? UpdatePaths<G, Mode, `${Prefix}${K}.`>
+        ? (IsReplaceable<G> extends true
+            ? { readonly [_ in `${Prefix}${K}`]: Schema.optionalKey<WholeGroup<G>> }
+            : {}) &
+            UpdatePaths<G, Mode, `${Prefix}${K}.`>
         : Fields[K] extends { readonly [OptionalGroupTypeId]: VariantSchema.Struct<infer G> }
           ? {
-              readonly [_ in `${Prefix}${K}`]: Schema.optionalKey<FirestoreSchema.DeleteField>;
+              readonly [_ in `${Prefix}${K}`]: Schema.optionalKey<
+                IsReplaceable<G> extends true
+                  ? FirestoreSchema.DeleteFieldOr<WholeGroup<G>>
+                  : FirestoreSchema.DeleteField
+              >;
             } & UpdatePaths<G, Mode, `${Prefix}${K}.`>
           : [UpdateSchema<Fields[K]>] extends [never]
             ? {}
@@ -312,18 +335,24 @@ export type UpdatePaths<
  * what lets a sentinel sit at any depth, since Firestore takes one only at the
  * top level of an update, and removal is the one that minds.
  *
- * A group - {@link Struct}, or a class - is what it reaches into, and one made
- * {@link Optional} may be removed whole besides. Any other schema, a plain
- * `Schema.Struct` included, is a value, written whole.
+ * A group - {@link Struct}, or a class - is what it reaches into. Handed
+ * {@link Patch.replace} instead, it is written whole, at its path, as `set`
+ * would write it, and one made {@link Optional} may be removed whole besides.
+ * Any other schema, a plain `Schema.Struct` included, is a value, written
+ * whole. The patch says which it is, not the key - see the `Patch` module.
  *
  * Firestore applies an update to whatever the document holds, without checking
  * it against anything, so a patch that is right for one document may leave
  * another unreadable: written into a group the document goes without, it
- * creates the group holding only what the patch carried. Under `checked`, a
- * patch into an {@link Optional} group has to carry every field the group
- * cannot go without, at any depth, and a patch that does not is refused by
- * the type and by the encoding. Under `unchecked` it may be partial - see
- * {@link UpdateMode}.
+ * creates the group holding only what the patch carried. Under `checked`, an
+ * {@link Optional} group is replaced or removed and never patched, and a patch
+ * is refused by the type and by the encoding. Under `unchecked` it may be
+ * patched too - see {@link UpdateMode}.
+ *
+ * A group holding a field that `set` or an update leaves out - {@link Immutable},
+ * or a field only ever read - is never replaced, since that would change or
+ * drop the field. It is patched where every document holds it, and only removed by a
+ * checked update where it is {@link Optional}.
  *
  * The patch it takes is {@link Update.to}, and the paths it writes are
  * {@link Update.from}.
@@ -336,8 +365,10 @@ export type UpdatePaths<
  * @since 0.2.0
  */
 export interface Update<
-  Fields extends VariantSchema.Struct.Fields,
-  Mode extends UpdateMode = "checked",
+  // Declared rather than measured, which recursing through every group for
+  // replaceability makes too deep for the compiler.
+  in out Fields extends VariantSchema.Struct.Fields,
+  in out Mode extends UpdateMode = "checked",
 > extends Schema.decodeTo<
   Schema.toType<Schema.Struct<UpdateFields<Fields, Mode>>>,
   Schema.Struct<UpdatePaths<Fields, Mode> extends infer P extends Schema.Struct.Fields ? P : never>
@@ -364,12 +395,14 @@ export interface Class<
   readonly create: VariantSchema.Extract<"create", VariantSchema.Struct<Fields>>;
   /**
    * What `update` writes, taking only the patches that leave any document it
-   * may be written to readable.
+   * may be written to readable: an {@link Optional} group is replaced with
+   * {@link Patch.replace} or removed, never patched.
    */
   readonly update: Update<Fields, "checked">;
   /**
-   * What `update` writes, taking a partial patch into an {@link Optional}
-   * group as well.
+   * What `update` writes, taking a patch into an {@link Optional} group as
+   * well. Every patch {@link Class.update} takes, it takes too, and writes the
+   * same.
    *
    * Such a patch is only right where the group is there, which the caller
    * vouches for - with an earlier read, a query that only matches documents
@@ -603,11 +636,7 @@ export const Array: <S extends Schema.Top>(item: S) => Array<S> = firestoreModel
 export interface OptionalGroup<G extends VariantSchema.Struct<any>> extends VariantSchema.Field<{
   readonly read: Schema.optionalKey<VariantSchema.Extract<"read", G>>;
   readonly create: Schema.optionalKey<VariantSchema.Extract<"create", G>>;
-  readonly update: Schema.optionalKey<
-    FirestoreSchema.DeleteFieldOr<
-      Schema.Struct<UpdateFields<G[typeof VariantSchema.TypeId], "unchecked">>
-    >
-  >;
+  readonly update: GroupUpdate<G[typeof VariantSchema.TypeId], true, "unchecked">;
 }> {
   readonly [OptionalGroupTypeId]: G;
 }
@@ -668,19 +697,21 @@ export type Optional<F extends VariantSchema.Field<any> | VariantSchema.Struct<a
  * A field with no `update` variant - {@link Immutable}, say - is made optional
  * where it is read and created, and stays out of the update as before.
  *
- * A group made optional is still reached into by an update, field by field,
- * and takes the removal of the whole map besides. Inside a group, an optional
- * field is removed the same way as at the top, since an update writes a group
- * at its paths - see {@link Update}.
+ * Inside a group, an optional field is removed the same way as at the top,
+ * since an update writes a group at its paths - see {@link Update}.
  *
- * Since a document may go without the group, a patch into it may be what
- * creates it, so {@link Class.update} takes one only where it carries every
- * field the group cannot go without:
+ * A group made optional is the one place where what the document holds
+ * decides what a patch does: where the group is missing, a patch written into
+ * it creates it holding only the patch, and the document no longer reads. So
+ * {@link Class.update} writes it whole or removes it, and only
+ * {@link Class.updateUnchecked} patches it, for a caller who knows it is
+ * there:
  *
  * ```ts
  * import { Schema } from "effect";
  * import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
  * import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
+ * import * as Patch from "@visiolab/effect-firebase/firestore/Patch";
  *
  * const Address = FirestoreModel.Struct({ city: Schema.String, zip: Schema.String });
  *
@@ -688,15 +719,10 @@ export type Optional<F extends VariantSchema.Field<any> | VariantSchema.Struct<a
  *   address: FirestoreModel.Optional(Address),
  * }) {}
  *
- * Customer.update.make({ address: { city: "Berlin", zip: "10115" } }); // created or overwritten whole
- * Customer.update.make({ address: FieldValue.deleteField });           // removed
- * Customer.updateUnchecked.make({ address: { city: "Berlin" } });      // the caller knows it is there
+ * Customer.update.make({ address: Patch.replace({ city: "Berlin", zip: "10115" }) }); // written whole
+ * Customer.update.make({ address: FieldValue.deleteField }); // removed
+ * Customer.updateUnchecked.make({ address: { city: "Berlin" } }); // the caller knows it is there
  * ```
- *
- * Either way it is written at its paths, so where the group is there, the
- * fields it may go without and the patch leaves out are kept. A group holding
- * a field no update writes - {@link Immutable}, say - can only be removed by
- * {@link Class.update}, since no patch could create it whole.
  *
  * @stability unstable
  * @category schemas

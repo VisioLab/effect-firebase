@@ -1,9 +1,18 @@
-import { Predicate, Schema, SchemaAST, SchemaGetter } from "effect";
+import {
+  Effect,
+  Predicate,
+  Schema,
+  SchemaAST,
+  SchemaGetter,
+  SchemaIssue,
+  SchemaParser,
+} from "effect";
 import { VariantSchema } from "effect/schema";
 import type * as FirestoreModel from "../FirestoreModel.ts";
 import type * as Timestamp_ from "../Timestamp.ts";
 import * as fieldValue from "./fieldValue.ts";
 import * as firestoreSchema from "./firestoreSchema.ts";
+import * as patch from "./patch.ts";
 
 const Variants = VariantSchema.make({
   variants: ["read", "create", "update"],
@@ -45,27 +54,10 @@ interface Groups {
   readonly [key: string]: Groups;
 }
 
-const updateSchema = (field: unknown): Schema.Top | undefined =>
-  VariantSchema.isField(field) ? (field.schemas as any).update : (field as Schema.Top);
+const variantSchema = (field: unknown, variant: "create" | "update"): Schema.Top | undefined =>
+  VariantSchema.isField(field) ? (field.schemas as any)[variant] : (field as Schema.Top);
 
-/** Whether a document cannot be read without the field. */
-const isRequired = (field: unknown): boolean => {
-  const read: Schema.Top | undefined = VariantSchema.isField(field)
-    ? (field.schemas as any).read
-    : (field as Schema.Top);
-  return read !== undefined && read.ast.context?.isOptional !== true;
-};
-
-/**
- * How a set of fields is patched.
- *
- * - `checked` and `unchecked` are the modes an update is built in, and only
- *   tell apart where a group may be missing.
- * - `complete` is what a group that may be missing is patched in under
- *   `checked`, since the patch may be what creates it: every field it cannot
- *   be read without has to be there, at any depth.
- */
-type Mode = FirestoreModel.UpdateMode | "complete";
+const updateSchema = (field: unknown): Schema.Top | undefined => variantSchema(field, "update");
 
 // What Effect itself strips a default with, though it is left out of the
 // typings.
@@ -91,24 +83,82 @@ const withoutConstructorDefault = (schema: Schema.Top): Schema.Top => {
   );
 };
 
-/** The fields of the group a field reaches into, if it is one. */
-const groupOf = (
-  field: unknown,
-): { readonly fields: VariantSchema.Struct.Fields; readonly optional: boolean } | undefined => {
+/** A group a field reaches into, and whether a document may go without it. */
+interface Group {
+  readonly struct: VariantSchema.Struct<any>;
+  readonly optional: boolean;
+}
+
+/** The group a field reaches into, if it is one. */
+const groupOf = (field: unknown): Group | undefined => {
   if (VariantSchema.isStruct(field)) {
-    return { fields: VariantSchema.fields(field), optional: false };
+    return { struct: field, optional: false };
   }
   if (Predicate.hasProperty(field, OptionalGroupTypeId)) {
-    const group = field[OptionalGroupTypeId] as VariantSchema.Struct<any>;
-    return { fields: VariantSchema.fields(group), optional: true };
+    return { struct: field[OptionalGroupTypeId] as VariantSchema.Struct<any>, optional: true };
   }
   return undefined;
 };
 
 /**
+ * Whether a group may be written whole by an update: only where every field it
+ * holds, at any depth, is written both by `set`, whose shape a replacement
+ * takes, and by an update. Replacing one holding a field written once would
+ * change it, and one holding a field `set` leaves out would drop it.
+ */
+const isReplaceable = (fields: VariantSchema.Struct.Fields): boolean =>
+  Object.values(fields).every((field) => {
+    const group = groupOf(field);
+    return group === undefined
+      ? variantSchema(field, "create") !== undefined && updateSchema(field) !== undefined
+      : isReplaceable(VariantSchema.fields(group.struct));
+  });
+
+/**
+ * The replacement of a group, holding the group as `create` makes it - with
+ * its constructor defaults filled in, since a default left out of a group
+ * written whole would be a field dropped.
+ */
+const ReplaceSchema = (create: Schema.Top): Schema.Top =>
+  Schema.declareConstructor<any, any>()(
+    [create],
+    ([create]) =>
+      (input, ast, options) =>
+        patch.isReplace(input)
+          ? create.makeEffect(input.value, options).pipe(
+              Effect.mapBothEager({
+                onSuccess: patch.replace,
+                onFailure: (issue) => new SchemaIssue.Pointer(["value"], issue),
+              }),
+            )
+          : Effect.fail(new SchemaIssue.InvalidType(ast, input, options)),
+    { expected: "a group written whole" },
+  );
+
+/**
+ * The patch of a group, refusing the markers a struct would otherwise take
+ * for a patch of nothing, since it keeps only the keys it knows.
+ */
+const GroupPatchSchema = (fields: Schema.Top): Schema.Top =>
+  Schema.declareConstructor<any, any>()(
+    [fields],
+    ([fields]) =>
+      (input, ast, options) =>
+        patch.isReplace(input) || fieldValue.isDeleteField(input)
+          ? Effect.fail(new SchemaIssue.InvalidType(ast, input, options))
+          : SchemaParser.decodeUnknownEffect(fields)(input, options),
+    { expected: "a patch of a group" },
+  );
+
+/**
  * Builds the patch a set of fields is updated through in `mode`, along with
  * where its groups sit, and gathers the schema of each path it can write at
  * into `paths`.
+ *
+ * A group takes a patch, written at its paths, unless it may be missing and
+ * the patch is checked, since the patch would create it holding only what it
+ * carried. It takes a replacement wherever it is replaceable, and a removal
+ * where it may be missing.
  *
  * Throws on a field name holding a dot, which a path would read as two.
  */
@@ -116,7 +166,7 @@ const build = (
   fields: VariantSchema.Struct.Fields,
   prefix: string,
   paths: Record<string, Schema.Top>,
-  mode: Mode,
+  mode: FirestoreModel.UpdateMode,
 ): { readonly patch: Schema.Top; readonly groups: Groups } => {
   const schemas: Record<string, Schema.Top> = {};
   const groups: Record<string, Groups> = {};
@@ -128,28 +178,15 @@ const build = (
     const path = prefix + key;
     const group = groupOf(field);
     if (group !== undefined) {
-      // A group a document may go without may be created by the patch.
-      const innerMode = group.optional && mode !== "unchecked" ? "complete" : mode;
-      const inner = build(group.fields, `${path}.`, paths, innerMode);
-      if (group.optional) {
-        schemas[key] = Schema.optionalKey(firestoreSchema.DeleteFieldOr(inner.patch));
-        paths[path] = Schema.optionalKey(firestoreSchema.DeleteField);
-      } else {
-        schemas[key] = mode === "complete" ? inner.patch : Schema.optionalKey(inner.patch);
-      }
-      groups[key] = inner.groups;
+      const built = buildGroup(group, path, paths, mode);
+      schemas[key] = built.schema;
+      groups[key] = built.groups;
     } else {
       const update = updateSchema(field);
-      const schema = update === undefined ? undefined : withoutConstructorDefault(update);
-      if (schema !== undefined) {
-        paths[path] = Schema.optionalKey(schema);
-      }
-      if (mode === "complete" && isRequired(field)) {
-        // A field no update writes leaves the group unable to be created by
-        // one, so the patch cannot be made at all and the group only removed.
-        schemas[key] = schema ?? Schema.Never;
-      } else if (schema !== undefined) {
+      if (update !== undefined) {
+        const schema = withoutConstructorDefault(update);
         schemas[key] = Schema.optionalKey(schema);
+        paths[path] = Schema.optionalKey(schema);
       }
     }
   }
@@ -157,9 +194,49 @@ const build = (
 };
 
 /**
+ * Builds what a group at `path` takes in `mode`, gathering the paths it writes
+ * at into `paths`, the way {@link build} does for a set of fields.
+ */
+const buildGroup = (
+  { struct, optional }: Group,
+  path: string,
+  paths: Record<string, Schema.Top>,
+  mode: FirestoreModel.UpdateMode,
+): { readonly schema: Schema.Top; readonly groups: Groups } => {
+  const fields = VariantSchema.fields(struct);
+  const inner = build(fields, `${path}.`, paths, mode);
+  const create = isReplaceable(fields) ? (extract(struct, "create") as Schema.Top) : undefined;
+  const takes: Array<Schema.Top> = [];
+  if (!optional || mode === "unchecked") {
+    takes.push(GroupPatchSchema(inner.patch));
+  }
+  if (create !== undefined) {
+    takes.push(ReplaceSchema(create));
+  }
+  if (optional) {
+    takes.push(firestoreSchema.DeleteField);
+  }
+  const written = optional
+    ? create === undefined
+      ? firestoreSchema.DeleteField
+      : firestoreSchema.DeleteFieldOr(create)
+    : create;
+  if (written !== undefined) {
+    paths[path] = Schema.optionalKey(written);
+  }
+  return {
+    schema: Schema.optionalKey(takes.length === 1 ? takes[0] : Schema.Union(takes)),
+    groups: inner.groups,
+  };
+};
+
+/**
  * Goes one level down where the schema says a group sits, unless the group is
- * being removed. It runs on the patch as the caller wrote it, before anything
- * is encoded, so the removal is still this library's to recognise.
+ * being removed or replaced. It runs on the patch as the caller wrote it,
+ * before anything is encoded, so the removal and the replacement are still
+ * this library's to recognise.
+ *
+ * A replacement is written whole, as the group it holds.
  */
 const flatten = (
   value: Record<string, unknown>,
@@ -169,10 +246,12 @@ const flatten = (
 ): Record<string, unknown> => {
   for (const key of Object.keys(value)) {
     const inner = value[key];
-    if (Object.hasOwn(groups, key) && !fieldValue.isDeleteField(inner)) {
-      flatten(inner as Record<string, unknown>, groups[key], `${prefix}${key}.`, out);
-    } else {
+    if (!Object.hasOwn(groups, key) || fieldValue.isDeleteField(inner)) {
       out[prefix + key] = inner;
+    } else if (patch.isReplace(inner)) {
+      out[prefix + key] = inner.value;
+    } else {
+      flatten(inner as Record<string, unknown>, groups[key], `${prefix}${key}.`, out);
     }
   }
   return out;
@@ -268,9 +347,9 @@ const optionalGroup = (self: VariantSchema.Struct<any>): unknown =>
     Field({
       read: Schema.optionalKey(extract(self, "read") as Schema.Top),
       create: Schema.optionalKey(extract(self, "create") as Schema.Top),
-      update: Schema.optionalKey(
-        firestoreSchema.DeleteFieldOr(build(VariantSchema.fields(self), "", {}, "unchecked").patch),
-      ),
+      // What the group takes as a field of its own, which is what `extract`
+      // hands back: the patches an unchecked update takes.
+      update: buildGroup({ struct: self, optional: true }, "", {}, "unchecked").schema,
     }),
     { [OptionalGroupTypeId]: self },
   );
