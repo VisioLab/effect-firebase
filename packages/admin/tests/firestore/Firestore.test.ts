@@ -2,12 +2,14 @@ import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
 import { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as Admin from "firebase-admin/app";
 import { DocumentReference, initializeFirestore } from "firebase-admin/firestore";
 import * as App from "../../src/App.ts";
 import * as AdminFirestore from "../../src/firestore/Firestore.ts";
+import { clear } from "./emulator.ts";
 
 // A named app keeps each run independent of whatever the default app is, and of
 // the apps the other suites register.
@@ -179,5 +181,76 @@ describe("Firestore", () => {
 
         yield* Effect.promise(() => Admin.deleteApp(app));
       }),
+  );
+});
+
+describe("Firestore, against the emulator", () => {
+  // Cleared before each test rather than after, so a failed test leaves its
+  // documents behind to look at.
+  const fresh = clear("demo-firestore").pipe(Effect.andThen(Firestore));
+
+  const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnapshot<C>) =>
+    DocumentSnapshot.isExisting(snapshot) ? snapshot.data : Effect.die("missing");
+
+  it.effect("reads back what it wrote", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh;
+
+      yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
+      const snapshot = yield* firestore.getDoc(Posts.doc(hello));
+
+      expect(snapshot._tag).toBe("Existing");
+      expect(yield* read(snapshot)).toMatchObject({ title: "Hello", views: 1 });
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("hands back a missing snapshot for a document that is not there", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh;
+
+      const snapshot = yield* firestore.getDoc(Posts.doc(hello));
+
+      expect(snapshot._tag).toBe("Missing");
+      expect(snapshot.id).toBe(hello);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("adds a document under an id Firestore picks, and reads it among the others", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh;
+
+      yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
+      const added = yield* firestore.addDoc(Posts.collection(), { title: "Added", views: 2 });
+      const snapshots = yield* firestore.getDocs(Posts.collection());
+
+      expect(added.id).not.toBe(hello);
+      expect(snapshots.map((snapshot) => snapshot.id).toSorted()).toEqual(
+        [hello, added.id].toSorted(),
+      );
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("updates the fields it is given, and leaves the others alone", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh;
+
+      yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
+      yield* firestore.updateDoc(Posts.doc(hello), { views: 2 });
+
+      expect(yield* read(yield* firestore.getDoc(Posts.doc(hello)))).toMatchObject({
+        title: "Hello",
+        views: 2,
+      });
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("refuses to update a document that is not there", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh;
+
+      const error = yield* Effect.flip(firestore.updateDoc(Posts.doc(hello), { views: 2 }));
+
+      expect(error).toBeInstanceOf(FirestoreError);
+    }).pipe(Effect.provide(layer)),
   );
 });
