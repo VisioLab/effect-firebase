@@ -43,7 +43,22 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: true
 
-      - run: vp run -r test
+      # The Firestore emulator is a Java program, and firebase-tools asks for
+      # Java 21 or later to run it.
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # firebase-tools downloads the emulator on first use. Its version follows
+      # firebase-tools', which the catalog pins.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ hashFiles('pnpm-workspace.yaml') }}
+          restore-keys: firebase-emulators-
+
+      - run: vp exec firebase emulators:exec --only firestore --project demo-effect-firebase "vp run -r test"
 
   ci:
     name: CI

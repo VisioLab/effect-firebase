@@ -1,6 +1,14 @@
 import { defineConfig } from "vite-plus";
 
 export default defineConfig({
+  test: {
+    env: {
+      // Set here rather than left to the shell, so the Admin SDK in a test can
+      // only ever reach the emulator, never a real project.
+      FIRESTORE_EMULATOR_HOST: process.env["FIRESTORE_EMULATOR_HOST"] ?? "127.0.0.1:8080",
+    },
+    globalSetup: ["./tests/emulator.ts"],
+  },
   pack: {
     // One entry per module, so consumers can reach `App` as
     // `@visiolab/effect-firebase-admin/App` without loading the whole barrel.
