@@ -3,6 +3,7 @@ import { DateTime, Effect, Equal, Layer, Schema } from "effect";
 import * as Collection from "../../src/firestore/Collection.ts";
 import * as FieldValue from "../../src/firestore/FieldValue.ts";
 import { FirestoreEncoder } from "../../src/firestore/FirestoreEncoder.ts";
+import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
 import * as FirestoreSchema from "../../src/firestore/FirestoreSchema.ts";
 import * as GeoPoint from "../../src/firestore/GeoPoint.ts";
 import * as Timestamp from "../../src/firestore/Timestamp.ts";
@@ -244,10 +245,13 @@ describe("GeoPoint", () => {
 });
 
 describe("DocumentReference", () => {
-  const Users = Collection.make("users", Schema.Struct({ name: Schema.String }));
-  const Posts = Users.subcollection("posts", Schema.Struct({ title: Schema.String }));
-  const Orgs = Collection.make("orgs", Schema.Struct({ name: Schema.String }));
-  const OrgPosts = Orgs.subcollection("posts", Schema.Struct({ title: Schema.String }));
+  class Member extends FirestoreModel.Class<Member>("Member")({ name: Schema.String }) {}
+  class Article extends FirestoreModel.Class<Article>("Article")({ title: Schema.String }) {}
+
+  const Users = Collection.make("users", Member);
+  const Posts = Users.subcollection("posts", Article);
+  const Orgs = Collection.make("orgs", Member);
+  const OrgPosts = Orgs.subcollection("posts", Article);
 
   const Post = FirestoreSchema.DocumentReference(Posts);
   const decode = Schema.decodeUnknownEffect(Post);

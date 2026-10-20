@@ -69,20 +69,18 @@ describe("data", () => {
   it.effect("decodes only when it is run, and each time it is", () =>
     Effect.gen(function* () {
       let decoded = 0;
-      const Counted = Collection.make(
-        "counted",
-        Schema.Struct({
-          name: Schema.String.pipe(
-            Schema.decodeTo(Schema.String, {
-              decode: SchemaGetter.transform((s: string) => {
-                decoded++;
-                return s;
-              }),
-              encode: SchemaGetter.transform((s: string) => s),
+      class Count extends FirestoreModel.Class<Count>("Count")({
+        name: Schema.String.pipe(
+          Schema.decodeTo(Schema.String, {
+            decode: SchemaGetter.transform((s: string) => {
+              decoded++;
+              return s;
             }),
-          ),
-        }),
-      );
+            encode: SchemaGetter.transform((s: string) => s),
+          }),
+        ),
+      }) {}
+      const Counted = Collection.make("counted", Count);
       const snapshot = DocumentSnapshot.existing(Counted.doc(Counted.id.make("a")), { name: "A" });
       const data = snapshot.data;
       expect(decoded).toBe(0);
