@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { DateTime, Effect, Exit, Layer, Schema, SchemaGetter } from "effect";
+import { Context, DateTime, Effect, Exit, Layer, Schema, SchemaGetter } from "effect";
 import type { VariantSchema } from "effect/schema";
 import * as Collection from "../../src/firestore/Collection.ts";
 import * as FieldValue from "../../src/firestore/FieldValue.ts";
@@ -1308,6 +1308,12 @@ describe("a geopoint field", () => {
   );
 });
 
+/** How a key is written, as a service a key schema takes. */
+interface Casing {
+  readonly encode: (key: string) => string;
+}
+const Casing = Context.Service<Casing>("Casing");
+
 /** A key written in upper case, read in lower case. */
 const Upper = Schema.String.pipe(
   Schema.decodeTo(Schema.String, {
@@ -1568,18 +1574,38 @@ describe("Record", () => {
     }).pipe(Effect.provide(encoder)),
   );
 
-  it("refuses a key that needs a service to encode", () => {
-    const Key = Schema.String.pipe(
-      Schema.decodeTo(Schema.String, {
-        decode: SchemaGetter.passthrough(),
-        encode: SchemaGetter.transformEffect((s: string) =>
-          Effect.as(Effect.service(FirestoreEncoder), s),
+  it.effect("encodes a key with the services it takes", () =>
+    Effect.gen(function* () {
+      class Lookup extends FirestoreModel.Class<Lookup>("Lookup")({
+        byCode: FirestoreModel.Record(
+          Schema.String.pipe(
+            Schema.decodeTo(Schema.String, {
+              decode: SchemaGetter.passthrough(),
+              encode: SchemaGetter.transformEffect((s: string) =>
+                Effect.map(Effect.service(Casing), (casing) => casing.encode(s)),
+              ),
+            }),
+          ),
+          // A group holding a field written once, so the Record is never
+          // written whole, and no schema of it but its paths names the key.
+          FirestoreModel.Struct({
+            id: FirestoreModel.Immutable(Schema.String),
+            name: Schema.String,
+          }),
         ),
-      }),
-    );
-    // @ts-expect-error: an update could not name the service it needs
-    FirestoreModel.Record(Key, Schema.String);
-  });
+      }) {}
+      expectTypeOf<(typeof Lookup.update)["EncodingServices"]>().toEqualTypeOf<
+        FirestoreEncoder | Casing
+      >();
+      const encoded = yield* Schema.encodeEffect(Lookup.updateUnchecked)({
+        byCode: { de: { name: "Germany" } },
+      });
+      expect(encoded).toStrictEqual({ "byCode.DE.name": "Germany" });
+    }).pipe(
+      Effect.provide(encoder),
+      Effect.provideService(Casing, { encode: (s) => s.toUpperCase() }),
+    ),
+  );
 
   it("takes a patch, a replacement, and a removal per key", () => {
     type T = (typeof Poll.update)["Type"];
@@ -1667,6 +1693,26 @@ describe("a Record keyed by literals", () => {
         answers: { yes: FieldValue.increment(1) },
       });
       expect(Object.keys(encoded)).toEqual(["answers.Y"]);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("refuses a key whose encoded form no path can name", () =>
+    Effect.gen(function* () {
+      class Ballot extends FirestoreModel.Class<Ballot>("Ballot")({
+        answers: FirestoreModel.Record(
+          Schema.Literals(["a.b"]).pipe(
+            Schema.decodeTo(Schema.Literals(["yes"]), {
+              decode: SchemaGetter.transform(() => "yes" as const),
+              encode: SchemaGetter.transform(() => "a.b" as const),
+            }),
+          ),
+          FirestoreModel.Number(Schema.Int),
+        ),
+      }) {}
+      const exit = yield* Schema.encodeEffect(Ballot.update)({
+        answers: { yes: FieldValue.increment(1) },
+      }).pipe(Effect.exit);
+      expect(String(exit)).toContain(`Invalid Firestore field name "a.b" in "answers"`);
     }).pipe(Effect.provide(encoder)),
   );
 

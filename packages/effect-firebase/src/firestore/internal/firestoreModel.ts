@@ -6,8 +6,6 @@ import {
   SchemaGetter,
   SchemaIssue,
   SchemaParser,
-  SchemaTransformation,
-  Struct as Struct_,
 } from "effect";
 import { VariantSchema } from "effect/schema";
 import type * as FirestoreModel from "../FirestoreModel.ts";
@@ -70,27 +68,19 @@ interface Rest<A> {
   readonly value: A;
 }
 
-/** A key known up front, as an update is written with it and as Firestore holds it. */
-interface Name {
-  readonly decoded: string;
-  readonly encoded: string;
-}
-
 /**
- * A path an update writes at, one segment per key, with the schema of the key
- * where it is one only the data names.
+ * A path an update writes at, one segment per key: the name of a field, or the
+ * schema of the key of a Record, which encodes whatever key sits there.
  */
-type Path = ReadonlyArray<Name | Schema.Top>;
+type Path = ReadonlyArray<string | Schema.Top>;
 
 /**
- * The schemas an update writes at: by path where every key on it is known, and
- * by the pattern of the paths otherwise. A known path Firestore holds under
- * another name is renamed to it, once its value is encoded.
+ * The schemas an update writes at: by path where it only goes through fields,
+ * and by the pattern of the paths where it goes through a Record.
  */
 interface Paths {
   readonly known: Record<string, Schema.Top>;
-  readonly renamed: Record<string, string>;
-  readonly patterns: Array<Schema.Top>;
+  readonly patterns: Map<string, Schema.Top>;
 }
 
 /** The reason a key is not one a path can name on its own, if it is not. */
@@ -102,17 +92,13 @@ const Segment = Schema.String.check(Schema.isPattern(/^[^.]+$/));
 
 /** Where a path sits, with `*` for each key only the data names. */
 const where = (path: Path): string =>
-  path.map((segment) => (Schema.isSchema(segment) ? "*" : segment.decoded)).join(".");
+  path.map((segment) => (Schema.isSchema(segment) ? "*" : segment)).join(".");
 
 /**
- * The parts of the template literal a path matches: the names along it, joined
- * by dots, and `key` for each key only the data names.
+ * The parts of the template literal a path matches: the names of the fields
+ * along it, joined by dots, and `key` for each key of a Record.
  */
-const template = <A>(
-  path: Path,
-  name: (name: Name) => string,
-  key: (schema: Schema.Top, i: number) => A,
-): Array<string | A> => {
+const template = <A>(path: Path, key: (schema: Schema.Top, i: number) => A): Array<string | A> => {
   const parts: Array<string | A> = [];
   let literal = "";
   path.forEach((segment, i) => {
@@ -126,7 +112,7 @@ const template = <A>(
       parts.push(key(segment, i));
       literal = "";
     } else {
-      literal += name(segment);
+      literal += segment;
     }
   });
   if (literal !== "") {
@@ -137,63 +123,50 @@ const template = <A>(
 
 /**
  * The key of a pattern of paths, as an update is written with it and as
- * Firestore holds it: each key only the data names is encoded by its own
+ * Firestore holds it: each key of a Record is encoded by the Record's key
  * schema, and refused where its encoded form is one no path can name.
  */
 const PathKey = (path: Path): Schema.Top => {
-  const encoded = template(
-    path,
-    (name) => name.encoded,
-    (key, i) =>
-      Schema.String.check(
-        Schema.makeFilter((segment: string) => {
-          const reason = unaddressable(segment);
-          return reason === undefined
-            ? undefined
-            : `Invalid Firestore field name "${segment}" in "${where(path.slice(0, i))}": it ${reason}`;
-        }),
-      ).pipe(Schema.decodeTo(key as Schema.Codec<unknown, string>)),
+  const encoded = template(path, (key, i) =>
+    Schema.String.check(
+      Schema.makeFilter((segment: string) => {
+        const reason = unaddressable(segment);
+        return reason === undefined
+          ? undefined
+          : `Invalid Firestore field name "${segment}" in "${where(path.slice(0, i))}": it ${reason}`;
+      }),
+    ).pipe(Schema.decodeTo(key as Schema.Codec<unknown, string>)),
   );
-  const decoded = template(
-    path,
-    (name) => name.decoded,
-    () => Segment,
-  );
+  const decoded = template(path, (key) => (recordKeys(key).rest ? Segment : Schema.toType(key)));
   const parser = Schema.TemplateLiteralParser(encoded as any) as unknown as Schema.Codec<
     ReadonlyArray<unknown>,
     string
   >;
   return parser.pipe(
     Schema.decodeTo(Schema.TemplateLiteral(decoded as any) as Schema.Codec<string, string>, {
-      decode: SchemaGetter.transform((parts) =>
-        parts.map((part, j) => (typeof encoded[j] === "string" ? decoded[j] : part)).join(""),
-      ),
+      decode: SchemaGetter.transform((parts) => parts.join("")),
       // A key a path names holds no dot, so splitting the path at each one
       // gives back its keys.
       encode: SchemaGetter.transform((key) => {
         const segments = key.split(".");
-        return template(
-          path,
-          (name) => name.encoded,
-          (_, i) => segments[i],
-        );
+        return template(path, (_, i) => segments[i]);
       }),
     }),
   );
 };
 
+// Every key of a Record known up front sits at the same pattern, which is only
+// added once. A pattern holds no optional key, since any path it matches may be
+// left out anyway.
 const addPath = (paths: Paths, path: Path, schema: Schema.Top): void => {
-  const names = path.filter((segment): segment is Name => !Schema.isSchema(segment));
-  if (names.length === path.length) {
-    const decoded = names.map((name) => name.decoded).join(".");
-    const encoded = names.map((name) => name.encoded).join(".");
-    paths.known[decoded] = Schema.optionalKey(schema);
-    if (encoded !== decoded) {
-      paths.renamed[decoded] = encoded;
-    }
-    return;
+  if (path.every((segment) => typeof segment === "string")) {
+    paths.known[path.join(".")] = Schema.optionalKey(schema);
+  } else if (!paths.patterns.has(where(path))) {
+    paths.patterns.set(
+      where(path),
+      Schema.Record(PathKey(path) as Schema.Record.Key, withoutOptionalKey(schema)),
+    );
   }
-  paths.patterns.push(Schema.Record(PathKey(path) as Schema.Record.Key, schema));
 };
 
 const variantSchema = (
@@ -255,30 +228,24 @@ const withoutOptionalKey = (schema: Schema.Top): Schema.Top => {
   );
 };
 
-/**
- * The keys a Record key schema names up front, and whether the data names
- * more. Each key known up front is encoded here, once, for the path Firestore
- * holds it at.
- */
-const recordKeys = (key: Schema.Top): { readonly known: Array<Name>; readonly rest: boolean } => {
+/** The keys a Record key schema names up front, and whether the data names more. */
+const recordKeys = (key: Schema.Top): { readonly known: Array<string>; readonly rest: boolean } => {
   const ast = Schema.Record(key as Schema.Record.Key, Schema.Unknown).ast;
   const known = ast.propertySignatures.map(({ name }) => {
-    const encoded = SchemaParser.encodeUnknownSync(key as Schema.Codec<unknown, unknown>)(name);
-    for (const segment of [name, encoded]) {
-      if (typeof segment !== "string") {
-        throw new Error(`Invalid Firestore field name ${String(segment)}: it must be a string`);
-      }
-      const reason = unaddressable(segment);
-      if (reason !== undefined) {
-        throw new Error(`Invalid Firestore field name "${segment}": it ${reason}`);
-      }
+    if (typeof name === "symbol") {
+      throw new Error(`Invalid Firestore field name ${String(name)}: it must be a string`);
     }
-    return { decoded: name as string, encoded: encoded as string };
+    const segment = String(name);
+    const reason = unaddressable(segment);
+    if (reason !== undefined) {
+      throw new Error(`Invalid Firestore field name "${segment}": it ${reason}`);
+    }
+    return segment;
   });
   const rest = ast.indexSignatures.length > 0;
   if (rest && known.length > 0) {
     throw new Error(
-      `Invalid Record key: it names ${known.map((k) => `"${k.decoded}"`).join(", ")} besides keys only the data names, which an update cannot tell apart`,
+      `Invalid Record key: it names ${known.map((k) => `"${k}"`).join(", ")} besides keys only the data names, which an update cannot tell apart`,
     );
   }
   return { known, rest };
@@ -290,8 +257,11 @@ const recordKeys = (key: Schema.Top): { readonly known: Array<Name>; readonly re
  */
 interface Node {
   readonly fields: VariantSchema.Struct.Fields;
-  /** The name Firestore holds a field at, where it differs from its own. */
-  readonly names: Record<string, string>;
+  /**
+   * The key schema of a Record keyed by literals, which a path names each of
+   * its fields by, to encode it as part of the update.
+   */
+  readonly key: Schema.Top | undefined;
   readonly rest: Rest<unknown> | undefined;
   /** The whole node, as `set` writes it. */
   readonly create: () => Schema.Top;
@@ -309,10 +279,8 @@ const recordNode = (
 ): Node => {
   const keys = recordKeys(key);
   return {
-    fields: Object.fromEntries(
-      keys.known.map((k) => [k.decoded, value]),
-    ) as VariantSchema.Struct.Fields,
-    names: Object.fromEntries(keys.known.map((k) => [k.decoded, k.encoded])),
+    fields: Object.fromEntries(keys.known.map((k) => [k, value])) as VariantSchema.Struct.Fields,
+    key: keys.rest ? undefined : key,
     rest: keys.rest ? { key, value } : undefined,
     create,
     optional,
@@ -333,7 +301,7 @@ const nodeOf = (field: unknown, optional = false): Node | undefined => {
   if (VariantSchema.isStruct(field)) {
     return {
       fields: VariantSchema.fields(field),
-      names: {},
+      key: undefined,
       rest: undefined,
       create: () => extract(field, "create") as Schema.Top,
       optional,
@@ -408,6 +376,9 @@ const GroupPatchSchema = (fields: Schema.Top): Schema.Top =>
  * where it may be missing. A Record is a group whose keys may come from the
  * data - see {@link buildNode}.
  *
+ * Where `recordKey` is given, the fields are the keys of a Record keyed by
+ * literals, and each sits on its path as that key schema encodes it.
+ *
  * Throws on a field name holding a dot, which a path would read as two.
  */
 const build = (
@@ -415,7 +386,7 @@ const build = (
   path: Path,
   paths: Paths,
   mode: FirestoreModel.UpdateMode,
-  names: Record<string, string> = {},
+  recordKey?: Schema.Top,
 ): { readonly patch: Schema.Top; readonly shape: Shape } => {
   const schemas: Record<string, Schema.Top> = {};
   const shapes: Record<string, Shape> = {};
@@ -424,7 +395,7 @@ const build = (
       throw new Error(`Invalid Firestore field name "${key}": it must not contain "."`);
     }
     const field = fields[key];
-    const at = [...path, { decoded: key, encoded: names[key] ?? key }];
+    const at = [...path, recordKey ?? key];
     const node = nodeOf(field);
     if (node !== undefined) {
       if (node.writable) {
@@ -463,7 +434,7 @@ const buildNode = (
 ): { readonly schema: Schema.Top; readonly shape: Shape } => {
   const inner =
     node.rest === undefined
-      ? build(node.fields, path, paths, mode, node.names)
+      ? build(node.fields, path, paths, mode, node.key)
       : buildRest(node.rest, path, paths, mode);
   const create = isNodeReplaceable(node) ? node.create() : undefined;
   const takes: Array<Schema.Top> = [];
@@ -566,49 +537,15 @@ const flatten = (
     return out;
   });
 
-/**
- * The paths an update writes at, under the names Firestore holds them at:
- * each is renamed once its value is encoded, as `Schema.encodeKeys` does.
- */
-const pathsSchema = (paths: Paths): Schema.Top => {
-  const struct = (known: Record<string, Schema.Top>, patterns: ReadonlyArray<Schema.Top>) =>
-    patterns.length === 0
-      ? Schema.Struct(known)
-      : Schema.StructWithRest(Schema.Struct(known), patterns as any);
-  const decoded = struct(paths.known, paths.patterns);
-  if (Object.keys(paths.renamed).length === 0) {
-    return decoded;
-  }
-  const encoded = struct(
-    Object.fromEntries(
-      Object.entries(paths.known).map(([path, schema]) => [
-        paths.renamed[path] ?? path,
-        Schema.toEncoded(schema),
-      ]),
-    ),
-    paths.patterns.map((pattern) => Schema.toEncoded(pattern)),
-  );
-  const back = Object.fromEntries(
-    Object.entries(paths.renamed).map(([path, renamed]) => [renamed, path]),
-  );
-  return encoded.pipe(
-    Schema.decodeTo(
-      decoded,
-      SchemaTransformation.transform<any, any>({
-        decode: Struct_.renameKeys(back),
-        encode: Struct_.renameKeys(paths.renamed),
-      }),
-    ),
-  );
-};
-
 const update = (
   fields: VariantSchema.Struct.Fields,
   mode: FirestoreModel.UpdateMode,
 ): Schema.Top => {
-  const paths: Paths = { known: {}, renamed: {}, patterns: [] };
+  const paths: Paths = { known: {}, patterns: new Map() };
   const { patch, shape } = build(fields, [], paths, mode);
-  return pathsSchema(paths).pipe(
+  const known = Schema.Struct(paths.known);
+  const patterns = [...paths.patterns.values()];
+  return (patterns.length === 0 ? known : Schema.StructWithRest(known, patterns as any)).pipe(
     Schema.decodeTo(Schema.toType(patch), {
       decode: SchemaGetter.forbidden(() => "An update is only ever written, never read back"),
       encode: SchemaGetter.transformEffect((value, options) =>
@@ -692,9 +629,7 @@ const optionalField = fieldEvolve({
  * `extract` hands back: the patches an unchecked update takes.
  */
 const nodeUpdate = (node: Node): Schema.Top =>
-  Schema.optionalKey(
-    buildNode(node, [], { known: {}, renamed: {}, patterns: [] }, "unchecked").schema,
-  );
+  Schema.optionalKey(buildNode(node, [], { known: {}, patterns: new Map() }, "unchecked").schema);
 
 /** @internal */
 export const Record = <K extends Schema.Record.Key, V extends FirestoreModel.Value>(
