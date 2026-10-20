@@ -21,6 +21,13 @@ class Post extends FirestoreModel.Class<Post>("Post")({
 }) {}
 
 const Posts = Collection.make("posts", Post);
+
+class Place extends FirestoreModel.Class<Place>("Place")({
+  name: Schema.String,
+  billing: FirestoreModel.Optional(FirestoreModel.Struct({ zip: Schema.Finite })),
+}) {}
+
+const Places = Collection.make("places", Place);
 const hello = Posts.id.make("hello");
 
 describe("Firestore", () => {
@@ -96,6 +103,41 @@ describe("Firestore", () => {
         firestore.addDoc(Posts.collection(), { title: "Hello", views: Number.NaN }),
       );
       expect(error._tag).toBe("SchemaError");
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("stops a patch that does not encode before updating", () =>
+    Effect.gen(function* () {
+      const firestore = yield* Firestore;
+
+      const update = firestore.updateDoc(Posts.doc(hello), { views: Number.NaN });
+      expectTypeOf(update).toEqualTypeOf<
+        Effect.Effect<void, FirestoreError | Schema.SchemaError>
+      >();
+
+      const error = yield* Effect.flip(update);
+      expect(error._tag).toBe("SchemaError");
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("encodes a patch through the schema its mode names", () =>
+    Effect.gen(function* () {
+      const firestore = yield* Firestore;
+      const ref = Places.doc(Places.id.make("a"));
+
+      // Neither of these reaches the database, so the test needs neither the
+      // emulator nor credentials. What tells the modes apart is why encoding
+      // stops: checked refuses a patch into an optional struct at all, while
+      // unchecked takes it and only stops at the `NaN` it carries.
+      const patch = { billing: { zip: Number.NaN } };
+
+      const checked = yield* Effect.flip(firestore.updateDoc(ref, patch as never));
+      expect(checked._tag).toBe("SchemaError");
+      expect(checked.message).not.toContain("Expected a finite number");
+
+      const unchecked = yield* Effect.flip(firestore.updateDoc(ref, patch, { mode: "unchecked" }));
+      expect(unchecked._tag).toBe("SchemaError");
+      expect(unchecked.message).toContain("Expected a finite number");
     }).pipe(Effect.provide(layer)),
   );
 

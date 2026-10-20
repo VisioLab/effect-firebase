@@ -1,9 +1,17 @@
 import { Effect, Schema } from "effect";
 import { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
-import type { Create, WriteServices } from "@visiolab/effect-firebase/firestore/Firestore";
+import type {
+  Create,
+  Update,
+  UpdateOptions,
+  UpdateSchema,
+  UpdateServices,
+  WriteServices,
+} from "@visiolab/effect-firebase/firestore/Firestore";
 import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
+import type * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import { FirebaseError } from "firebase-admin/app";
 import * as Admin from "firebase-admin/firestore";
 import * as App from "../../App.ts";
@@ -77,23 +85,46 @@ export const fromDatabase = (firestore: Admin.Firestore, encoder: FirestoreEncod
     }).pipe(Effect.withSpan(`Firestore.${span}`));
 
   /**
-   * Turns a document, in its model's `create` shape, into the values the
+   * Turns what is written, in the shape `schema` takes, into the values the
    * Admin SDK writes.
    *
    * The encoder is answered for here rather than by the caller, since writing
    * through an SDK is the whole reason there is one. Whatever else the schema
    * encodes through is left where it is, for the caller to provide.
    */
-  const encode = <C extends Collection.Any>(collection: C, data: Create<C>) => {
+  const encode = <S extends Schema.Top>(schema: S, data: S["Type"]) =>
+    Effect.provideService(Schema.encodeEffect(schema)(data), FirestoreEncoder, encoder);
+
+  /** A document, in its model's `create` shape. */
+  const encodeCreate = <C extends Collection.Any>(collection: C, data: Create<C>) => {
     // Named so that the encoder is built against the schema `C` was defined
     // with rather than against `Schema.Top`, which keeps the services it
     // encodes through in the type instead of erasing them to `unknown`.
     const schema: Collection.DocumentSchema<C>["create"] = collection.schema.create;
-    return Effect.provideService(
-      Schema.encodeEffect(schema)(data),
-      FirestoreEncoder,
-      encoder,
-    ) as Effect.Effect<Admin.DocumentData, Schema.SchemaError, WriteServices<C>>;
+    return encode(schema, data) as Effect.Effect<
+      Admin.DocumentData,
+      Schema.SchemaError,
+      WriteServices<C>
+    >;
+  };
+
+  /**
+   * A patch, in its model's update shape for `mode`, which encodes to the
+   * paths it writes at - the very keys `update` reads as field paths.
+   */
+  const encodeUpdate = <C extends Collection.Any, Mode extends FirestoreModel.UpdateMode>(
+    collection: C,
+    data: Update<C, Mode>,
+    mode: Mode | undefined,
+  ) => {
+    const schema = (
+      mode === "unchecked" ? collection.schema.updateUnchecked : collection.schema.update
+    ) as UpdateSchema<C, Mode>;
+    return encode(schema, data) as Effect.Effect<
+      Admin.UpdateData<Admin.DocumentData>,
+      Schema.SchemaError,
+      UpdateServices<C>
+    >;
   };
 
   return Firestore.of({
@@ -125,7 +156,7 @@ export const fromDatabase = (firestore: Admin.Firestore, encoder: FirestoreEncod
 
     setDoc: <C extends Collection.Any>(ref: Collection.DocumentReference<C>, data: Create<C>) =>
       Effect.gen(function* () {
-        const encoded = yield* encode(ref.collection, data);
+        const encoded = yield* encodeCreate(ref.collection, data);
 
         yield* call("setDoc", `Failed to write the document "${ref.path}"`, (firestore) =>
           firestore.doc(ref.path).set(encoded),
@@ -134,7 +165,7 @@ export const fromDatabase = (firestore: Admin.Firestore, encoder: FirestoreEncod
 
     addDoc: <C extends Collection.Any>(ref: Collection.CollectionReference<C>, data: Create<C>) =>
       Effect.gen(function* () {
-        const encoded = yield* encode(ref.collection, data);
+        const encoded = yield* encodeCreate(ref.collection, data);
 
         const added = yield* call(
           "addDoc",
@@ -143,6 +174,19 @@ export const fromDatabase = (firestore: Admin.Firestore, encoder: FirestoreEncod
         );
 
         return ref.doc(ref.collection.id.make(added.id));
+      }),
+
+    updateDoc: <C extends Collection.Any, Mode extends FirestoreModel.UpdateMode = "checked">(
+      ref: Collection.DocumentReference<C>,
+      data: Update<C, Mode>,
+      options?: UpdateOptions<Mode>,
+    ) =>
+      Effect.gen(function* () {
+        const encoded = yield* encodeUpdate(ref.collection, data, options?.mode);
+
+        yield* call("updateDoc", `Failed to update the document "${ref.path}"`, (firestore) =>
+          firestore.doc(ref.path).update(encoded),
+        );
       }),
   });
 };
