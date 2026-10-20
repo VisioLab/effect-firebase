@@ -1007,6 +1007,49 @@ describe("a struct a document may go without", () => {
   });
 });
 
+describe("a field made optional twice", () => {
+  const Address = FirestoreModel.Struct({ city: Schema.String, zip: Schema.String });
+
+  class Place extends FirestoreModel.Class<Place>("Place")({
+    address: FirestoreModel.Optional(FirestoreModel.Optional(Address)),
+    nickname: FirestoreModel.Optional(FirestoreModel.Optional(Schema.String)),
+  }) {}
+
+  class Once extends FirestoreModel.Class<Once>("Once")({
+    address: FirestoreModel.Optional(Address),
+    nickname: FirestoreModel.Optional(Schema.String),
+  }) {}
+
+  it("is the field made optional once", () => {
+    expectTypeOf(FirestoreModel.Optional(FirestoreModel.Optional(Address))).toEqualTypeOf<
+      FirestoreModel.Optional<typeof Address>
+    >();
+    expectTypeOf<(typeof Place)["Encoded"]>().toEqualTypeOf<(typeof Once)["Encoded"]>();
+    expectTypeOf<(typeof Place.update)["Type"]>().toEqualTypeOf<(typeof Once.update)["Type"]>();
+    expectTypeOf<(typeof Place.updateUnchecked)["Encoded"]>().toEqualTypeOf<
+      (typeof Once.updateUnchecked)["Encoded"]
+    >();
+  });
+
+  it.effect("is still reached into by an unchecked update", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Place.updateUnchecked)(
+        Place.updateUnchecked.make({ address: { city: "Berlin" } }),
+      );
+      expect(encoded).toStrictEqual({ "address.city": "Berlin" });
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("removes a plain value once", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Place.update)(
+        Place.update.make({ nickname: FieldValue.deleteField }),
+      );
+      expect(encoded.nickname).toBeInstanceOf(SdkDeleteField);
+    }).pipe(Effect.provide(encoder)),
+  );
+});
+
 describe("a struct a document may go without, inside one every document holds", () => {
   class User extends FirestoreModel.Class<User>("User")({
     profile: FirestoreModel.Struct({

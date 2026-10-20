@@ -46,9 +46,6 @@ export const fields = <A extends VariantSchema.Struct<any>>(
 ): A[typeof VariantSchema.TypeId] => VariantSchema.fields(self);
 
 /** @internal */
-export const OptionalTypeId = "~@visiolab/effect-firebase/firestore/FirestoreModel/Optional";
-
-/** @internal */
 export const RecordTypeId = "~@visiolab/effect-firebase/firestore/FirestoreModel/Record";
 
 /**
@@ -288,10 +285,14 @@ const recordNode = (
   };
 };
 
+/** Whether a field was made {@link FirestoreModel.Optional}. */
+const isOptional = (field: unknown): field is { readonly field: unknown } =>
+  Predicate.hasProperty(field, "~optionality") && field["~optionality"] === "optional";
+
 /** What a field reaches into, if it is a struct or a Record. */
 const nodeOf = (field: unknown, optional = false): Node | undefined => {
-  if (Predicate.hasProperty(field, OptionalTypeId)) {
-    return nodeOf(field[OptionalTypeId], true);
+  if (isOptional(field)) {
+    return nodeOf(field.field, true);
   }
   if (Predicate.hasProperty(field, RecordTypeId)) {
     const { key, value } = field[RecordTypeId] as Rest<unknown>;
@@ -656,17 +657,24 @@ export const Record = <K extends Schema.Record.Key, V extends FirestoreModel.Val
 };
 
 const optionalNode = (self: unknown, node: Node): unknown =>
-  Object.assign(
-    Field({
-      read: Schema.optionalKey(variantSchema(self, "read")!),
-      create: Schema.optionalKey(node.create()),
-      ...(node.writable && { update: nodeUpdate(node) }),
-    }),
-    { [OptionalTypeId]: self },
-  );
+  Field({
+    read: Schema.optionalKey(variantSchema(self, "read")!),
+    create: Schema.optionalKey(node.create()),
+    ...(node.writable && { update: nodeUpdate(node) }),
+  });
 
 /** @internal */
-export const Optional = <F extends FirestoreModel.Value>(self: F): FirestoreModel.Optional<F> => {
-  const node = Predicate.hasProperty(self, OptionalTypeId) ? undefined : nodeOf(self, true);
-  return (node === undefined ? optionalField(self) : optionalNode(self, node)) as any;
+export const Optional = (self: FirestoreModel.Value): any => {
+  // Made optional already, which a second time leaves as it is.
+  if (isOptional(self)) {
+    return self;
+  }
+  const node = nodeOf(self, true);
+  return Object.assign(
+    (node === undefined ? optionalField(self) : optionalNode(self, node)) as object,
+    {
+      "~optionality": "optional",
+      field: self,
+    },
+  );
 };

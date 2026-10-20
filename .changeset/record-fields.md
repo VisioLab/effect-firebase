@@ -8,4 +8,4 @@ With string keys, any key may be missing, so each key also takes `FieldValue.del
 
 Paths use each key's encoded form. The key schema encodes them as part of the update, so any service it needs becomes a requirement of the update. A key that is empty or contains `.`, before or after encoding, fails the update. A literal key written that way throws as soon as the Record is declared.
 
-`FirestoreModel` also exports `OptionalRecord`, the type `Optional` returns for a Record, and `Value`, the union of everything a field can be declared as, which `Optional` and `Record` accept.
+`FirestoreModel` also exports `Value`, the union of everything a field can be declared as, which `Optional` and `Record` accept.
