@@ -49,6 +49,43 @@ describe("WriteServices", () => {
   });
 });
 
+class Profile extends FirestoreModel.Class<Profile>("Profile")({
+  name: Schema.String,
+  address: FirestoreModel.Optional(FirestoreModel.Struct({ city: Schema.String })),
+}) {}
+
+const Profiles = Collection.make("profiles", Profile);
+
+describe("Update", () => {
+  it("is checked by default, and takes the model's `update` patch", () => {
+    expectTypeOf<Firestore.Update<typeof Profiles>>().toEqualTypeOf<
+      (typeof Profile.update)["Type"]
+    >();
+  });
+
+  it("takes the model's `updateUnchecked` patch in unchecked mode", () => {
+    expectTypeOf<Firestore.Update<typeof Profiles, "unchecked">>().toEqualTypeOf<
+      (typeof Profile.updateUnchecked)["Type"]
+    >();
+  });
+
+  it("refuses a patch into an optional struct unless unchecked", () => {
+    const patch = { address: { city: "Berlin" } };
+    expectTypeOf(patch).not.toExtend<Firestore.Update<typeof Profiles>>();
+    expectTypeOf(patch).toExtend<Firestore.Update<typeof Profiles, "unchecked">>();
+  });
+});
+
+describe("UpdateServices", () => {
+  it("answers for the encoder itself, as writing a whole document does", () => {
+    expectTypeOf<Firestore.UpdateServices<typeof Stamped>>().toEqualTypeOf<never>();
+  });
+
+  it("leaves anything else the patch encodes through to the caller", () => {
+    expectTypeOf<Firestore.UpdateServices<typeof Secret>>().toEqualTypeOf<Secrets>();
+  });
+});
+
 describe("FirestoreError", () => {
   it("carries what went wrong, and the code where there was one", () => {
     const error = new Firestore.FirestoreError({ message: "Failed to read", code: "unavailable" });

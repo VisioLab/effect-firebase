@@ -21,6 +21,13 @@ class Post extends FirestoreModel.Class<Post>("Post")({
 }) {}
 
 const Posts = Collection.make("posts", Post);
+
+class Place extends FirestoreModel.Class<Place>("Place")({
+  name: Schema.String,
+  billing: FirestoreModel.Optional(FirestoreModel.Struct({ city: Schema.String })),
+}) {}
+
+const Places = Collection.make("places", Place);
 const hello = Posts.id.make("hello");
 
 describe("Firestore", () => {
@@ -96,6 +103,40 @@ describe("Firestore", () => {
         firestore.addDoc(Posts.collection(), { title: "Hello", views: Number.NaN }),
       );
       expect(error._tag).toBe("SchemaError");
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("stops a patch that does not encode before updating", () =>
+    Effect.gen(function* () {
+      const firestore = yield* Firestore;
+
+      const update = firestore.updateDoc(Posts.doc(hello), { views: Number.NaN });
+      expectTypeOf(update).toEqualTypeOf<
+        Effect.Effect<void, FirestoreError | Schema.SchemaError>
+      >();
+
+      const error = yield* Effect.flip(update);
+      expect(error._tag).toBe("SchemaError");
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("encodes a patch through the schema its mode names", () =>
+    Effect.gen(function* () {
+      const firestore = yield* Firestore;
+      const ref = Places.doc(Places.id.make("a"));
+
+      // Checked refuses a patch into an optional struct while encoding, so it
+      // never reaches the database. Unchecked lets it through, and the
+      // document only fails to update because it is not there - nor is the
+      // emulator, which is the point: it got as far as asking.
+      const patch = { billing: { city: "Berlin" } } as never;
+      const checked = yield* Effect.flip(firestore.updateDoc(ref, patch));
+      expect(checked._tag).toBe("SchemaError");
+
+      const unchecked = yield* Effect.flip(
+        firestore.updateDoc(ref, { billing: { city: "Berlin" } }, { mode: "unchecked" }),
+      );
+      expect(unchecked._tag).toBe("FirestoreError");
     }).pipe(Effect.provide(layer)),
   );
 

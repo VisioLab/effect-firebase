@@ -9,6 +9,7 @@ import type { Effect } from "effect";
 import type * as Collection from "./Collection.ts";
 import type * as DocumentSnapshot from "./DocumentSnapshot.ts";
 import type { FirestoreEncoder } from "./FirestoreEncoder.ts";
+import type * as FirestoreModel from "./FirestoreModel.ts";
 
 /**
  * Raised when a Firestore call fails.
@@ -56,6 +57,69 @@ export type WriteServices<C extends Collection.Any> = Exclude<
   Collection.DocumentSchema<C>["create"]["EncodingServices"],
   FirestoreEncoder
 >;
+
+/**
+ * The schema an update to a document in `C` is written through in `Mode`: the
+ * collection's model's `update`, or its `updateUnchecked`.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export type UpdateSchema<
+  C extends Collection.Any,
+  Mode extends FirestoreModel.UpdateMode = "checked",
+> = Mode extends "unchecked"
+  ? Collection.DocumentSchema<C>["updateUnchecked"]
+  : Collection.DocumentSchema<C>["update"];
+
+/**
+ * What updating a document in `C` takes in `Mode`: the patch its model's
+ * update schema is handed.
+ *
+ * @see {@link FirestoreModel.UpdateMode} for which patches each mode takes.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export type Update<
+  C extends Collection.Any,
+  Mode extends FirestoreModel.UpdateMode = "checked",
+> = UpdateSchema<C, Mode>["Type"];
+
+/**
+ * What updating a document in `C` asks for, beyond the service itself.
+ *
+ * Not {@link WriteServices}: an update encodes the keys of each Record it
+ * writes into as well, and those may take services `set` never asks for. Both
+ * modes encode the same fields at the same paths, so they ask for the same.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export type UpdateServices<C extends Collection.Any> = Exclude<
+  Collection.DocumentSchema<C>["update"]["EncodingServices"],
+  FirestoreEncoder
+>;
+
+/**
+ * How to update a document.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface UpdateOptions<Mode extends FirestoreModel.UpdateMode = "checked"> {
+  /**
+   * Which patches the update takes. `checked` by default, which only takes
+   * patches that leave any document readable.
+   *
+   * @see {@link FirestoreModel.UpdateMode}
+   */
+  readonly mode?: Mode | undefined;
+}
 
 /**
  * Firestore for a single app.
@@ -121,6 +185,26 @@ export interface Firestore {
     FirestoreError | Schema.SchemaError,
     WriteServices<C>
   >;
+
+  /**
+   * Changes some fields of one document, leaving the rest as they are.
+   *
+   * The patch is written through the collection's model, in its `update`
+   * shape - or its `updateUnchecked` one, where `mode` is `"unchecked"` - so
+   * a struct it reaches into is written field by field at its paths, and one
+   * handed `Patch.replace` is written whole.
+   *
+   * Unlike {@link setDoc}, this needs the document to be there: Firestore
+   * refuses to update one that is not, and so does an empty patch.
+   */
+  readonly updateDoc: <
+    C extends Collection.Any,
+    Mode extends FirestoreModel.UpdateMode = "checked",
+  >(
+    ref: Collection.DocumentReference<C>,
+    data: Update<C, Mode>,
+    options?: UpdateOptions<Mode>,
+  ) => Effect.Effect<void, FirestoreError | Schema.SchemaError, UpdateServices<C>>;
 }
 
 /**
