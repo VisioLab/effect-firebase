@@ -24,7 +24,7 @@ const Posts = Collection.make("posts", Post);
 
 class Place extends FirestoreModel.Class<Place>("Place")({
   name: Schema.String,
-  billing: FirestoreModel.Optional(FirestoreModel.Struct({ city: Schema.String })),
+  billing: FirestoreModel.Optional(FirestoreModel.Struct({ zip: Schema.Finite })),
 }) {}
 
 const Places = Collection.make("places", Place);
@@ -125,18 +125,19 @@ describe("Firestore", () => {
       const firestore = yield* Firestore;
       const ref = Places.doc(Places.id.make("a"));
 
-      // Checked refuses a patch into an optional struct while encoding, so it
-      // never reaches the database. Unchecked lets it through, and the
-      // document only fails to update because it is not there - nor is the
-      // emulator, which is the point: it got as far as asking.
-      const patch = { billing: { city: "Berlin" } } as never;
-      const checked = yield* Effect.flip(firestore.updateDoc(ref, patch));
-      expect(checked._tag).toBe("SchemaError");
+      // Neither of these reaches the database, so the test needs neither the
+      // emulator nor credentials. What tells the modes apart is why encoding
+      // stops: checked refuses a patch into an optional struct at all, while
+      // unchecked takes it and only stops at the `NaN` it carries.
+      const patch = { billing: { zip: Number.NaN } };
 
-      const unchecked = yield* Effect.flip(
-        firestore.updateDoc(ref, { billing: { city: "Berlin" } }, { mode: "unchecked" }),
-      );
-      expect(unchecked._tag).toBe("FirestoreError");
+      const checked = yield* Effect.flip(firestore.updateDoc(ref, patch as never));
+      expect(checked._tag).toBe("SchemaError");
+      expect(checked.message).not.toContain("Expected a finite number");
+
+      const unchecked = yield* Effect.flip(firestore.updateDoc(ref, patch, { mode: "unchecked" }));
+      expect(unchecked._tag).toBe("SchemaError");
+      expect(unchecked.message).toContain("Expected a finite number");
     }).pipe(Effect.provide(layer)),
   );
 
