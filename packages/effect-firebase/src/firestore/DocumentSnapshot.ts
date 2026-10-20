@@ -15,7 +15,7 @@
  *
  * const snapshot = DocumentSnapshot.make(Users.doc(alice), sdkSnapshot.data());
  *
- * if (DocumentSnapshot.isExists(snapshot)) {
+ * if (DocumentSnapshot.isExisting(snapshot)) {
  *   const user = yield* snapshot.data;
  * }
  * ```
@@ -55,9 +55,9 @@ export type DecodingServices<C extends Collection.Any> =
  * @category models
  * @since 0.2.0
  */
-export interface Exists<C extends Collection.Any> extends Inspectable.Inspectable {
+export interface Existing<C extends Collection.Any> extends Inspectable.Inspectable {
   readonly [TypeId]: typeof TypeId;
-  readonly _tag: "Exists";
+  readonly _tag: "Existing";
   /** Where it was read. */
   readonly ref: Collection.DocumentReference<C>;
   /** Its own id, which is the one `ref` carries. */
@@ -71,7 +71,7 @@ export interface Exists<C extends Collection.Any> extends Inspectable.Inspectabl
    */
   readonly raw: unknown;
   /**
-   * Decodes {@link Exists.raw} through the collection's schema.
+   * Decodes {@link Existing.raw} through the collection's schema.
    *
    * Nothing is decoded until this is run, and it decodes afresh each time, so
    * a document that does not match the schema fails only where its data is
@@ -106,7 +106,7 @@ export interface Missing<C extends Collection.Any> extends Inspectable.Inspectab
  * @category models
  * @since 0.2.0
  */
-export type DocumentSnapshot<C extends Collection.Any> = Exists<C> | Missing<C>;
+export type DocumentSnapshot<C extends Collection.Any> = Existing<C> | Missing<C>;
 
 /**
  * @stability unstable
@@ -121,8 +121,9 @@ export const isDocumentSnapshot: (u: unknown) => u is DocumentSnapshot<Collectio
  * @category guards
  * @since 0.2.0
  */
-export const isExists: <C extends Collection.Any>(self: DocumentSnapshot<C>) => self is Exists<C> =
-  documentSnapshot.isExists;
+export const isExisting: <C extends Collection.Any>(
+  self: DocumentSnapshot<C>,
+) => self is Existing<C> = documentSnapshot.isExisting;
 
 /**
  * @stability unstable
@@ -157,10 +158,10 @@ export const make: <C extends Collection.Any>(
  * @category constructors
  * @since 0.2.0
  */
-export const exists: <C extends Collection.Any>(
+export const existing: <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
   raw: unknown,
-) => Exists<C> = documentSnapshot.exists;
+) => Existing<C> = documentSnapshot.existing;
 
 /**
  * A snapshot of a document known not to be there.

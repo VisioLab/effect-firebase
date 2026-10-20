@@ -34,7 +34,7 @@ describe("make", () => {
   it("reads a document the SDK handed data for as there, holding that data", () => {
     const raw = { name: "Alice", createdAt: new SdkTimestamp(1, 2) };
     const snapshot = DocumentSnapshot.make(Users.doc(alice), raw);
-    assert(DocumentSnapshot.isExists(snapshot));
+    assert(DocumentSnapshot.isExisting(snapshot));
     expect(snapshot.ref.path).toBe("users/alice");
     expect(snapshot.id).toBe("alice");
     expect(snapshot.raw).toBe(raw);
@@ -44,7 +44,7 @@ describe("make", () => {
 describe("data", () => {
   it.effect("decodes what the SDK read through the collection's schema", () =>
     Effect.gen(function* () {
-      const snapshot = DocumentSnapshot.exists(Users.doc(alice), {
+      const snapshot = DocumentSnapshot.existing(Users.doc(alice), {
         name: "Alice",
         createdAt: new SdkTimestamp(1_700_000_000, 123_456_789),
       });
@@ -60,7 +60,7 @@ describe("data", () => {
   it.effect("fails only once its data is read, where the document does not match the schema", () =>
     Effect.gen(function* () {
       const snapshot = DocumentSnapshot.make(Users.doc(alice), { name: 42 });
-      assert(DocumentSnapshot.isExists(snapshot));
+      assert(DocumentSnapshot.isExisting(snapshot));
       const error = yield* Effect.flip(snapshot.data);
       assert(Schema.isSchemaError(error));
     }),
@@ -83,7 +83,7 @@ describe("data", () => {
           ),
         }),
       );
-      const snapshot = DocumentSnapshot.exists(Counted.doc(Counted.id.make("a")), { name: "A" });
+      const snapshot = DocumentSnapshot.existing(Counted.doc(Counted.id.make("a")), { name: "A" });
       const data = snapshot.data;
       expect(decoded).toBe(0);
       yield* data;
@@ -96,8 +96,8 @@ describe("data", () => {
 describe("guards", () => {
   it("narrow a snapshot without losing the collection it is in", () => {
     const snapshot = DocumentSnapshot.make(Users.doc(alice), undefined);
-    if (DocumentSnapshot.isExists(snapshot)) {
-      expectTypeOf(snapshot).toEqualTypeOf<DocumentSnapshot.Exists<typeof Users>>();
+    if (DocumentSnapshot.isExisting(snapshot)) {
+      expectTypeOf(snapshot).toEqualTypeOf<DocumentSnapshot.Existing<typeof Users>>();
       expectTypeOf(snapshot.data).toEqualTypeOf<Effect.Effect<User, Schema.SchemaError>>();
     }
     if (DocumentSnapshot.isMissing(snapshot)) {
@@ -122,9 +122,9 @@ describe("toJSON", () => {
       _tag: "Missing",
       ref: "users/alice",
     });
-    expect(DocumentSnapshot.exists(Users.doc(alice), { name: "Alice" }).toJSON()).toEqual({
+    expect(DocumentSnapshot.existing(Users.doc(alice), { name: "Alice" }).toJSON()).toEqual({
       _id: "DocumentSnapshot",
-      _tag: "Exists",
+      _tag: "Existing",
       ref: "users/alice",
       raw: { name: "Alice" },
     });

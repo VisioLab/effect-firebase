@@ -11,9 +11,9 @@ export const isDocumentSnapshot = (
 ): u is DocumentSnapshot.DocumentSnapshot<Collection.Any> => Predicate.hasProperty(u, TypeId);
 
 /** @internal */
-export const isExists = <C extends Collection.Any>(
+export const isExisting = <C extends Collection.Any>(
   self: DocumentSnapshot.DocumentSnapshot<C>,
-): self is DocumentSnapshot.Exists<C> => self._tag === "Exists";
+): self is DocumentSnapshot.Existing<C> => self._tag === "Existing";
 
 /** @internal */
 export const isMissing = <C extends Collection.Any>(
@@ -24,10 +24,10 @@ export const isMissing = <C extends Collection.Any>(
  * The untyped shapes behind the exported ones.
  *
  * The schema is held as one that decodes with no services, which is what is
- * left of the collection's own once its type is erased: `Exists<C>` is what
+ * left of the collection's own once its type is erased: `Existing<C>` is what
  * puts the real ones back.
  */
-interface ExistsImpl {
+interface ExistingImpl {
   readonly ref: {
     readonly path: string;
     readonly collection: { readonly schema: Schema.Decoder<unknown> };
@@ -41,19 +41,19 @@ interface MissingImpl {
   readonly id: string;
 }
 
-const ExistsProto = {
+const ExistingProto = {
   ...Inspectable.BaseProto,
   [TypeId]: TypeId,
-  _tag: "Exists" as const,
-  toJSON(this: ExistsImpl) {
-    return { _id: "DocumentSnapshot", _tag: "Exists", ref: this.ref.path, raw: this.raw };
+  _tag: "Existing" as const,
+  toJSON(this: ExistingImpl) {
+    return { _id: "DocumentSnapshot", _tag: "Existing", ref: this.ref.path, raw: this.raw };
   },
   // A getter rather than a field, so that nothing is built until it is asked
   // for. It suspends as well, because a schema that decodes synchronously
   // decodes when it is called rather than when it is run, which would decode
   // on reading `data` and replay that one result on every run.
   get data(): Effect.Effect<unknown, Schema.SchemaError> {
-    const self = this as unknown as ExistsImpl;
+    const self = this as unknown as ExistingImpl;
     return Effect.suspend(() => Schema.decodeUnknownEffect(self.ref.collection.schema)(self.raw));
   },
 };
@@ -68,16 +68,16 @@ const MissingProto = {
 };
 
 /** @internal */
-export const exists = <C extends Collection.Any>(
+export const existing = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
   raw: unknown,
-): DocumentSnapshot.Exists<C> => {
-  const self = Object.assign(Object.create(ExistsProto) as typeof ExistsProto, {
+): DocumentSnapshot.Existing<C> => {
+  const self = Object.assign(Object.create(ExistingProto) as typeof ExistingProto, {
     ref,
     id: ref.id,
     raw,
   });
-  return self as unknown as DocumentSnapshot.Exists<C>;
+  return self as unknown as DocumentSnapshot.Existing<C>;
 };
 
 /** @internal */
@@ -95,4 +95,4 @@ export const missing = <C extends Collection.Any>(
 export const make = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
   raw: unknown,
-): DocumentSnapshot.DocumentSnapshot<C> => (raw === undefined ? missing(ref) : exists(ref, raw));
+): DocumentSnapshot.DocumentSnapshot<C> => (raw === undefined ? missing(ref) : existing(ref, raw));
