@@ -1,5 +1,6 @@
 import { Equal, Hash, Inspectable, Option, Predicate, Schema } from "effect";
 import type * as Collection from "../Collection.ts";
+import type * as FirestoreModel from "../FirestoreModel.ts";
 
 /** @internal */
 export const CollectionTypeId = "~@visiolab/effect-firebase/firestore/Collection";
@@ -84,9 +85,9 @@ const joinPath = (segments: ReadonlyArray<string>, ancestors: ReadonlyArray<stri
 interface CollectionImpl {
   readonly path: ReadonlyArray<string>;
   readonly segment: string;
-  readonly schema: Schema.Top;
+  readonly schema: FirestoreModel.Any;
   readonly id: Schema.Top;
-  subcollection(segment: string, schema: Schema.Top): CollectionImpl;
+  subcollection(segment: string, schema: FirestoreModel.Any): CollectionImpl;
   collection(...ancestors: ReadonlyArray<string>): CollectionReferenceImpl;
   doc(...ids: ReadonlyArray<string>): DocumentReferenceImpl;
 }
@@ -113,7 +114,7 @@ const CollectionProto = {
   toJSON(this: CollectionImpl) {
     return { _id: "Collection", path: this.path.join("/") };
   },
-  subcollection(this: CollectionImpl, segment: string, schema: Schema.Top): CollectionImpl {
+  subcollection(this: CollectionImpl, segment: string, schema: FirestoreModel.Any): CollectionImpl {
     validateSegment(segment);
     const path = [...this.path, segment];
     return makeCollection(path, schema, brandId(path));
@@ -135,7 +136,7 @@ const CollectionProto = {
  */
 const makeCollection = (
   path: ReadonlyArray<string>,
-  schema: Schema.Top,
+  schema: FirestoreModel.Any,
   id: Schema.Top,
 ): CollectionImpl =>
   Object.assign(Object.create(CollectionProto) as typeof CollectionProto, {
@@ -209,7 +210,7 @@ const makeDocumentReference = (
   });
 
 /** @internal */
-export const make = <const Segment extends string, S extends Schema.Top>(
+export const make = <const Segment extends string, S extends FirestoreModel.Any>(
   segment: Segment,
   schema: S,
 ): Collection.Collection<readonly [readonly [Segment, S]]> => {

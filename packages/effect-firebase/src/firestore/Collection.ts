@@ -10,6 +10,7 @@
  * @since 0.1.0
  */
 import type { Brand, Equal, Inspectable, Option, Schema } from "effect";
+import type * as FirestoreModel from "./FirestoreModel.ts";
 import * as collection from "./internal/collection.ts";
 
 const CollectionTypeId = collection.CollectionTypeId;
@@ -17,13 +18,13 @@ const CollectionReferenceTypeId = collection.CollectionReferenceTypeId;
 const DocumentReferenceTypeId = collection.DocumentReferenceTypeId;
 
 /**
- * A path segment together with the schema of the documents stored under it.
+ * A path segment together with the model of the documents stored under it.
  *
  * @stability unstable
  * @category models
  * @since 0.1.0
  */
-export type Level = readonly [segment: string, schema: Schema.Top];
+export type Level = readonly [segment: string, schema: FirestoreModel.Any];
 
 /**
  * The chain of {@link Level}s running from a root collection down to a
@@ -121,7 +122,11 @@ export interface Collection<L extends Levels> extends Inspectable.Inspectable {
   readonly segment: Leaf<L>[0];
   /** Decodes a document id. */
   readonly id: IdSchema<IdOf<L>>;
-  /** The schema of the documents in this collection. */
+  /**
+   * The model of the documents in this collection, which they are read
+   * through, and whose {@link FirestoreModel.Class.create} and
+   * {@link FirestoreModel.Class.update} they are written through.
+   */
   readonly schema: Leaf<L>[1];
 
   /**
@@ -129,7 +134,7 @@ export interface Collection<L extends Levels> extends Inspectable.Inspectable {
    *
    * @category constructors
    */
-  subcollection<const Segment extends string, S extends Schema.Top>(
+  subcollection<const Segment extends string, S extends FirestoreModel.Any>(
     segment: Segment,
     schema: S,
   ): Collection<readonly [...L, readonly [Segment, S]]>;
@@ -181,7 +186,7 @@ export type Id<C extends Any> = IdOf<C["~levels"]>;
 export type Ancestors<C extends Any> = AncestorsOf<C["~levels"]>;
 
 /**
- * The schema of the documents in `C`.
+ * The model of the documents in `C`.
  *
  * @stability unstable
  * @category models
@@ -284,6 +289,10 @@ export const isDocumentReference: (u: unknown) => u is DocumentReference<Any> =
  * Subcollections hang off the result through {@link Collection.subcollection},
  * so a collection is always defined in terms of where it actually sits.
  *
+ * Its documents are described by a {@link FirestoreModel.Class} rather than a
+ * plain schema, since a document is written in other shapes than it is read
+ * in, and a model is what carries them.
+ *
  * Throws when the segment is not one Firestore can address, because a path that
  * cannot be built is a mistake in the definition rather than something a caller
  * can recover from.
@@ -292,7 +301,7 @@ export const isDocumentReference: (u: unknown) => u is DocumentReference<Any> =
  * @category constructors
  * @since 0.1.0
  */
-export const make: <const Segment extends string, S extends Schema.Top>(
+export const make: <const Segment extends string, S extends FirestoreModel.Any>(
   segment: Segment,
   schema: S,
 ) => Collection<readonly [readonly [Segment, S]]> = collection.make;

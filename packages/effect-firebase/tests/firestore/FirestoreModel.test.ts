@@ -1261,8 +1261,11 @@ describe("a field with a constructor default", () => {
 });
 
 describe("a field holding a document reference", () => {
-  const Users = Collection.make("users", Schema.Struct({ name: Schema.String }));
-  const Categories = Collection.make("categories", Schema.Struct({ label: Schema.String }));
+  class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
+  class Category extends FirestoreModel.Class<Category>("Category")({ label: Schema.String }) {}
+
+  const Users = Collection.make("users", User);
+  const Categories = Collection.make("categories", Category);
 
   class Post extends FirestoreModel.Class<Post>("Post")({
     title: Schema.String,
