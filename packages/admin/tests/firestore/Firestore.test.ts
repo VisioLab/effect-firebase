@@ -2,9 +2,10 @@ import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
 import { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as Admin from "firebase-admin/app";
-import { initializeFirestore } from "firebase-admin/firestore";
+import { DocumentReference, initializeFirestore } from "firebase-admin/firestore";
 import * as App from "../../src/App.ts";
 import * as AdminFirestore from "../../src/firestore/Firestore.ts";
 
@@ -113,5 +114,28 @@ describe("Firestore", () => {
 
       expect(String(defect)).toContain("deleted-fs");
     }),
+  );
+
+  it.effect(
+    "layerWithEncoder provides the encoder it writes through, pointing into the same database",
+    () =>
+      Effect.gen(function* () {
+        const app = Admin.initializeApp({ projectId: "demo-fs-encoder" }, "fs-encoder");
+
+        const encoder = yield* Effect.provide(
+          FirestoreEncoder,
+          AdminFirestore.layerWithEncoder({ databaseId: "other" }).pipe(
+            Layer.provide(Layer.succeed(App.App, app)),
+          ),
+        );
+
+        // A reference is the one value built against a database, so it is what
+        // tells which database the encoder was built from.
+        const ref = encoder.documentReference(Posts.doc(hello));
+        expect(ref).toBeInstanceOf(DocumentReference);
+        expect((ref as DocumentReference).firestore.databaseId).toBe("other");
+
+        yield* Effect.promise(() => Admin.deleteApp(app));
+      }),
   );
 });

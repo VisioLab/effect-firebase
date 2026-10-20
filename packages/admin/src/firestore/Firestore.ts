@@ -4,16 +4,11 @@
  * @stability unstable
  * @since 0.2.0
  */
-import { Effect, Layer, Schema } from "effect";
-import { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
-import type { Create, WriteServices } from "@visiolab/effect-firebase/firestore/Firestore";
-import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
-import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
+import { Context, Effect, Layer } from "effect";
+import { Firestore } from "@visiolab/effect-firebase/firestore/Firestore";
 import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
-import { FirebaseError } from "firebase-admin/app";
-import * as Admin from "firebase-admin/firestore";
-import * as App from "../App.ts";
-import * as Encoder from "./FirestoreEncoder.ts";
+import type * as App from "../App.ts";
+import * as internalFirestore from "./internal/firestore.ts";
 
 /**
  * How to open a database.
@@ -49,35 +44,6 @@ export interface Options {
 }
 
 /**
- * Opens the database the options name.
- *
- * Settings can only be handed over through `initializeFirestore`, which refuses
- * a database already opened with different ones, so they are only passed along
- * when there are some: asking for the default database twice keeps working, and
- * asking for it twice with settings that disagree is the mistake it reports.
- */
-const open = (app: App.App, options: Options | undefined): Admin.Firestore => {
-  const databaseId = options?.databaseId;
-  if (options?.preferRest === undefined) {
-    return databaseId === undefined ? Admin.getFirestore(app) : Admin.getFirestore(app, databaseId);
-  }
-  const settings = { preferRest: options.preferRest };
-  return databaseId === undefined
-    ? Admin.initializeFirestore(app, settings)
-    : Admin.initializeFirestore(app, settings, databaseId);
-};
-
-const firestoreError = (message: string) => (cause: unknown) =>
-  new FirestoreError({
-    message,
-    // Firestore answers over gRPC, whose statuses are numbered rather than
-    // named, so a code only comes back for the failures the Admin SDK raises
-    // itself.
-    code: cause instanceof FirebaseError ? cause.code : undefined,
-    cause,
-  });
-
-/**
  * Builds {@link Firestore} on top of the {@link App.App} in context.
  *
  * Constructing the service cannot fail: opening a database only throws when the
@@ -95,107 +61,20 @@ const firestoreError = (message: string) => (cause: unknown) =>
  * @since 0.2.0
  */
 export const make = Effect.fn("Firestore.make")(function* (options?: Options) {
-  const app = yield* App.App;
-
-  // The SDK memoizes a database on the app itself, so there is nothing to
-  // release here.
-  const firestore = open(app, options);
-
-  // Built from the database just opened rather than taken from context, so a
-  // reference written into a document points into the database it is written
-  // to, whichever one the options name.
-  const encoder = Encoder.make(firestore);
-
-  const call = <A>(
-    span: string,
-    message: string,
-    f: (firestore: Admin.Firestore) => PromiseLike<A> | A,
-  ): Effect.Effect<A, FirestoreError> =>
-    Effect.tryPromise({
-      try: () => Promise.resolve(f(firestore)),
-      catch: firestoreError(message),
-    }).pipe(Effect.withSpan(`Firestore.${span}`));
-
-  /**
-   * Turns a document, in its model's `create` shape, into the values the
-   * Admin SDK writes.
-   *
-   * The encoder is answered for here rather than by the caller, since writing
-   * through an SDK is the whole reason there is one. Whatever else the schema
-   * encodes through is left where it is, for the caller to provide.
-   */
-  const encode = <C extends Collection.Any>(collection: C, data: Create<C>) => {
-    // Named so that the encoder is built against the schema `C` was defined
-    // with rather than against `Schema.Top`, which keeps the services it
-    // encodes through in the type instead of erasing them to `unknown`.
-    const schema: Collection.DocumentSchema<C>["create"] = collection.schema.create;
-    return Effect.provideService(
-      Schema.encodeEffect(schema)(data),
-      FirestoreEncoder,
-      encoder,
-    ) as Effect.Effect<Admin.DocumentData, Schema.SchemaError, WriteServices<C>>;
-  };
-
-  return Firestore.of({
-    getDoc: <C extends Collection.Any>(ref: Collection.DocumentReference<C>) =>
-      Effect.gen(function* () {
-        const snapshot = yield* call(
-          "getDoc",
-          `Failed to read the document "${ref.path}"`,
-          (firestore) => firestore.doc(ref.path).get(),
-        );
-
-        // `data()` hands back `undefined` for a document that is not there,
-        // which is what tells the two apart.
-        return DocumentSnapshot.make(ref, snapshot.data());
-      }),
-
-    getDocs: <C extends Collection.Any>(ref: Collection.CollectionReference<C>) =>
-      Effect.gen(function* () {
-        const query = yield* call(
-          "getDocs",
-          `Failed to read the collection "${ref.path}"`,
-          (firestore) => firestore.collection(ref.path).get(),
-        );
-
-        return query.docs.map((snapshot) =>
-          DocumentSnapshot.existing(ref.doc(ref.collection.id.make(snapshot.id)), snapshot.data()),
-        );
-      }),
-
-    setDoc: <C extends Collection.Any>(ref: Collection.DocumentReference<C>, data: Create<C>) =>
-      Effect.gen(function* () {
-        const encoded = yield* encode(ref.collection, data);
-
-        yield* call("setDoc", `Failed to write the document "${ref.path}"`, (firestore) =>
-          firestore.doc(ref.path).set(encoded),
-        );
-      }),
-
-    addDoc: <C extends Collection.Any>(ref: Collection.CollectionReference<C>, data: Create<C>) =>
-      Effect.gen(function* () {
-        const encoded = yield* encode(ref.collection, data);
-
-        const added = yield* call(
-          "addDoc",
-          `Failed to add a document to "${ref.path}"`,
-          (firestore) => firestore.collection(ref.path).add(encoded),
-        );
-
-        return ref.doc(ref.collection.id.make(added.id));
-      }),
-  });
+  const { firestore, encoder } = yield* internalFirestore.openWithEncoder(options);
+  return internalFirestore.fromDatabase(firestore, encoder);
 });
 
 /**
  * A layer that provides {@link Firestore} for the {@link App.App} in context.
  *
- * Passing no options reads the database the project is given by default, over
- * gRPC.
+ * Passing no options reads the project's default database, opened with the
+ * SDK's own defaults.
  *
  * The encoder a document is written through is built in here rather than
  * asked of the caller, since it is the Admin SDK's own and has to point into
- * the database the options name.
+ * the database the options name. It stays inside the service:
+ * {@link layerWithEncoder} provides it as well.
  *
  * @see {@link make} for why building the service cannot fail.
  *
@@ -205,3 +84,26 @@ export const make = Effect.fn("Firestore.make")(function* (options?: Options) {
  */
 export const layer = (options?: Options): Layer.Layer<Firestore, never, App.App> =>
   Layer.effect(Firestore, make(options));
+
+/**
+ * {@link layer}, providing the {@link FirestoreEncoder} the service writes
+ * through as well.
+ *
+ * For encoding a write the service does not make itself. The encoder is the
+ * service's own rather than a second one, so a reference it writes points into
+ * the same database the service reads and writes.
+ *
+ * @stability unstable
+ * @category layers
+ * @since 0.2.0
+ */
+export const layerWithEncoder = (
+  options?: Options,
+): Layer.Layer<Firestore | FirestoreEncoder, never, App.App> =>
+  Layer.effectContext(
+    Effect.map(internalFirestore.openWithEncoder(options), ({ firestore, encoder }) =>
+      Context.make(Firestore, internalFirestore.fromDatabase(firestore, encoder)).pipe(
+        Context.add(FirestoreEncoder, encoder),
+      ),
+    ),
+  );

@@ -16,11 +16,11 @@ import {
   Timestamp as Native,
 } from "firebase-admin/firestore";
 import * as App from "../../src/App.ts";
-import * as FirestoreEncoder from "../../src/firestore/FirestoreEncoder.ts";
+import * as AdminFirestore from "../../src/firestore/Firestore.ts";
 
 // A named app keeps each run independent of whatever the default app is, and of
 // the apps the other suites register.
-const encoder = FirestoreEncoder.layer.pipe(
+const encoder = AdminFirestore.layerWithEncoder().pipe(
   Layer.provideMerge(App.layer({ projectId: "demo-encoder" }, "encoder")),
 );
 
