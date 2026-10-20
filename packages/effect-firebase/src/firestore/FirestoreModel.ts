@@ -898,8 +898,7 @@ export interface Record<
  *
  * ```ts
  * import { Schema } from "effect";
- * import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
- * import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
+ * import { FieldValue, FirestoreModel } from "@visiolab/effect-firebase/firestore";
  *
  * class Poll extends FirestoreModel.Class<Poll>("Poll")({
  *   votes: FirestoreModel.Record(Schema.String, FirestoreModel.Number(Schema.Int)),
