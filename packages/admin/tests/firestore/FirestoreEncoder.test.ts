@@ -24,15 +24,20 @@ const encoder = FirestoreEncoder.layer.pipe(
   Layer.provideMerge(App.layer({ projectId: "demo-encoder" }, "encoder")),
 );
 
-const Post = Schema.Struct({ title: Schema.String, createdAt: FirestoreSchema.Timestamp });
+class Post extends FirestoreModel.Class<Post>("Post")({
+  title: Schema.String,
+  createdAt: FirestoreSchema.Timestamp,
+}) {}
 
 layer(encoder)("FirestoreEncoder", (it) => {
   it.effect("encodes a document into the values the Admin SDK writes", () =>
     Effect.gen(function* () {
-      const encoded = yield* Schema.encodeEffect(Post)({
-        title: "hello",
-        createdAt: Timestamp.makeUnsafe(1_700_000_000, 123_456_789),
-      });
+      const encoded = yield* Schema.encodeEffect(Post)(
+        new Post({
+          title: "hello",
+          createdAt: Timestamp.makeUnsafe(1_700_000_000, 123_456_789),
+        }),
+      );
 
       expect(encoded.createdAt).toBeInstanceOf(Native);
       expect(encoded.title).toBe("hello");
@@ -274,8 +279,8 @@ layer(encoder)("GeoPoint", (it) => {
   );
 });
 
-const Users = Collection.make("users", Schema.Struct({ name: Schema.String }));
-const Posts = Users.subcollection("posts", Schema.Struct({ title: Schema.String }));
+const Users = Collection.make("users", User);
+const Posts = Users.subcollection("posts", Post);
 
 class Comment extends FirestoreModel.Class<Comment>("Comment")({
   body: Schema.String,
