@@ -1,8 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
-import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
-import * as FirestoreSchema from "@visiolab/effect-firebase/firestore/FirestoreSchema";
+import { FieldValue, FirestoreModel, FirestoreSchema } from "@visiolab/effect-firebase/firestore";
 import { FieldValue as NativeFieldValue, Firestore } from "firebase-admin/firestore";
 import * as FirestoreEncoder from "../../src/firestore/FirestoreEncoder.ts";
 
