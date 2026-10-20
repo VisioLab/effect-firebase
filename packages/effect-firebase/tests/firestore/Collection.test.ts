@@ -1,10 +1,11 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { Equal, Hash, HashSet, Schema } from "effect";
+import { Equal, Hash, HashSet, Option, Schema } from "effect";
 import * as Collection from "../../src/firestore/Collection.ts";
+import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
 
-const User = Schema.Struct({ name: Schema.String });
-const Post = Schema.Struct({ title: Schema.String });
-const Comment = Schema.Struct({ body: Schema.String });
+class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
+class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
+class Comment extends FirestoreModel.Class<Comment>("Comment")({ body: Schema.String }) {}
 
 const Users = Collection.make("users", User);
 const Posts = Users.subcollection("posts", Post);
@@ -32,6 +33,13 @@ describe("make", () => {
     expect(() => Collection.make("..", User)).toThrow('must not be "." or ".."');
     expect(() => Collection.make("__id__", User)).toThrow('must not match "__.*__"');
     expect(() => Users.subcollection("a/b", Post)).toThrow('must not contain "/"');
+  });
+
+  it("only takes a model, which carries the shapes a document is written in", () => {
+    // @ts-expect-error a plain schema has no `create` or `update`
+    Collection.make("users", Schema.Struct({ name: Schema.String }));
+    // @ts-expect-error a plain schema has no `create` or `update`
+    Users.subcollection("posts", Schema.Struct({ title: Schema.String }));
   });
 });
 
@@ -106,6 +114,28 @@ describe("ids", () => {
   });
 });
 
+describe("fromPath", () => {
+  it("references the document found at a path", () => {
+    const ref = Option.getOrThrow(
+      Collection.fromPath(Comments, "users/alice/posts/hello/comments/first"),
+    );
+    expect(Equal.equals(ref, Comments.doc(alice, hello, first))).toBe(true);
+    expectTypeOf(ref).toEqualTypeOf<Collection.DocumentReference<typeof Comments>>();
+  });
+
+  it("refuses a path into another collection", () => {
+    expect(Option.isNone(Collection.fromPath(OrgPosts, "users/alice/posts/hello"))).toBe(true);
+    expect(Option.isNone(Collection.fromPath(Posts, "users/alice"))).toBe(true);
+    expect(Option.isNone(Collection.fromPath(Posts, "users/alice/posts"))).toBe(true);
+    expect(Option.isNone(Collection.fromPath(Users, "users/alice/posts/hello"))).toBe(true);
+  });
+
+  it("refuses an empty id", () => {
+    expect(Option.isNone(Collection.fromPath(Posts, "users//posts/hello"))).toBe(true);
+    expect(Option.isNone(Collection.fromPath(Users, "users/"))).toBe(true);
+  });
+});
+
 describe("extractors", () => {
   it("recover the schema of the documents in a collection", () => {
     const schema: Collection.DocumentSchema<typeof Posts> = Post;
@@ -145,7 +175,8 @@ describe("inspection", () => {
 
 describe("equality", () => {
   /** Same path, but documents that decode differently. */
-  const OtherPosts = Users.subcollection("posts", Schema.Struct({ title: Schema.String }));
+  class OtherPost extends FirestoreModel.Class<OtherPost>("OtherPost")({ title: Schema.String }) {}
+  const OtherPosts = Users.subcollection("posts", OtherPost);
 
   it("compares references by where they point", () => {
     expect(Equal.equals(Posts.doc(alice, hello), Posts.doc(alice, hello))).toBe(true);

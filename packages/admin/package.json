@@ -62,7 +62,8 @@
     "firebase-admin": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
-    "vite-plus": "catalog:"
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
   },
   "peerDependencies": {
     "@visiolab/effect-firebase": "workspace:^",

@@ -1,63 +1,42 @@
 /**
  * The Firebase Admin SDK app.
  *
- * @since 0.0.0
+ * @stability unstable
+ * @since 0.1.0
  */
 import { Context, Effect, Layer, Schema } from "effect";
-import { defaultAppName } from "@visiolab/effect-firebase/App";
-import * as Admin from "firebase-admin/app";
+import type * as Admin from "firebase-admin/app";
+import * as internalApp from "./internal/app.ts";
 
 /**
  * A Firebase Admin SDK app.
  *
+ * @stability unstable
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export interface App extends Admin.App {}
 
 /**
  * Service key for the Firebase Admin SDK app.
  *
+ * @stability unstable
  * @category services
- * @since 0.0.0
+ * @since 0.1.0
  */
 export const App = Context.Service<App>("@visiolab/effect-firebase-admin/App");
 
 /**
  * Raised when an app cannot be initialized.
  *
+ * @stability unstable
  * @category errors
- * @since 0.0.0
+ * @since 0.1.0
  */
 export class AppError extends Schema.TaggedError<AppError>()("AppError", {
   message: Schema.String,
   cause: Schema.optional(Schema.Defect()),
 }) {}
-
-/** The app together with whether we are the ones who initialized it. */
-interface Initialized {
-  readonly app: App;
-  readonly owned: boolean;
-}
-
-const initialize = (options?: Admin.AppOptions, name?: string): Initialized => {
-  // An app that is already registered under this name was initialized by
-  // somebody else - typically the hosting runtime - so ending its lifecycle is
-  // not ours to do. `initializeApp` still throws when that app was configured
-  // differently, so conflicting configuration is not swallowed here.
-  const owned = !Admin.getApps().some((app) => app.name === (name ?? defaultAppName));
-  return { app: Admin.initializeApp(options, name), owned };
-};
-
-const release = ({ app, owned }: Initialized) =>
-  owned
-    ? Effect.tryPromise(() => Admin.deleteApp(app)).pipe(
-        Effect.ignore({
-          log: "Warn",
-          message: `Failed to delete the Firebase Admin SDK app "${app.name}"`,
-        }),
-      )
-    : Effect.void;
 
 /**
  * Initializes a Firebase Admin SDK app, deleting it again when the surrounding
@@ -74,17 +53,18 @@ const release = ({ app, owned }: Initialized) =>
  * a credential or an `httpAgent`. Reach for `Admin.getApp` to pick up an app the
  * host initialized.
  *
+ * @stability unstable
  * @category constructors
- * @since 0.0.0
+ * @since 0.1.0
  */
 export const make = Effect.fn("App.make")(function* (options?: Admin.AppOptions, name?: string) {
   const { app } = yield* Effect.acquireRelease(
     Effect.try({
-      try: () => initialize(options, name),
+      try: () => internalApp.initialize(options, name),
       catch: (cause) =>
         new AppError({ message: "Failed to initialize the Firebase Admin SDK app", cause }),
     }),
-    release,
+    internalApp.release,
   );
   return app;
 });
@@ -99,8 +79,9 @@ export const make = Effect.fn("App.make")(function* (options?: Admin.AppOptions,
  *
  * @see {@link make} for how the app is initialized and torn down.
  *
+ * @stability unstable
  * @category layers
- * @since 0.0.0
+ * @since 0.1.0
  */
 export const layer = (options?: Admin.AppOptions, name?: string): Layer.Layer<App, AppError> =>
   Layer.effect(App, make(options, name));

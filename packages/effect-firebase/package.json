@@ -23,10 +23,14 @@
     "./App": "./src/App.ts",
     "./firestore": "./src/firestore/index.ts",
     "./firestore/Collection": "./src/firestore/Collection.ts",
+    "./firestore/DocumentSnapshot": "./src/firestore/DocumentSnapshot.ts",
+    "./firestore/FieldValue": "./src/firestore/FieldValue.ts",
     "./firestore/Firestore": "./src/firestore/Firestore.ts",
     "./firestore/FirestoreEncoder": "./src/firestore/FirestoreEncoder.ts",
+    "./firestore/FirestoreModel": "./src/firestore/FirestoreModel.ts",
     "./firestore/FirestoreSchema": "./src/firestore/FirestoreSchema.ts",
-    "./firestore/Snapshot": "./src/firestore/Snapshot.ts",
+    "./firestore/GeoPoint": "./src/firestore/GeoPoint.ts",
+    "./firestore/Patch": "./src/firestore/Patch.ts",
     "./firestore/Timestamp": "./src/firestore/Timestamp.ts",
     "./package.json": "./package.json"
   },
@@ -36,10 +40,14 @@
       "./App": "./dist/App.mjs",
       "./firestore": "./dist/firestore/index.mjs",
       "./firestore/Collection": "./dist/firestore/Collection.mjs",
+      "./firestore/DocumentSnapshot": "./dist/firestore/DocumentSnapshot.mjs",
+      "./firestore/FieldValue": "./dist/firestore/FieldValue.mjs",
       "./firestore/Firestore": "./dist/firestore/Firestore.mjs",
       "./firestore/FirestoreEncoder": "./dist/firestore/FirestoreEncoder.mjs",
+      "./firestore/FirestoreModel": "./dist/firestore/FirestoreModel.mjs",
       "./firestore/FirestoreSchema": "./dist/firestore/FirestoreSchema.mjs",
-      "./firestore/Snapshot": "./dist/firestore/Snapshot.mjs",
+      "./firestore/GeoPoint": "./dist/firestore/GeoPoint.mjs",
+      "./firestore/Patch": "./dist/firestore/Patch.mjs",
       "./firestore/Timestamp": "./dist/firestore/Timestamp.mjs",
       "./package.json": "./package.json"
     },
@@ -57,7 +65,8 @@
     "effect": "catalog:",
     "typescript": "^7.0.2",
     "vite": "catalog:",
-    "vite-plus": "catalog:"
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
   },
   "peerDependencies": {
     "effect": "catalog:"

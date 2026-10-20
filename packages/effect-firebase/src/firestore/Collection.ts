@@ -6,22 +6,25 @@
  * that definition, so a path can only be built out of the ids that actually
  * locate it.
  *
- * @since 0.0.0
+ * @stability unstable
+ * @since 0.1.0
  */
-import type { Brand } from "effect";
-import { Equal, Hash, Inspectable, Predicate, Schema } from "effect";
+import type { Brand, Equal, Inspectable, Option, Schema } from "effect";
+import type * as FirestoreModel from "./FirestoreModel.ts";
+import * as collection from "./internal/collection.ts";
 
-const CollectionTypeId = "~@visiolab/effect-firebase/firestore/Collection";
-const CollectionReferenceTypeId = "~@visiolab/effect-firebase/firestore/CollectionReference";
-const DocumentReferenceTypeId = "~@visiolab/effect-firebase/firestore/DocumentReference";
+const CollectionTypeId = collection.CollectionTypeId;
+const CollectionReferenceTypeId = collection.CollectionReferenceTypeId;
+const DocumentReferenceTypeId = collection.DocumentReferenceTypeId;
 
 /**
- * A path segment together with the schema of the documents stored under it.
+ * A path segment together with the model of the documents stored under it.
  *
+ * @stability unstable
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
-export type Level = readonly [segment: string, schema: Schema.Top];
+export type Level = readonly [segment: string, schema: FirestoreModel.Any];
 
 /**
  * The chain of {@link Level}s running from a root collection down to a
@@ -30,8 +33,9 @@ export type Level = readonly [segment: string, schema: Schema.Top];
  * Carrying the whole chain rather than just the collection's own segment is
  * what lets the ids that address a collection stay typed all the way up.
  *
+ * @stability unstable
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export type Levels = readonly [Level, ...ReadonlyArray<Level>];
 
@@ -82,8 +86,9 @@ type AncestorsOf<L extends Levels> = L extends readonly [...infer I, Level]
  * `Schema.Top` declares, so pinning it to `string` here is what makes minting
  * an id a compile-time check rather than a runtime throw.
  *
+ * @stability unstable
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export interface IdSchema<T extends string> extends Schema.Codec<T, string> {
   readonly "~type.make.in": string;
@@ -97,8 +102,9 @@ export interface IdSchema<T extends string> extends Schema.Codec<T, string> {
  * {@link Collection.collection} and {@link Collection.doc} turn it into a
  * reference once the ids that address it are known.
  *
+ * @stability unstable
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export interface Collection<L extends Levels> extends Inspectable.Inspectable {
   readonly [CollectionTypeId]: typeof CollectionTypeId;
@@ -116,7 +122,11 @@ export interface Collection<L extends Levels> extends Inspectable.Inspectable {
   readonly segment: Leaf<L>[0];
   /** Decodes a document id. */
   readonly id: IdSchema<IdOf<L>>;
-  /** The schema of the documents in this collection. */
+  /**
+   * The model of the documents in this collection, which they are read
+   * through, and whose {@link FirestoreModel.Class.create} and
+   * {@link FirestoreModel.Class.update} they are written through.
+   */
   readonly schema: Leaf<L>[1];
 
   /**
@@ -124,7 +134,7 @@ export interface Collection<L extends Levels> extends Inspectable.Inspectable {
    *
    * @category constructors
    */
-  subcollection<const Segment extends string, S extends Schema.Top>(
+  subcollection<const Segment extends string, S extends FirestoreModel.Any>(
     segment: Segment,
     schema: S,
   ): Collection<readonly [...L, readonly [Segment, S]]>;
@@ -151,48 +161,45 @@ export interface Collection<L extends Levels> extends Inspectable.Inspectable {
  * `Collection<Levels>` would be the honest bound, but `L` sits in an argument
  * position in {@link Collection.doc}, which makes it invariant.
  *
+ * @stability unstable
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export type Any = Collection<any>;
 
 /**
  * The id of a document in `C`.
  *
+ * @stability unstable
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export type Id<C extends Any> = IdOf<C["~levels"]>;
 
 /**
  * One id per ancestor of `C`, ordered from the root down.
  *
+ * @stability unstable
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export type Ancestors<C extends Any> = AncestorsOf<C["~levels"]>;
 
 /**
- * The schema of the documents in `C`.
+ * The model of the documents in `C`.
  *
+ * @stability unstable
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export type DocumentSchema<C extends Any> = Leaf<C["~levels"]>[1];
 
 /**
- * What a document in `C` decodes to.
- *
- * @category models
- * @since 0.0.0
- */
-export type Document<C extends Any> = DocumentSchema<C>["Type"];
-
-/**
  * A reference to one collection, addressed by the ids of its ancestors.
  *
+ * @stability unstable
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export interface CollectionReference<C extends Any> extends Inspectable.Inspectable, Equal.Equal {
   readonly [CollectionReferenceTypeId]: typeof CollectionReferenceTypeId;
@@ -216,8 +223,9 @@ export interface CollectionReference<C extends Any> extends Inspectable.Inspecta
 /**
  * A reference to one document.
  *
+ * @stability unstable
  * @category models
- * @since 0.0.0
+ * @since 0.1.0
  */
 export interface DocumentReference<C extends Any> extends Inspectable.Inspectable, Equal.Equal {
   readonly [DocumentReferenceTypeId]: typeof DocumentReferenceTypeId;
@@ -234,181 +242,46 @@ export interface DocumentReference<C extends Any> extends Inspectable.Inspectabl
 }
 
 /**
- * @category guards
- * @since 0.0.0
- */
-export const isCollection = (u: unknown): u is Any => Predicate.hasProperty(u, CollectionTypeId);
-
-/**
- * @category guards
- * @since 0.0.0
- */
-export const isCollectionReference = (u: unknown): u is CollectionReference<Any> =>
-  Predicate.hasProperty(u, CollectionReferenceTypeId);
-
-/**
- * @category guards
- * @since 0.0.0
- */
-export const isDocumentReference = (u: unknown): u is DocumentReference<Any> =>
-  Predicate.hasProperty(u, DocumentReferenceTypeId);
-
-const encoder = new TextEncoder();
-
-/** Rejects the segments Firestore cannot address, before they reach a path. */
-const validateSegment = (segment: string): void => {
-  const reject = (reason: string): never => {
-    throw new Error(`Invalid Firestore collection id "${segment}": ${reason}`);
-  };
-  if (segment.length === 0) reject("it must not be empty");
-  if (segment.includes("/")) reject('it must not contain "/"');
-  if (segment === "." || segment === "..") reject('it must not be "." or ".."');
-  if (/^__.*__$/.test(segment)) reject('it must not match "__.*__"');
-  if (encoder.encode(segment).length > 1500) reject("it must be at most 1500 bytes");
-};
-
-const brandId = (path: ReadonlyArray<string>) => Schema.String.pipe(Schema.brand(path.join("/")));
-
-/** Interleaves the segments with the ids addressing them: `a/1/b/2/c`. */
-const joinPath = (segments: ReadonlyArray<string>, ancestors: ReadonlyArray<string>): string => {
-  let path = segments[0];
-  for (let i = 0; i < ancestors.length; i++) path += `/${ancestors[i]}/${segments[i + 1]}`;
-  return path;
-};
-
-/**
- * The untyped shapes behind the exported ones.
+ * The minimal shape of a Firestore document reference, whoever built it.
  *
- * Everything below works on plain segments and ids. The types above are what
- * make a path only buildable out of the ids that address it, so the runtime has
- * no work left to do beyond joining strings.
+ * Both the Admin SDK and the web SDK hand back a `DocumentReference` carrying
+ * these two fields, so this is the shape a reference stored in a document
+ * arrives in whichever one read it. A {@link DocumentReference} built here
+ * carries them too.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
  */
-interface CollectionImpl {
-  readonly path: ReadonlyArray<string>;
-  readonly segment: string;
-  readonly schema: Schema.Top;
-  readonly id: Schema.Top;
-  subcollection(segment: string, schema: Schema.Top): CollectionImpl;
-  collection(...ancestors: ReadonlyArray<string>): CollectionReferenceImpl;
-  doc(...ids: ReadonlyArray<string>): DocumentReferenceImpl;
-}
-
-interface CollectionReferenceImpl {
-  readonly collection: CollectionImpl;
-  readonly ancestors: ReadonlyArray<string>;
+export interface DocumentReferenceLike {
+  /** The document's own id. */
   readonly id: string;
+  /** The full path, such as `users/alice/posts/hello`. */
   readonly path: string;
-  doc(id: string): DocumentReferenceImpl;
 }
-
-interface DocumentReferenceImpl {
-  readonly collection: CollectionImpl;
-  readonly ancestors: ReadonlyArray<string>;
-  readonly id: string;
-  readonly path: string;
-  readonly parent: CollectionReferenceImpl;
-}
-
-const CollectionProto = {
-  ...Inspectable.BaseProto,
-  [CollectionTypeId]: CollectionTypeId,
-  toJSON(this: CollectionImpl) {
-    return { _id: "Collection", path: this.path.join("/") };
-  },
-  subcollection(this: CollectionImpl, segment: string, schema: Schema.Top): CollectionImpl {
-    validateSegment(segment);
-    const path = [...this.path, segment];
-    return makeCollection(path, schema, brandId(path));
-  },
-  collection(this: CollectionImpl, ...ancestors: ReadonlyArray<string>): CollectionReferenceImpl {
-    return makeCollectionReference(this, ancestors);
-  },
-  doc(this: CollectionImpl, ...ids: ReadonlyArray<string>): DocumentReferenceImpl {
-    const parent = makeCollectionReference(this, ids.slice(0, -1));
-    return makeDocumentReference(parent, ids[ids.length - 1]);
-  },
-};
 
 /**
- * The target is asserted as the prototype rather than as the finished shape, so
- * that the result type is inferred from the fields below. The return annotation
- * then catches a field that is missing, misspelled or of the wrong type -
- * asserting the finished shape up front would check none of the three.
+ * @stability unstable
+ * @category guards
+ * @since 0.1.0
  */
-const makeCollection = (
-  path: ReadonlyArray<string>,
-  schema: Schema.Top,
-  id: Schema.Top,
-): CollectionImpl =>
-  Object.assign(Object.create(CollectionProto) as typeof CollectionProto, {
-    path,
-    segment: path[path.length - 1],
-    schema,
-    id,
-  });
+export const isCollection: (u: unknown) => u is Any = collection.isCollection;
 
-const CollectionReferenceProto = {
-  ...Inspectable.BaseProto,
-  [CollectionReferenceTypeId]: CollectionReferenceTypeId,
-  toJSON(this: CollectionReferenceImpl) {
-    return { _id: "CollectionReference", path: this.path };
-  },
-  // The definition is compared by reference: it is written once and named, and
-  // `Equal.equals` would otherwise walk the whole schema behind it.
-  [Equal.symbol](this: CollectionReferenceImpl, that: unknown): boolean {
-    return (
-      isCollectionReference(that) && this.path === that.path && this.collection === that.collection
-    );
-  },
-  [Hash.symbol](this: CollectionReferenceImpl): number {
-    return Hash.combine(Hash.string(this.path), Hash.random(this.collection));
-  },
-  doc(this: CollectionReferenceImpl, id: string): DocumentReferenceImpl {
-    return makeDocumentReference(this, id);
-  },
-};
+/**
+ * @stability unstable
+ * @category guards
+ * @since 0.1.0
+ */
+export const isCollectionReference: (u: unknown) => u is CollectionReference<Any> =
+  collection.isCollectionReference;
 
-const makeCollectionReference = (
-  collection: CollectionImpl,
-  ancestors: ReadonlyArray<string>,
-): CollectionReferenceImpl =>
-  Object.assign(Object.create(CollectionReferenceProto) as typeof CollectionReferenceProto, {
-    collection,
-    ancestors,
-    id: collection.segment,
-    path: joinPath(collection.path, ancestors),
-  });
-
-const DocumentReferenceProto = {
-  ...Inspectable.BaseProto,
-  [DocumentReferenceTypeId]: DocumentReferenceTypeId,
-  toJSON(this: DocumentReferenceImpl) {
-    return { _id: "DocumentReference", path: this.path };
-  },
-  // The definition is compared by reference: it is written once and named, and
-  // `Equal.equals` would otherwise walk the whole schema behind it.
-  [Equal.symbol](this: DocumentReferenceImpl, that: unknown): boolean {
-    return (
-      isDocumentReference(that) && this.path === that.path && this.collection === that.collection
-    );
-  },
-  [Hash.symbol](this: DocumentReferenceImpl): number {
-    return Hash.combine(Hash.string(this.path), Hash.random(this.collection));
-  },
-};
-
-/** A document is always built from the collection holding it, which it keeps. */
-const makeDocumentReference = (
-  parent: CollectionReferenceImpl,
-  id: string,
-): DocumentReferenceImpl =>
-  Object.assign(Object.create(DocumentReferenceProto) as typeof DocumentReferenceProto, {
-    collection: parent.collection,
-    ancestors: parent.ancestors,
-    id,
-    path: `${parent.path}/${id}`,
-    parent,
-  });
+/**
+ * @stability unstable
+ * @category guards
+ * @since 0.1.0
+ */
+export const isDocumentReference: (u: unknown) => u is DocumentReference<Any> =
+  collection.isDocumentReference;
 
 /**
  * Defines a root collection.
@@ -416,20 +289,51 @@ const makeDocumentReference = (
  * Subcollections hang off the result through {@link Collection.subcollection},
  * so a collection is always defined in terms of where it actually sits.
  *
+ * Its documents are described by a {@link FirestoreModel.Class} rather than a
+ * plain schema, since a document is written in other shapes than it is read
+ * in, and a model is what carries them.
+ *
  * Throws when the segment is not one Firestore can address, because a path that
  * cannot be built is a mistake in the definition rather than something a caller
  * can recover from.
  *
+ * @stability unstable
  * @category constructors
- * @since 0.0.0
+ * @since 0.1.0
  */
-export const make = <const Segment extends string, S extends Schema.Top>(
+export const make: <const Segment extends string, S extends FirestoreModel.Any>(
   segment: Segment,
   schema: S,
-): Collection<readonly [readonly [Segment, S]]> => {
-  validateSegment(segment);
-  const path = [segment];
-  return makeCollection(path, schema, brandId(path)) as unknown as Collection<
-    readonly [readonly [Segment, S]]
-  >;
-};
+) => Collection<readonly [readonly [Segment, S]]> = collection.make;
+
+/**
+ * Whether `u` is shaped like a Firestore document reference.
+ *
+ * This is what makes a reference readable without depending on an SDK: an
+ * SDK's own `DocumentReference` passes, because it carries the same fields. A
+ * plain map holding an `id` and a `path` does not, so a document that stores
+ * one is not mistaken for a reference.
+ *
+ * @stability unstable
+ * @category guards
+ * @since 0.2.0
+ */
+export const isDocumentReferenceLike: (u: unknown) => u is DocumentReferenceLike =
+  collection.isDocumentReferenceLike;
+
+/**
+ * References the document in `collection` found at `path`, such as
+ * `users/alice/posts/hello`.
+ *
+ * The path is checked against the segments the collection was defined with,
+ * so a path into any other collection - one sharing its last segment included -
+ * comes back as `None`.
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.2.0
+ */
+export const fromPath: <C extends Any>(
+  collection: C,
+  path: string,
+) => Option.Option<DocumentReference<C>> = collection.fromPath;

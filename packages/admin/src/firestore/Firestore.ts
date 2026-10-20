@@ -1,14 +1,15 @@
 /**
  * Firestore for a single app, as exposed by the Firebase Admin SDK.
  *
- * @since 0.0.0
+ * @stability unstable
+ * @since 0.2.0
  */
 import { Effect, Layer, Schema } from "effect";
 import { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
-import type { WriteServices } from "@visiolab/effect-firebase/firestore/Firestore";
+import type { Create, WriteServices } from "@visiolab/effect-firebase/firestore/Firestore";
 import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
-import * as Snapshot from "@visiolab/effect-firebase/firestore/Snapshot";
 import { FirebaseError } from "firebase-admin/app";
 import * as Admin from "firebase-admin/firestore";
 import * as App from "../App.ts";
@@ -25,8 +26,9 @@ import * as Encoder from "./FirestoreEncoder.ts";
  * the database is opened and is read by every app in the process rather than by
  * one layer.
  *
+ * @stability unstable
  * @category models
- * @since 0.0.0
+ * @since 0.2.0
  */
 export interface Options {
   /**
@@ -88,17 +90,21 @@ const firestoreError = (message: string) => (cause: unknown) =>
  * The Admin SDK has no way to abort a request in flight, so these effects run
  * their call to completion even when the fiber is interrupted.
  *
+ * @stability unstable
  * @category constructors
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const make = Effect.fn("Firestore.make")(function* (options?: Options) {
   const app = yield* App.App;
 
-  const encoder = yield* FirestoreEncoder;
-
   // The SDK memoizes a database on the app itself, so there is nothing to
   // release here.
   const firestore = open(app, options);
+
+  // Built from the database just opened rather than taken from context, so a
+  // reference written into a document points into the database it is written
+  // to, whichever one the options name.
+  const encoder = Encoder.make(firestore);
 
   const call = <A>(
     span: string,
@@ -111,16 +117,18 @@ export const make = Effect.fn("Firestore.make")(function* (options?: Options) {
     }).pipe(Effect.withSpan(`Firestore.${span}`));
 
   /**
-   * Turns a document into the values the Admin SDK writes.
+   * Turns a document, in its model's `create` shape, into the values the
+   * Admin SDK writes.
    *
    * The encoder is answered for here rather than by the caller, since writing
    * through an SDK is the whole reason there is one. Whatever else the schema
    * encodes through is left where it is, for the caller to provide.
    */
-  const encode = <C extends Collection.Any>(collection: C, data: Collection.Document<C>) => {
+  const encode = <C extends Collection.Any>(collection: C, data: Create<C>) => {
     // Named so that the encoder is built against the schema `C` was defined
-    // with rather than against `Schema.Top`, the same way reading one is.
-    const schema: Collection.DocumentSchema<C> = collection.schema;
+    // with rather than against `Schema.Top`, which keeps the services it
+    // encodes through in the type instead of erasing them to `unknown`.
+    const schema: Collection.DocumentSchema<C>["create"] = collection.schema.create;
     return Effect.provideService(
       Schema.encodeEffect(schema)(data),
       FirestoreEncoder,
@@ -137,12 +145,9 @@ export const make = Effect.fn("Firestore.make")(function* (options?: Options) {
           (firestore) => firestore.doc(ref.path).get(),
         );
 
-        return snapshot.exists
-          ? Snapshot.make(
-              ref,
-              Effect.sync(() => snapshot.data()),
-            )
-          : Snapshot.missing(ref);
+        // `data()` hands back `undefined` for a document that is not there,
+        // which is what tells the two apart.
+        return DocumentSnapshot.make(ref, snapshot.data());
       }),
 
     getDocs: <C extends Collection.Any>(ref: Collection.CollectionReference<C>) =>
@@ -154,17 +159,11 @@ export const make = Effect.fn("Firestore.make")(function* (options?: Options) {
         );
 
         return query.docs.map((snapshot) =>
-          Snapshot.make(
-            ref.doc(ref.collection.id.make(snapshot.id)),
-            Effect.sync(() => snapshot.data()),
-          ),
+          DocumentSnapshot.existing(ref.doc(ref.collection.id.make(snapshot.id)), snapshot.data()),
         );
       }),
 
-    setDoc: <C extends Collection.Any>(
-      ref: Collection.DocumentReference<C>,
-      data: Collection.Document<C>,
-    ) =>
+    setDoc: <C extends Collection.Any>(ref: Collection.DocumentReference<C>, data: Create<C>) =>
       Effect.gen(function* () {
         const encoded = yield* encode(ref.collection, data);
 
@@ -173,10 +172,7 @@ export const make = Effect.fn("Firestore.make")(function* (options?: Options) {
         );
       }),
 
-    addDoc: <C extends Collection.Any>(
-      ref: Collection.CollectionReference<C>,
-      data: Collection.Document<C>,
-    ) =>
+    addDoc: <C extends Collection.Any>(ref: Collection.CollectionReference<C>, data: Create<C>) =>
       Effect.gen(function* () {
         const encoded = yield* encode(ref.collection, data);
 
@@ -197,14 +193,15 @@ export const make = Effect.fn("Firestore.make")(function* (options?: Options) {
  * Passing no options reads the database the project is given by default, over
  * gRPC.
  *
- * The encoder a document is written through is composed in here rather than
- * asked of the caller, since it is the Admin SDK's own and there is nothing to
- * decide about it from outside.
+ * The encoder a document is written through is built in here rather than
+ * asked of the caller, since it is the Admin SDK's own and has to point into
+ * the database the options name.
  *
  * @see {@link make} for why building the service cannot fail.
  *
+ * @stability unstable
  * @category layers
- * @since 0.0.0
+ * @since 0.2.0
  */
 export const layer = (options?: Options): Layer.Layer<Firestore, never, App.App> =>
-  Layer.effect(Firestore, make(options)).pipe(Layer.provide(Encoder.layer));
+  Layer.effect(Firestore, make(options));

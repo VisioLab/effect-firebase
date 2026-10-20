@@ -2,6 +2,7 @@ import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
 import { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as Admin from "firebase-admin/app";
 import { initializeFirestore } from "firebase-admin/firestore";
 import * as App from "../../src/App.ts";
@@ -13,10 +14,12 @@ const layer = AdminFirestore.layer().pipe(
   Layer.provide(App.layer({ projectId: "demo-firestore" }, "firestore")),
 );
 
-const Posts = Collection.make(
-  "posts",
-  Schema.Struct({ title: Schema.String, views: Schema.Finite }),
-);
+class Post extends FirestoreModel.Class<Post>("Post")({
+  title: Schema.String,
+  views: Schema.Finite,
+}) {}
+
+const Posts = Collection.make("posts", Post);
 const hello = Posts.id.make("hello");
 
 describe("Firestore", () => {
