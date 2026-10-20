@@ -46,7 +46,12 @@ const ExistingProto = {
   [TypeId]: TypeId,
   _tag: "Existing" as const,
   toJSON(this: ExistingImpl) {
-    return { _id: "DocumentSnapshot", _tag: "Existing", ref: this.ref.path, raw: this.raw };
+    return {
+      _id: "DocumentSnapshot",
+      _tag: "Existing",
+      ref: this.ref.path,
+      raw: Inspectable.toJson(this.raw),
+    };
   },
   // A getter rather than a field, so that nothing is built until it is asked
   // for. It suspends as well, because a schema that decodes synchronously
