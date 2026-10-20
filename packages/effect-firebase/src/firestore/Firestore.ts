@@ -298,8 +298,14 @@ export interface Firestore {
    * this service, another transaction - happens once per attempt. Those belong
    * after the transaction instead.
    *
-   * Only a conflict is retried. `effect` failing in any other way rolls the
-   * transaction back and fails with exactly what `effect` failed with.
+   * A failure from Firestore is retried where the SDK would retry it: a
+   * conflict, or an outage that passes, such as the database being unavailable
+   * for a moment. That goes for any `FirestoreError` `effect` fails with,
+   * whichever call raised it - one outside the transaction, or a transaction
+   * run inside it, included - as it does for the SDK's own transactions.
+   * `effect` failing in any other way - with an error of its own, a defect, or
+   * a write that does not encode - rolls the transaction back and fails with
+   * exactly what `effect` failed with.
    *
    * A transaction run inside another is its own: it commits when it is done,
    * whatever becomes of the one around it.

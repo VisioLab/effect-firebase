@@ -77,7 +77,7 @@ export const openWithEncoder = Effect.fnUntraced(function* (options?: AdminFires
  *
  * It carries no `code` on purpose: the SDK decides whether to retry by the
  * code of what it caught, and a body's own error that happens to carry one
- * would otherwise be retried as if it were a conflict.
+ * would otherwise be retried as if Firestore had raised it.
  */
 class BodyFailed {
   readonly cause: Cause.Cause<unknown>;
@@ -90,8 +90,11 @@ class BodyFailed {
  * What a transaction callback throws for a body that failed with `cause`.
  *
  * A `FirestoreError` goes back as the SDK's own error behind it, so the SDK
- * retries a conflict by its own rules rather than by a copy of them kept here.
- * Anything else goes back as {@link BodyFailed}, which it never retries.
+ * decides by its own rules whether to retry it - a conflict, or an outage that
+ * passes - rather than by a copy of them kept here. That goes for any
+ * `FirestoreError`, whichever call raised it, just as the SDK treats whatever
+ * its own callback throws. Anything else goes back as {@link BodyFailed},
+ * which it never retries.
  *
  * The tests do not reach the first case. Firestore can answer a read inside a
  * transaction with ABORTED when other transactions contend for the same
