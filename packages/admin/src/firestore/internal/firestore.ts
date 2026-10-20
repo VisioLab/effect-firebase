@@ -1,10 +1,16 @@
-import { Effect, Schema } from "effect";
-import { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
+import { Cause, Context, Effect, Exit, Option, Schema } from "effect";
+import { constVoid } from "effect/Function";
+import {
+  Firestore,
+  FirestoreError,
+  Transaction,
+} from "@visiolab/effect-firebase/firestore/Firestore";
 import type {
   Create,
   Update,
   UpdateOptions,
   UpdateSchema,
+  TransactionOptions,
   UpdateServices,
   WriteServices,
 } from "@visiolab/effect-firebase/firestore/Firestore";
@@ -66,23 +72,90 @@ export const openWithEncoder = Effect.fnUntraced(function* (options?: AdminFires
 });
 
 /**
- * The service over a database already opened, writing through `encoder`.
+ * What a transaction callback throws when its body fails with anything but a
+ * `FirestoreError`.
  *
- * The encoder is handed in rather than built here so that `layerWithEncoder`
- * can put the very same one into context.
- *
- * @internal
+ * It carries no `code` on purpose: the SDK decides whether to retry by the
+ * code of what it caught, and a body's own error that happens to carry one
+ * would otherwise be retried as if Firestore had raised it.
  */
-export const fromDatabase = (firestore: Admin.Firestore, encoder: FirestoreEncoder): Firestore => {
+class BodyFailed {
+  readonly cause: Cause.Cause<unknown>;
+  constructor(cause: Cause.Cause<unknown>) {
+    this.cause = cause;
+  }
+}
+
+/**
+ * What a transaction callback throws for a body that failed with `cause`.
+ *
+ * A `FirestoreError` goes back as the SDK's own error behind it, so the SDK
+ * decides by its own rules whether to retry it - a conflict, or an outage that
+ * passes - rather than by a copy of them kept here. That goes for any
+ * `FirestoreError`, whichever call raised it, just as the SDK treats whatever
+ * its own callback throws. Anything else goes back as {@link BodyFailed},
+ * which it never retries.
+ *
+ * The tests do not reach the first case. Firestore can answer a read inside a
+ * transaction with ABORTED when other transactions contend for the same
+ * documents, and that is the conflict this hands back. The emulator never
+ * does: it has a contended read wait for the lock instead, and only ever
+ * reports a conflict at commit, which the SDK retries without the body's
+ * failure being involved.
+ */
+const thrownFor = (cause: Cause.Cause<unknown>): unknown => {
+  const error = Option.getOrUndefined(Cause.findErrorOption(cause));
+  return error instanceof FirestoreError && error.cause !== undefined
+    ? error.cause
+    : new BodyFailed(cause);
+};
+
+/**
+ * Where reads and writes go: straight to the database, or into a transaction.
+ */
+interface Target {
+  readonly name: string;
+  readonly getDoc: (ref: Admin.DocumentReference) => Promise<Admin.DocumentSnapshot>;
+  readonly getDocs: (ref: Admin.CollectionReference) => Promise<Admin.QuerySnapshot>;
+  readonly setDoc: (ref: Admin.DocumentReference, data: Admin.DocumentData) => unknown;
+  readonly updateDoc: (
+    ref: Admin.DocumentReference,
+    data: Admin.UpdateData<Admin.DocumentData>,
+  ) => unknown;
+}
+
+const databaseTarget: Target = {
+  name: "Firestore",
+  getDoc: (ref) => ref.get(),
+  getDocs: (ref) => ref.get(),
+  setDoc: (ref, data) => ref.set(data),
+  updateDoc: (ref, data) => ref.update(data),
+};
+
+const transactionTarget = (tx: Admin.Transaction): Target => ({
+  name: "Firestore.Transaction",
+  getDoc: (ref) => tx.get(ref),
+  getDocs: (ref) => tx.get(ref),
+  // Writes into a transaction are queued rather than sent, so these return
+  // straight away - or throw, where the transaction refuses them.
+  setDoc: (ref, data) => tx.set(ref, data),
+  updateDoc: (ref, data) => tx.update(ref, data),
+});
+
+/**
+ * The reads and writes a {@link Firestore} and a {@link Transaction} share,
+ * made against `target`.
+ */
+const operations = (firestore: Admin.Firestore, encoder: FirestoreEncoder, target: Target) => {
   const call = <A>(
     span: string,
     message: string,
-    f: (firestore: Admin.Firestore) => PromiseLike<A> | A,
+    f: () => PromiseLike<A> | A,
   ): Effect.Effect<A, FirestoreError> =>
     Effect.tryPromise({
-      try: () => Promise.resolve(f(firestore)),
+      try: () => Promise.resolve(f()),
       catch: firestoreError(message),
-    }).pipe(Effect.withSpan(`Firestore.${span}`));
+    }).pipe(Effect.withSpan(`${target.name}.${span}`));
 
   /**
    * Turns what is written, in the shape `schema` takes, into the values the
@@ -127,13 +200,13 @@ export const fromDatabase = (firestore: Admin.Firestore, encoder: FirestoreEncod
     >;
   };
 
-  return Firestore.of({
+  return {
+    call,
+    encodeCreate,
     getDoc: <C extends Collection.Any>(ref: Collection.DocumentReference<C>) =>
       Effect.gen(function* () {
-        const snapshot = yield* call(
-          "getDoc",
-          `Failed to read the document "${ref.path}"`,
-          (firestore) => firestore.doc(ref.path).get(),
+        const snapshot = yield* call("getDoc", `Failed to read the document "${ref.path}"`, () =>
+          target.getDoc(firestore.doc(ref.path)),
         );
 
         // `data()` hands back `undefined` for a document that is not there,
@@ -143,10 +216,8 @@ export const fromDatabase = (firestore: Admin.Firestore, encoder: FirestoreEncod
 
     getDocs: <C extends Collection.Any>(ref: Collection.CollectionReference<C>) =>
       Effect.gen(function* () {
-        const query = yield* call(
-          "getDocs",
-          `Failed to read the collection "${ref.path}"`,
-          (firestore) => firestore.collection(ref.path).get(),
+        const query = yield* call("getDocs", `Failed to read the collection "${ref.path}"`, () =>
+          target.getDocs(firestore.collection(ref.path)),
         );
 
         return query.docs.map((snapshot) =>
@@ -158,22 +229,9 @@ export const fromDatabase = (firestore: Admin.Firestore, encoder: FirestoreEncod
       Effect.gen(function* () {
         const encoded = yield* encodeCreate(ref.collection, data);
 
-        yield* call("setDoc", `Failed to write the document "${ref.path}"`, (firestore) =>
-          firestore.doc(ref.path).set(encoded),
+        yield* call("setDoc", `Failed to write the document "${ref.path}"`, () =>
+          target.setDoc(firestore.doc(ref.path), encoded),
         );
-      }),
-
-    addDoc: <C extends Collection.Any>(ref: Collection.CollectionReference<C>, data: Create<C>) =>
-      Effect.gen(function* () {
-        const encoded = yield* encodeCreate(ref.collection, data);
-
-        const added = yield* call(
-          "addDoc",
-          `Failed to add a document to "${ref.path}"`,
-          (firestore) => firestore.collection(ref.path).add(encoded),
-        );
-
-        return ref.doc(ref.collection.id.make(added.id));
       }),
 
     updateDoc: <C extends Collection.Any, Mode extends FirestoreModel.UpdateMode = "checked">(
@@ -184,9 +242,95 @@ export const fromDatabase = (firestore: Admin.Firestore, encoder: FirestoreEncod
       Effect.gen(function* () {
         const encoded = yield* encodeUpdate(ref.collection, data, options?.mode);
 
-        yield* call("updateDoc", `Failed to update the document "${ref.path}"`, (firestore) =>
-          firestore.doc(ref.path).update(encoded),
+        yield* call("updateDoc", `Failed to update the document "${ref.path}"`, () =>
+          target.updateDoc(firestore.doc(ref.path), encoded),
         );
       }),
+  };
+};
+
+/**
+ * The service over a database already opened, writing through `encoder`.
+ *
+ * The encoder is handed in rather than built here so that `layerWithEncoder`
+ * can put the very same one into context.
+ *
+ * @internal
+ */
+export const fromDatabase = (firestore: Admin.Firestore, encoder: FirestoreEncoder): Firestore => {
+  const { call, encodeCreate, ...database } = operations(firestore, encoder, databaseTarget);
+
+  const makeTransaction = (tx: Admin.Transaction): Transaction => {
+    const { getDoc, getDocs, setDoc, updateDoc } = operations(
+      firestore,
+      encoder,
+      transactionTarget(tx),
+    );
+    return Transaction.of({ getDoc, getDocs, setDoc, updateDoc });
+  };
+
+  return Firestore.of({
+    ...database,
+
+    addDoc: <C extends Collection.Any>(ref: Collection.CollectionReference<C>, data: Create<C>) =>
+      Effect.gen(function* () {
+        const encoded = yield* encodeCreate(ref.collection, data);
+
+        const added = yield* call("addDoc", `Failed to add a document to "${ref.path}"`, () =>
+          firestore.collection(ref.path).add(encoded),
+        );
+
+        return ref.doc(ref.collection.id.make(added.id));
+      }),
+
+    runTransaction: Effect.fn("Firestore.runTransaction")(function* <A, E, R>(
+      effect: Effect.Effect<A, E, R>,
+      options?: TransactionOptions,
+    ) {
+      // Captured inside the span, so the body's own spans hang off it.
+      const context = yield* Effect.context<Exclude<R, Transaction>>();
+
+      return yield* Effect.uninterruptibleMask((restore) => {
+        const controller = new AbortController();
+        // The last thing the body failed with, and what was thrown for it, so
+        // that a failure the SDK hands back without retrying it comes back as
+        // the body's own rather than wrapped a second time.
+        let failure: { readonly thrown: unknown; readonly cause: Cause.Cause<unknown> } | undefined;
+        const running = firestore.runTransaction(
+          async (tx) => {
+            const exit = await Effect.runPromiseExitWith(
+              Context.add(context, Transaction, makeTransaction(tx)) as Context.Context<R>,
+            )(effect, { signal: controller.signal });
+            if (Exit.isSuccess(exit)) return exit.value;
+            const thrown = thrownFor(exit.cause);
+            failure = { thrown, cause: exit.cause };
+            throw thrown;
+          },
+          { maxAttempts: options?.maxAttempts },
+        );
+
+        return restore(
+          Effect.tryPromise({
+            try: () => running,
+            catch: (cause) =>
+              failure !== undefined && cause === failure.thrown
+                ? new BodyFailed(failure.cause)
+                : firestoreError("Failed to run a transaction")(cause),
+          }),
+        ).pipe(
+          // Interrupting the body is what makes the callback reject, and so
+          // what makes the SDK roll back - which is waited for, so that
+          // nothing of the transaction is left running once this is done.
+          Effect.onInterrupt(() => {
+            controller.abort();
+            return Effect.promise(() => running.then(constVoid, constVoid));
+          }),
+          Effect.catchIf(
+            (error): error is BodyFailed => error instanceof BodyFailed,
+            (failed) => Effect.failCause(failed.cause as Cause.Cause<E>),
+          ),
+        );
+      });
+    }),
   });
 };

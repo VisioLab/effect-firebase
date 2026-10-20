@@ -122,6 +122,88 @@ export interface UpdateOptions<Mode extends FirestoreModel.UpdateMode = "checked
 }
 
 /**
+ * How to run a transaction.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface TransactionOptions {
+  /**
+   * How many times the body is run before a transaction that keeps running
+   * into other writes gives up. The SDK's own default, 5, where left out.
+   */
+  readonly maxAttempts?: number | undefined;
+}
+
+/**
+ * The transaction a {@link Firestore.runTransaction} body runs in.
+ *
+ * It reads and writes the way {@link Firestore} does, with the two rules a
+ * Firestore transaction holds to: every read comes before every write, and
+ * nothing written is there to read until the transaction commits - it is
+ * queued, and only sent once the body is done.
+ *
+ * Asking for it in a helper is what says that helper belongs inside a
+ * transaction, and so that it may run more than once.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface Transaction {
+  /**
+   * Reads one document, as {@link Firestore.getDoc} does, as part of the
+   * transaction.
+   */
+  readonly getDoc: <C extends Collection.Any>(
+    ref: Collection.DocumentReference<C>,
+  ) => Effect.Effect<DocumentSnapshot.DocumentSnapshot<C>, FirestoreError>;
+
+  /**
+   * Reads every document in one collection, as {@link Firestore.getDocs} does,
+   * as part of the transaction.
+   */
+  readonly getDocs: <C extends Collection.Any>(
+    ref: Collection.CollectionReference<C>,
+  ) => Effect.Effect<ReadonlyArray<DocumentSnapshot.Existing<C>>, FirestoreError>;
+
+  /**
+   * Queues a write of one whole document, as {@link Firestore.setDoc} writes
+   * it.
+   */
+  readonly setDoc: <C extends Collection.Any>(
+    ref: Collection.DocumentReference<C>,
+    data: Create<C>,
+  ) => Effect.Effect<void, FirestoreError | Schema.SchemaError, WriteServices<C>>;
+
+  /**
+   * Queues an update of one document, as {@link Firestore.updateDoc} writes
+   * it.
+   */
+  readonly updateDoc: <
+    C extends Collection.Any,
+    Mode extends FirestoreModel.UpdateMode = "checked",
+  >(
+    ref: Collection.DocumentReference<C>,
+    data: Update<C, Mode>,
+    options?: UpdateOptions<Mode>,
+  ) => Effect.Effect<void, FirestoreError | Schema.SchemaError, UpdateServices<C>>;
+}
+
+/**
+ * Service key for the transaction a {@link Firestore.runTransaction} body runs
+ * in.
+ *
+ * @stability unstable
+ * @category services
+ * @since 0.2.0
+ */
+export const Transaction = Context.Service<Transaction>(
+  "@visiolab/effect-firebase/firestore/Firestore/Transaction",
+);
+
+/**
  * Firestore for a single app.
  *
  * Reads are addressed by the references a {@link Collection.Collection} builds,
@@ -205,6 +287,36 @@ export interface Firestore {
     data: Update<C, Mode>,
     options?: UpdateOptions<Mode>,
   ) => Effect.Effect<void, FirestoreError | Schema.SchemaError, UpdateServices<C>>;
+
+  /**
+   * Runs `effect` in a transaction, with the {@link Transaction} it reads and
+   * writes through provided.
+   *
+   * When another write gets in the way, the SDK throws the queued writes away
+   * and runs `effect` again from the start, so anything it does besides
+   * reading and writing through the transaction - an email, a write through
+   * this service, another transaction - happens once per attempt. Those belong
+   * after the transaction instead.
+   *
+   * A failure from Firestore is retried where the SDK would retry it: a
+   * conflict, or an outage that passes, such as the database being unavailable
+   * for a moment. That goes for any `FirestoreError` `effect` fails with,
+   * whichever call raised it - one outside the transaction, or a transaction
+   * run inside it, included - as it does for the SDK's own transactions.
+   * `effect` failing in any other way - with an error of its own, a defect, or
+   * a write that does not encode - rolls the transaction back and fails with
+   * exactly what `effect` failed with.
+   *
+   * A transaction run inside another is its own: it commits when it is done,
+   * whatever becomes of the one around it.
+   *
+   * Interrupting it interrupts `effect`, rolls the transaction back, and only
+   * returns once the rollback is done.
+   */
+  readonly runTransaction: <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+    options?: TransactionOptions,
+  ) => Effect.Effect<A, E | FirestoreError, Exclude<R, Transaction>>;
 }
 
 /**
