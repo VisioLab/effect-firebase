@@ -49,15 +49,138 @@ export const fields = <A extends VariantSchema.Struct<any>>(
 export const OptionalGroupTypeId =
   "~@visiolab/effect-firebase/firestore/FirestoreModel/OptionalGroup";
 
-/** Where the groups sit, which is where flattening goes one level down. */
-interface Groups {
-  readonly [key: string]: Groups;
+/** @internal */
+export const RecordTypeId = "~@visiolab/effect-firebase/firestore/FirestoreModel/Record";
+
+/**
+ * Where an update goes one level down when flattening: at the keys of a group,
+ * or at every key of a Record, whatever it is. A key missing from both is a
+ * value, written whole.
+ */
+interface Shape {
+  readonly fields: { readonly [key: string]: Shape };
+  readonly rest: { readonly value: Shape | undefined } | undefined;
 }
 
-const variantSchema = (field: unknown, variant: "create" | "update"): Schema.Top | undefined =>
-  VariantSchema.isField(field) ? (field.schemas as any)[variant] : (field as Schema.Top);
+/** The keys of a Record that only the data names, and what each of them holds. */
+interface Rest<A> {
+  readonly key: Schema.Top;
+  readonly value: A;
+}
 
-const updateSchema = (field: unknown): Schema.Top | undefined => variantSchema(field, "update");
+/**
+ * A path an update writes at, one segment per key: the name of a field, or the
+ * schema of the key of a Record, which encodes whatever key sits there.
+ */
+type Path = ReadonlyArray<string | Schema.Top>;
+
+/**
+ * The schemas an update writes at: by path where it only goes through fields,
+ * and by the pattern of the paths where it goes through a Record.
+ */
+interface Paths {
+  readonly known: Record<string, Schema.Top>;
+  readonly patterns: Map<string, Schema.Top>;
+}
+
+/** The reason a key is not one a path can name on its own, if it is not. */
+const unaddressable = (key: string): string | undefined =>
+  key === "" ? "must not be empty" : key.includes(".") ? 'must not contain "."' : undefined;
+
+/** A key a path names on its own, which is a non-empty one holding no dot. */
+const Segment = Schema.String.check(Schema.isPattern(/^[^.]+$/));
+
+/** Where a path sits, with `*` for each key only the data names. */
+const where = (path: Path): string =>
+  path.map((segment) => (Schema.isSchema(segment) ? "*" : segment)).join(".");
+
+/**
+ * The parts of the template literal a path matches: the names of the fields
+ * along it, joined by dots, and `key` for each key of a Record.
+ */
+const template = <A>(path: Path, key: (schema: Schema.Top, i: number) => A): Array<string | A> => {
+  const parts: Array<string | A> = [];
+  let literal = "";
+  path.forEach((segment, i) => {
+    if (i > 0) {
+      literal += ".";
+    }
+    if (Schema.isSchema(segment)) {
+      if (literal !== "") {
+        parts.push(literal);
+      }
+      parts.push(key(segment, i));
+      literal = "";
+    } else {
+      literal += segment;
+    }
+  });
+  if (literal !== "") {
+    parts.push(literal);
+  }
+  return parts;
+};
+
+/**
+ * The key of a pattern of paths, as an update is written with it and as
+ * Firestore holds it: each key of a Record is encoded by the Record's key
+ * schema, and refused where its encoded form is one no path can name.
+ */
+const PathKey = (path: Path): Schema.Top => {
+  const encoded = template(path, (key, i) =>
+    Schema.String.check(
+      Schema.makeFilter((segment: string) => {
+        const reason = unaddressable(segment);
+        return reason === undefined
+          ? undefined
+          : `Invalid Firestore field name "${segment}" in "${where(path.slice(0, i))}": it ${reason}`;
+      }),
+    ).pipe(Schema.decodeTo(key as Schema.Codec<unknown, string>)),
+  );
+  const decoded = template(path, (key) => (recordKeys(key).rest ? Segment : Schema.toType(key)));
+  const parser = Schema.TemplateLiteralParser(encoded as any) as unknown as Schema.Codec<
+    ReadonlyArray<unknown>,
+    string
+  >;
+  return parser.pipe(
+    Schema.decodeTo(Schema.TemplateLiteral(decoded as any) as Schema.Codec<string, string>, {
+      decode: SchemaGetter.transform((parts) => parts.join("")),
+      // A key a path names holds no dot, so splitting the path at each one
+      // gives back its keys.
+      encode: SchemaGetter.transform((key) => {
+        const segments = key.split(".");
+        return template(path, (_, i) => segments[i]);
+      }),
+    }),
+  );
+};
+
+// Every key of a Record known up front sits at the same pattern, which is only
+// added once. A pattern holds no optional key, since any path it matches may be
+// left out anyway.
+const addPath = (paths: Paths, path: Path, schema: Schema.Top): void => {
+  if (path.every((segment) => typeof segment === "string")) {
+    paths.known[path.join(".")] = Schema.optionalKey(schema);
+  } else if (!paths.patterns.has(where(path))) {
+    paths.patterns.set(
+      where(path),
+      Schema.Record(PathKey(path) as Schema.Record.Key, withoutOptionalKey(schema)),
+    );
+  }
+};
+
+const variantSchema = (
+  field: unknown,
+  variant: "read" | "create" | "update",
+): Schema.Top | undefined =>
+  VariantSchema.isStruct(field)
+    ? (extract(field, variant) as Schema.Top)
+    : VariantSchema.isField(field)
+      ? (field.schemas as any)[variant]
+      : (field as Schema.Top);
+
+const updateSchema = (field: unknown): Schema.Top | undefined =>
+  VariantSchema.isStruct(field) ? undefined : variantSchema(field, "update");
 
 // What Effect itself strips a default with, though it is left out of the
 // typings.
@@ -83,36 +206,128 @@ const withoutConstructorDefault = (schema: Schema.Top): Schema.Top => {
   );
 };
 
-/** A group a field reaches into, and whether a document may go without it. */
-interface Group {
-  readonly struct: VariantSchema.Struct<any>;
+/**
+ * Drops the optional key a schema is made, for a value at a key only the data
+ * names, which may be missing whatever it holds.
+ */
+const withoutOptionalKey = (schema: Schema.Top): Schema.Top => {
+  const context = schema.ast.context;
+  if (context?.isOptional !== true) {
+    return schema;
+  }
+  return Schema.make(
+    replaceContext(
+      schema.ast,
+      new SchemaAST.Context(
+        false,
+        context.isMutable,
+        context.constructorDefault,
+        context.annotations,
+      ),
+    ),
+  );
+};
+
+/** The keys a Record key schema names up front, and whether the data names more. */
+const recordKeys = (key: Schema.Top): { readonly known: Array<string>; readonly rest: boolean } => {
+  const ast = Schema.Record(key as Schema.Record.Key, Schema.Unknown).ast;
+  const known = ast.propertySignatures.map(({ name }) => {
+    if (typeof name === "symbol") {
+      throw new Error(`Invalid Firestore field name ${String(name)}: it must be a string`);
+    }
+    const segment = String(name);
+    const reason = unaddressable(segment);
+    if (reason !== undefined) {
+      throw new Error(`Invalid Firestore field name "${segment}": it ${reason}`);
+    }
+    return segment;
+  });
+  const rest = ast.indexSignatures.length > 0;
+  if (rest && known.length > 0) {
+    throw new Error(
+      `Invalid Record key: it names ${known.map((k) => `"${k}"`).join(", ")} besides keys only the data names, which an update cannot tell apart`,
+    );
+  }
+  return { known, rest };
+};
+
+/**
+ * What an update reaches into: a group, or a Record. Either holds fields at
+ * keys known up front, and a Record may hold more at keys only the data names.
+ */
+interface Node {
+  readonly fields: VariantSchema.Struct.Fields;
+  /**
+   * The key schema of a Record keyed by literals, which a path names each of
+   * its fields by, to encode it as part of the update.
+   */
+  readonly key: Schema.Top | undefined;
+  readonly rest: Rest<unknown> | undefined;
+  /** The whole node, as `set` writes it. */
+  readonly create: () => Schema.Top;
+  /** Whether a document may go without it. */
   readonly optional: boolean;
+  /** Whether an update writes anything at all into it. */
+  readonly writable: boolean;
 }
 
-/** The group a field reaches into, if it is one. */
-const groupOf = (field: unknown): Group | undefined => {
-  if (VariantSchema.isStruct(field)) {
-    return { struct: field, optional: false };
-  }
+const recordNode = (
+  key: Schema.Top,
+  value: unknown,
+  create: () => Schema.Top,
+  optional: boolean,
+): Node => {
+  const keys = recordKeys(key);
+  return {
+    fields: Object.fromEntries(keys.known.map((k) => [k, value])) as VariantSchema.Struct.Fields,
+    key: keys.rest ? undefined : key,
+    rest: keys.rest ? { key, value } : undefined,
+    create,
+    optional,
+    // A value no update writes leaves nothing of the Record to write either.
+    writable: nodeOf(value)?.writable ?? updateSchema(value) !== undefined,
+  };
+};
+
+/** What a field reaches into, if it is a group or a Record. */
+const nodeOf = (field: unknown, optional = false): Node | undefined => {
   if (Predicate.hasProperty(field, OptionalGroupTypeId)) {
-    return { struct: field[OptionalGroupTypeId] as VariantSchema.Struct<any>, optional: true };
+    return nodeOf(field[OptionalGroupTypeId], true);
+  }
+  if (Predicate.hasProperty(field, RecordTypeId)) {
+    const { key, value } = field[RecordTypeId] as Rest<unknown>;
+    return recordNode(key, value, () => variantSchema(field, "create")!, optional);
+  }
+  if (VariantSchema.isStruct(field)) {
+    return {
+      fields: VariantSchema.fields(field),
+      key: undefined,
+      rest: undefined,
+      create: () => extract(field, "create") as Schema.Top,
+      optional,
+      writable: true,
+    };
   }
   return undefined;
 };
 
 /**
- * Whether a group may be written whole by an update: only where every field it
- * holds, at any depth, is written both by `set`, whose shape a replacement
- * takes, and by an update. Replacing one holding a field written once would
- * change it, and one holding a field `set` leaves out would drop it.
+ * Whether a set of fields may be written whole by an update: only where every
+ * field it holds, at any depth, is written both by `set`, whose shape a
+ * replacement takes, and by an update. Replacing one holding a field written
+ * once would change it, and one holding a field `set` leaves out would drop it.
  */
 const isReplaceable = (fields: VariantSchema.Struct.Fields): boolean =>
   Object.values(fields).every((field) => {
-    const group = groupOf(field);
-    return group === undefined
+    const node = nodeOf(field);
+    return node === undefined
       ? variantSchema(field, "create") !== undefined && updateSchema(field) !== undefined
-      : isReplaceable(VariantSchema.fields(group.struct));
+      : isNodeReplaceable(node);
   });
+
+const isNodeReplaceable = (node: Node): boolean =>
+  isReplaceable(node.fields) &&
+  (node.rest === undefined || isReplaceable({ _: node.rest.value } as VariantSchema.Struct.Fields));
 
 /**
  * The replacement of a group, holding the group as `create` makes it - with
@@ -152,122 +367,189 @@ const GroupPatchSchema = (fields: Schema.Top): Schema.Top =>
 
 /**
  * Builds the patch a set of fields is updated through in `mode`, along with
- * where its groups sit, and gathers the schema of each path it can write at
- * into `paths`.
+ * where its groups and Records sit, and gathers the schema of each path it can
+ * write at into `paths`.
  *
  * A group takes a patch, written at its paths, unless it may be missing and
  * the patch is checked, since the patch would create it holding only what it
  * carried. It takes a replacement wherever it is replaceable, and a removal
- * where it may be missing.
+ * where it may be missing. A Record is a group whose keys may come from the
+ * data - see {@link buildNode}.
+ *
+ * Where `recordKey` is given, the fields are the keys of a Record keyed by
+ * literals, and each sits on its path as that key schema encodes it.
  *
  * Throws on a field name holding a dot, which a path would read as two.
  */
 const build = (
   fields: VariantSchema.Struct.Fields,
-  prefix: string,
-  paths: Record<string, Schema.Top>,
+  path: Path,
+  paths: Paths,
   mode: FirestoreModel.UpdateMode,
-): { readonly patch: Schema.Top; readonly groups: Groups } => {
+  recordKey?: Schema.Top,
+): { readonly patch: Schema.Top; readonly shape: Shape } => {
   const schemas: Record<string, Schema.Top> = {};
-  const groups: Record<string, Groups> = {};
+  const shapes: Record<string, Shape> = {};
   for (const key of Object.keys(fields)) {
     if (key.includes(".")) {
       throw new Error(`Invalid Firestore field name "${key}": it must not contain "."`);
     }
     const field = fields[key];
-    const path = prefix + key;
-    const group = groupOf(field);
-    if (group !== undefined) {
-      const built = buildGroup(group, path, paths, mode);
-      schemas[key] = built.schema;
-      groups[key] = built.groups;
+    const at = [...path, recordKey ?? key];
+    const node = nodeOf(field);
+    if (node !== undefined) {
+      if (node.writable) {
+        const built = buildNode(node, at, paths, mode);
+        schemas[key] = Schema.optionalKey(built.schema);
+        shapes[key] = built.shape;
+      }
     } else {
       const update = updateSchema(field);
       if (update !== undefined) {
         const schema = withoutConstructorDefault(update);
         schemas[key] = Schema.optionalKey(schema);
-        paths[path] = Schema.optionalKey(schema);
+        addPath(paths, at, schema);
       }
     }
   }
-  return { patch: Schema.Struct(schemas), groups };
+  return { patch: Schema.Struct(schemas), shape: { fields: shapes, rest: undefined } };
 };
 
 /**
- * Builds what a group at `path` takes in `mode`, gathering the paths it writes
- * at into `paths`, the way {@link build} does for a set of fields.
+ * Builds what a group or a Record at `path` takes in `mode`, gathering the
+ * paths it writes at into `paths`, the way {@link build} does for a set of
+ * fields.
+ *
+ * A Record whose keys come from the data is patched key by key, each key
+ * written at its own path. Any such key may be missing, so each takes the
+ * removal, and a value that is itself a group or a Record is treated as one a
+ * document may go without. That also makes a patch safe where the Record
+ * itself may be missing: every key it writes is one the Record may hold or not.
  */
-const buildGroup = (
-  { struct, optional }: Group,
-  path: string,
-  paths: Record<string, Schema.Top>,
+const buildNode = (
+  node: Node,
+  path: Path,
+  paths: Paths,
   mode: FirestoreModel.UpdateMode,
-): { readonly schema: Schema.Top; readonly groups: Groups } => {
-  const fields = VariantSchema.fields(struct);
-  const inner = build(fields, `${path}.`, paths, mode);
-  const create = isReplaceable(fields) ? (extract(struct, "create") as Schema.Top) : undefined;
+): { readonly schema: Schema.Top; readonly shape: Shape } => {
+  const inner =
+    node.rest === undefined
+      ? build(node.fields, path, paths, mode, node.key)
+      : buildRest(node.rest, path, paths, mode);
+  const create = isNodeReplaceable(node) ? node.create() : undefined;
   const takes: Array<Schema.Top> = [];
-  if (!optional || mode === "unchecked") {
+  if (!node.optional || mode === "unchecked" || node.rest !== undefined) {
     takes.push(GroupPatchSchema(inner.patch));
   }
   if (create !== undefined) {
     takes.push(ReplaceSchema(create));
   }
-  if (optional) {
+  if (node.optional) {
     takes.push(firestoreSchema.DeleteField);
   }
-  const written = optional
+  const written = node.optional
     ? create === undefined
       ? firestoreSchema.DeleteField
       : firestoreSchema.DeleteFieldOr(create)
     : create;
   if (written !== undefined) {
-    paths[path] = Schema.optionalKey(written);
+    addPath(paths, path, written);
   }
   return {
-    schema: Schema.optionalKey(takes.length === 1 ? takes[0] : Schema.Union(takes)),
-    groups: inner.groups,
+    schema: takes.length === 1 ? takes[0] : Schema.Union(takes),
+    shape: inner.shape,
+  };
+};
+
+/** Builds the patch of a Record at the keys only the data names. */
+const buildRest = (
+  rest: Rest<unknown>,
+  path: Path,
+  paths: Paths,
+  mode: FirestoreModel.UpdateMode,
+): { readonly patch: Schema.Top; readonly shape: Shape } => {
+  const entryPath = [...path, rest.key];
+  const node = nodeOf(rest.value, true);
+  let entry: Schema.Top;
+  let shape: Shape | undefined;
+  if (node !== undefined) {
+    const built = buildNode({ ...node, optional: true }, entryPath, paths, mode);
+    entry = built.schema;
+    shape = built.shape;
+  } else {
+    entry = firestoreSchema.DeleteFieldOr(
+      withoutConstructorDefault(withoutOptionalKey(updateSchema(rest.value)!)),
+    );
+    addPath(paths, entryPath, entry);
+  }
+  return {
+    patch: Schema.Record(Schema.toType(rest.key) as Schema.Record.Key, entry),
+    shape: { fields: {}, rest: { value: shape } },
   };
 };
 
 /**
- * Goes one level down where the schema says a group sits, unless the group is
- * being removed or replaced. It runs on the patch as the caller wrote it,
+ * Goes one level down where the shape says a group or a Record sits, unless it
+ * is being removed or replaced. It runs on the patch as the caller wrote it,
  * before anything is encoded, so the removal and the replacement are still
  * this library's to recognise.
  *
- * A replacement is written whole, as the group it holds.
+ * A replacement is written whole, as the group it holds. A key of a Record
+ * fails where no path could name it; the paths it builds are encoded by the
+ * schema of each, keys and all.
  */
 const flatten = (
   value: Record<string, unknown>,
-  groups: Groups,
+  shape: Shape,
   prefix: string,
   out: Record<string, unknown>,
-): Record<string, unknown> => {
-  for (const key of Object.keys(value)) {
-    const inner = value[key];
-    if (!Object.hasOwn(groups, key) || fieldValue.isDeleteField(inner)) {
-      out[prefix + key] = inner;
-    } else if (patch.isReplace(inner)) {
-      out[prefix + key] = inner.value;
-    } else {
-      flatten(inner as Record<string, unknown>, groups[key], `${prefix}${key}.`, out);
+  options: SchemaAST.ParseOptions,
+): Effect.Effect<Record<string, unknown>, SchemaIssue.Issue> =>
+  Effect.gen(function* () {
+    for (const key of Object.keys(value)) {
+      const inner = value[key];
+      let child: Shape | undefined;
+      if (shape.rest !== undefined) {
+        const reason = unaddressable(key);
+        if (reason !== undefined) {
+          return yield* Effect.fail(
+            new SchemaIssue.InvalidValue(
+              {
+                message: `Invalid Firestore field name "${key}" in "${prefix.slice(0, -1)}": it ${reason}`,
+              },
+              key,
+              options,
+            ),
+          );
+        }
+        child = shape.rest.value;
+      } else if (Object.hasOwn(shape.fields, key)) {
+        child = shape.fields[key];
+      }
+      if (child === undefined || fieldValue.isDeleteField(inner)) {
+        out[prefix + key] = inner;
+      } else if (patch.isReplace(inner)) {
+        out[prefix + key] = inner.value;
+      } else {
+        yield* flatten(inner as Record<string, unknown>, child, `${prefix}${key}.`, out, options);
+      }
     }
-  }
-  return out;
-};
+    return out;
+  });
 
 const update = (
   fields: VariantSchema.Struct.Fields,
   mode: FirestoreModel.UpdateMode,
 ): Schema.Top => {
-  const paths: Record<string, Schema.Top> = {};
-  const { patch, groups } = build(fields, "", paths, mode);
-  return Schema.Struct(paths).pipe(
+  const paths: Paths = { known: {}, patterns: new Map() };
+  const { patch, shape } = build(fields, [], paths, mode);
+  const known = Schema.Struct(paths.known);
+  const patterns = [...paths.patterns.values()];
+  return (patterns.length === 0 ? known : Schema.StructWithRest(known, patterns as any)).pipe(
     Schema.decodeTo(Schema.toType(patch), {
       decode: SchemaGetter.forbidden(() => "An update is only ever written, never read back"),
-      encode: SchemaGetter.transform((value) =>
-        flatten(value as Record<string, unknown>, groups, "", {}),
+      encode: SchemaGetter.transformEffect((value, options) =>
+        flatten(value as Record<string, unknown>, shape, "", {}, options),
       ),
     }),
   );
@@ -342,22 +624,50 @@ const optionalField = fieldEvolve({
   update: (schema: Schema.Top) => Schema.optionalKey(firestoreSchema.DeleteFieldOr(schema)),
 } as any) as (self: unknown) => unknown;
 
-const optionalGroup = (self: VariantSchema.Struct<any>): unknown =>
+/**
+ * What a group or a Record takes as a field of its own, which is what
+ * `extract` hands back: the patches an unchecked update takes.
+ */
+const nodeUpdate = (node: Node): Schema.Top =>
+  Schema.optionalKey(buildNode(node, [], { known: {}, patterns: new Map() }, "unchecked").schema);
+
+/** @internal */
+export const Record = <K extends Schema.Record.Key, V extends FirestoreModel.Value>(
+  key: K,
+  value: V,
+): FirestoreModel.Record<K, V> => {
+  const { rest } = recordKeys(key);
+  const of = (variant: "read" | "create"): Schema.Top | undefined => {
+    const schema = variantSchema(value, variant);
+    // A key only the data names may be missing anyway, and Effect takes no
+    // optional key at one.
+    return schema && Schema.Record(key, rest ? withoutOptionalKey(schema) : schema);
+  };
+  const read = of("read");
+  const create = of("create");
+  const node = recordNode(key, value, () => create!, false);
+  return Object.assign(
+    Field({
+      ...(read && { read }),
+      ...(create && { create }),
+      ...(node.writable && { update: nodeUpdate(node) }),
+    }),
+    { [RecordTypeId]: { key, value } },
+  ) as any;
+};
+
+const optionalNode = (self: unknown, node: Node): unknown =>
   Object.assign(
     Field({
-      read: Schema.optionalKey(extract(self, "read") as Schema.Top),
-      create: Schema.optionalKey(extract(self, "create") as Schema.Top),
-      // What the group takes as a field of its own, which is what `extract`
-      // hands back: the patches an unchecked update takes.
-      update: buildGroup({ struct: self, optional: true }, "", {}, "unchecked").schema,
+      read: Schema.optionalKey(variantSchema(self, "read")!),
+      create: Schema.optionalKey(node.create()),
+      ...(node.writable && { update: nodeUpdate(node) }),
     }),
     { [OptionalGroupTypeId]: self },
   );
 
 /** @internal */
-export const Optional = <
-  F extends VariantSchema.Field<any> | VariantSchema.Struct<any> | Schema.Top,
->(
-  self: F,
-): FirestoreModel.Optional<F> =>
-  (VariantSchema.isStruct(self) ? optionalGroup(self) : optionalField(self)) as any;
+export const Optional = <F extends FirestoreModel.Value>(self: F): FirestoreModel.Optional<F> => {
+  const node = Predicate.hasProperty(self, OptionalGroupTypeId) ? undefined : nodeOf(self, true);
+  return (node === undefined ? optionalField(self) : optionalNode(self, node)) as any;
+};

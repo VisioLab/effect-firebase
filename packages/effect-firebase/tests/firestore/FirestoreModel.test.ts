@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { DateTime, Effect, Exit, Layer, Schema } from "effect";
+import { Context, DateTime, Effect, Exit, Layer, Schema, SchemaGetter } from "effect";
 import type { VariantSchema } from "effect/schema";
 import * as Collection from "../../src/firestore/Collection.ts";
 import * as FieldValue from "../../src/firestore/FieldValue.ts";
@@ -1304,6 +1304,534 @@ describe("a geopoint field", () => {
       );
       expect(Object.keys(encoded)).toEqual(["location"]);
       expect(encoded.location).toBeInstanceOf(SdkGeoPoint);
+    }).pipe(Effect.provide(encoder)),
+  );
+});
+
+/** How a key is written, as a service a key schema takes. */
+interface Casing {
+  readonly encode: (key: string) => string;
+}
+const Casing = Context.Service<Casing>("Casing");
+
+/** A key written in upper case, read in lower case. */
+const Upper = Schema.String.pipe(
+  Schema.decodeTo(Schema.String, {
+    decode: SchemaGetter.transform((s: string) => s.toLowerCase()),
+    encode: SchemaGetter.transform((s: string) => s.toUpperCase()),
+  }),
+);
+
+describe("Record", () => {
+  const Member = FirestoreModel.Struct({
+    name: Schema.String,
+    badges: FirestoreModel.Array(Schema.String),
+  });
+
+  class Poll extends FirestoreModel.Class<Poll>("Poll")({
+    title: Schema.String,
+    votes: FirestoreModel.Record(Schema.String, FirestoreModel.Number(Schema.Int)),
+    tags: FirestoreModel.Record(Schema.String, FirestoreModel.Array(Schema.String)),
+    seenAt: FirestoreModel.Record(
+      Schema.String,
+      FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
+    ),
+    aliases: FirestoreModel.Record(Schema.String, Schema.String),
+    members: FirestoreModel.Record(Schema.String, Member),
+    scores: FirestoreModel.Record(
+      Schema.String,
+      FirestoreModel.Record(Schema.String, FirestoreModel.Number(Schema.Int)),
+    ),
+    profile: FirestoreModel.Struct({
+      links: FirestoreModel.Record(Schema.String, Schema.String),
+    }),
+  }) {}
+
+  /** A poll the way a snapshot hands it back. */
+  const snapshot = {
+    title: "lunch",
+    votes: { pizza: 2, sushi: 1 },
+    tags: { pizza: ["hot"] },
+    seenAt: { alice: new SdkTimestamp(1, 2) },
+    aliases: {},
+    members: { m1: { name: "alice", badges: [] } },
+    scores: { r1: { a: 1 } },
+    profile: { links: {} },
+  };
+
+  it.effect("decodes a snapshot with the value's read form", () =>
+    Effect.gen(function* () {
+      const poll = yield* Schema.decodeUnknownEffect(Poll)(snapshot as unknown);
+      expectTypeOf(poll.votes).toEqualTypeOf<{ readonly [x: string]: number }>();
+      expectTypeOf(poll.members).toEqualTypeOf<{
+        readonly [x: string]: { readonly name: string; readonly badges: ReadonlyArray<string> };
+      }>();
+      expect(poll.votes).toStrictEqual({ pizza: 2, sushi: 1 });
+      expect(Timestamp.isTimestamp(poll.seenAt.alice)).toBe(true);
+      expect(poll.scores).toStrictEqual({ r1: { a: 1 } });
+    }),
+  );
+
+  it.effect("creates a document with the value's create form, sentinels and all", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Poll.create)(
+        Poll.create.make({
+          title: "lunch",
+          votes: { pizza: FieldValue.increment(1) },
+          tags: {},
+          seenAt: { alice: FieldValue.serverTimestamp },
+          aliases: {},
+          members: {},
+          scores: {},
+          profile: { links: {} },
+        }),
+      );
+      expect(encoded.votes.pizza).toBeInstanceOf(SdkIncrement);
+      expect(encoded.seenAt.alice).toBeInstanceOf(SdkServerTimestamp);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it("refuses the removal of a key where a document is written whole", () => {
+    expect(() =>
+      Poll.create.make({
+        ...snapshot,
+        seenAt: {},
+        // @ts-expect-error `set` removes a key by leaving it out
+        aliases: { old: FieldValue.deleteField },
+      }),
+    ).toThrow();
+  });
+
+  it.effect.each(modes(Poll))("writes each key at its own path ($mode)", ({ update }) =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(update)(
+        update.make({
+          votes: { pizza: FieldValue.increment(1), sushi: 3 },
+          tags: { pizza: FieldValue.arrayUnion("cheesy"), sushi: FieldValue.arrayRemove("raw") },
+          seenAt: { alice: FieldValue.serverTimestamp, bob: Timestamp.makeUnsafe(1, 2) },
+        }),
+      );
+      expect(Object.keys(encoded).sort()).toEqual([
+        "seenAt.alice",
+        "seenAt.bob",
+        "tags.pizza",
+        "tags.sushi",
+        "votes.pizza",
+        "votes.sushi",
+      ]);
+      expect(encoded["votes.pizza"]).toBeInstanceOf(SdkIncrement);
+      expect(encoded["votes.sushi"]).toBe(3);
+      expect(encoded["tags.pizza"]).toStrictEqual(new SdkArrayUnion(["cheesy"]));
+      expect(encoded["tags.sushi"]).toStrictEqual(new SdkArrayRemove(["raw"]));
+      expect(encoded["seenAt.alice"]).toBeInstanceOf(SdkServerTimestamp);
+      expect(encoded["seenAt.bob"]).toBeInstanceOf(SdkTimestamp);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect.each(modes(Poll))("removes a single key ($mode)", ({ update }) =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(update)(
+        update.make({
+          aliases: { old: FieldValue.deleteField },
+          votes: { gone: FieldValue.deleteField },
+        }),
+      );
+      expect(Object.keys(encoded).sort()).toEqual(["aliases.old", "votes.gone"]);
+      expect(encoded["aliases.old"]).toBeInstanceOf(SdkDeleteField);
+      expect(encoded["votes.gone"]).toBeInstanceOf(SdkDeleteField);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect.each(modes(Poll))("writes a Record of Records at the full path ($mode)", ({ update }) =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(update)(
+        update.make({
+          scores: { r1: { a: FieldValue.increment(1) }, r2: FieldValue.deleteField },
+        }),
+      );
+      expect(Object.keys(encoded).sort()).toEqual(["scores.r1.a", "scores.r2"]);
+      expect(encoded["scores.r1.a"]).toBeInstanceOf(SdkIncrement);
+      expect(encoded["scores.r2"]).toBeInstanceOf(SdkDeleteField);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect.each(modes(Poll))(
+    "writes a Record inside a group at the full path ($mode)",
+    ({ update }) =>
+      Effect.gen(function* () {
+        const encoded = yield* Schema.encodeEffect(update)(
+          update.make({ profile: { links: { site: "https://example.com" } } }),
+        );
+        expect(encoded).toStrictEqual({ "profile.links.site": "https://example.com" });
+      }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect.each(modes(Poll))("replaces or removes a group at one key ($mode)", ({ update }) =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(update)(
+        update.make({
+          members: {
+            m1: Patch.replace({ name: "alice", badges: ["early"] }),
+            m2: FieldValue.deleteField,
+          },
+        }),
+      );
+      expect(Object.keys(encoded).sort()).toEqual(["members.m1", "members.m2"]);
+      expect(encoded["members.m1"]).toStrictEqual({ name: "alice", badges: ["early"] });
+      expect(encoded["members.m2"]).toBeInstanceOf(SdkDeleteField);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it("refuses a patch into a group at one key, which may be missing", () => {
+    expect(() =>
+      // @ts-expect-error a missing member would be created holding only `badges`
+      Poll.update.make({ members: { m1: { badges: FieldValue.arrayUnion("early") } } }),
+    ).toThrow();
+  });
+
+  it.effect("writes a patch into a group at one key at the full path where updated unchecked", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Poll.updateUnchecked)(
+        Poll.updateUnchecked.make({ members: { m1: { badges: FieldValue.arrayUnion("early") } } }),
+      );
+      expect(encoded).toStrictEqual({ "members.m1.badges": new SdkArrayUnion(["early"]) });
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect.each(modes(Poll))("writes a Record handed a replacement whole ($mode)", ({ update }) =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(update)(
+        update.make({ votes: Patch.replace({ pizza: 0 }), aliases: Patch.replace({}) }),
+      );
+      expect(encoded).toStrictEqual({ votes: { pizza: 0 }, aliases: {} });
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it("refuses the removal of a Record every document holds", () => {
+    expect(() =>
+      // @ts-expect-error only an optional Record is removed whole
+      Poll.update.make({ votes: FieldValue.deleteField }),
+    ).toThrow();
+  });
+
+  it.effect.each(["a.b", ""])("fails to encode a key no path can name (%j)", (key) =>
+    Effect.gen(function* () {
+      const exit = yield* Schema.encodeEffect(Poll.update)({ aliases: { [key]: "x" } }).pipe(
+        Effect.exit,
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      expect(String(exit)).toContain(`"${key}"`);
+      expect(String(exit)).toContain(`"aliases"`);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("fails to encode a key no path can name, at any depth", () =>
+    Effect.gen(function* () {
+      const exit = yield* Schema.encodeEffect(Poll.update)({ scores: { r1: { "a.b": 1 } } }).pipe(
+        Effect.exit,
+      );
+      expect(String(exit)).toContain(`"a.b" in "scores.r1"`);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("writes a key in its encoded form", () =>
+    Effect.gen(function* () {
+      class Lookup extends FirestoreModel.Class<Lookup>("Lookup")({
+        byCode: FirestoreModel.Record(Upper, Schema.String),
+      }) {}
+      const encoded = yield* Schema.encodeEffect(Lookup.update)({ byCode: { de: "Germany" } });
+      expect(encoded).toStrictEqual({ "byCode.DE": "Germany" });
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("writes each key of a Record of Records in its encoded form", () =>
+    Effect.gen(function* () {
+      class Grid extends FirestoreModel.Class<Grid>("Grid")({
+        cells: FirestoreModel.Record(Upper, FirestoreModel.Record(Upper, Schema.Finite)),
+      }) {}
+      const encoded = yield* Schema.encodeEffect(Grid.update)({ cells: { a: { b: 1 } } });
+      expect(encoded).toStrictEqual({ "cells.A.B": 1 });
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("refuses a key whose encoded form no path can name", () =>
+    Effect.gen(function* () {
+      class Lookup extends FirestoreModel.Class<Lookup>("Lookup")({
+        byCode: FirestoreModel.Record(
+          Schema.String.pipe(
+            Schema.decodeTo(Schema.String, {
+              decode: SchemaGetter.transform((s: string) => s.replace("_", ".")),
+              encode: SchemaGetter.transform((s: string) => s.replace("_", ".")),
+            }),
+          ),
+          Schema.String,
+        ),
+      }) {}
+      const exit = yield* Schema.encodeEffect(Lookup.update)({ byCode: { a_b: "x" } }).pipe(
+        Effect.exit,
+      );
+      expect(String(exit)).toContain(`Invalid Firestore field name "a.b" in "byCode"`);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("encodes a key with the services it takes", () =>
+    Effect.gen(function* () {
+      class Lookup extends FirestoreModel.Class<Lookup>("Lookup")({
+        byCode: FirestoreModel.Record(
+          Schema.String.pipe(
+            Schema.decodeTo(Schema.String, {
+              decode: SchemaGetter.passthrough(),
+              encode: SchemaGetter.transformEffect((s: string) =>
+                Effect.map(Effect.service(Casing), (casing) => casing.encode(s)),
+              ),
+            }),
+          ),
+          // A group holding a field written once, so the Record is never
+          // written whole, and no schema of it but its paths names the key.
+          FirestoreModel.Struct({
+            id: FirestoreModel.Immutable(Schema.String),
+            name: Schema.String,
+          }),
+        ),
+      }) {}
+      expectTypeOf<(typeof Lookup.update)["EncodingServices"]>().toEqualTypeOf<
+        FirestoreEncoder | Casing
+      >();
+      const encoded = yield* Schema.encodeEffect(Lookup.updateUnchecked)({
+        byCode: { de: { name: "Germany" } },
+      });
+      expect(encoded).toStrictEqual({ "byCode.DE.name": "Germany" });
+    }).pipe(
+      Effect.provide(encoder),
+      Effect.provideService(Casing, { encode: (s) => s.toUpperCase() }),
+    ),
+  );
+
+  it("takes a patch, a replacement, and a removal per key", () => {
+    type T = (typeof Poll.update)["Type"];
+    expectTypeOf<NonNullable<T["votes"]>>().toEqualTypeOf<
+      | { readonly [x: string]: number | FieldValue.Increment | FieldValue.DeleteField }
+      | Patch.Replace<{ readonly [x: string]: number | FieldValue.Increment }>
+    >();
+    type Members = Exclude<NonNullable<T["members"]>, Patch.Replace<any>>;
+    type Member = { readonly name: string; readonly badges: ReadonlyArray<string> };
+    expectTypeOf<Members>().toEqualTypeOf<{
+      readonly [x: string]: Patch.Replace<Member> | FieldValue.DeleteField;
+    }>();
+    type Unchecked = Exclude<
+      NonNullable<(typeof Poll.updateUnchecked)["Type"]["members"]>,
+      Patch.Replace<any>
+    >[string];
+    expectTypeOf<Exclude<Unchecked, Patch.Replace<any> | FieldValue.DeleteField>>().toEqualTypeOf<{
+      readonly name?: string;
+      readonly badges?:
+        | ReadonlyArray<string>
+        | FieldValue.ArrayUnion<string>
+        | FieldValue.ArrayRemove<string>;
+    }>();
+  });
+
+  it("names a pattern for its paths in its encoded type", () => {
+    type E = (typeof Poll.update)["Encoded"];
+    expectTypeOf<"votes.pizza">().toExtend<keyof E>();
+    expectTypeOf<`votes.${string}`>().toExtend<keyof E>();
+    expectTypeOf<`members.${string}`>().toExtend<keyof E>();
+    expectTypeOf<`profile.links.${string}`>().toExtend<keyof E>();
+    expectTypeOf<"votes">().toExtend<keyof E>();
+  });
+});
+
+describe("a Record keyed by literals", () => {
+  class Survey extends FirestoreModel.Class<Survey>("Survey")({
+    counts: FirestoreModel.Record(
+      Schema.Literals(["yes", "no"]),
+      FirestoreModel.Number(Schema.Int),
+    ),
+    notes: FirestoreModel.Record(
+      Schema.Literals(["yes", "no"]),
+      FirestoreModel.Optional(Schema.String),
+    ),
+  }) {}
+
+  it.effect("holds every key where read", () =>
+    Effect.gen(function* () {
+      expectTypeOf<(typeof Survey)["Type"]["counts"]>().toEqualTypeOf<{
+        readonly yes: number;
+        readonly no: number;
+      }>();
+      const exit = yield* Schema.decodeUnknownEffect(Survey)({
+        counts: { yes: 1 },
+        notes: {},
+      } as unknown).pipe(Effect.exit);
+      expect(Exit.isFailure(exit)).toBe(true);
+    }),
+  );
+
+  it("names each path in its encoded type", () => {
+    expectTypeOf<keyof (typeof Survey.update)["Encoded"]>().toEqualTypeOf<
+      "counts" | "counts.yes" | "counts.no" | "notes" | "notes.yes" | "notes.no"
+    >();
+  });
+
+  it.effect("writes a key in its encoded form", () =>
+    Effect.gen(function* () {
+      class Ballot extends FirestoreModel.Class<Ballot>("Ballot")({
+        answers: FirestoreModel.Record(
+          Schema.Literals(["Y", "N"]).pipe(
+            Schema.decodeTo(Schema.Literals(["yes", "no"]), {
+              decode: SchemaGetter.transform((s) => (s === "Y" ? "yes" : "no")),
+              encode: SchemaGetter.transform((s) => (s === "yes" ? "Y" : "N")),
+            }),
+          ),
+          FirestoreModel.Number(Schema.Int),
+        ),
+      }) {}
+      expectTypeOf<keyof (typeof Ballot.update)["Encoded"]>().toEqualTypeOf<
+        "answers" | "answers.Y" | "answers.N"
+      >();
+      const encoded = yield* Schema.encodeEffect(Ballot.update)({
+        answers: { yes: FieldValue.increment(1) },
+      });
+      expect(Object.keys(encoded)).toEqual(["answers.Y"]);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("refuses a key whose encoded form no path can name", () =>
+    Effect.gen(function* () {
+      class Ballot extends FirestoreModel.Class<Ballot>("Ballot")({
+        answers: FirestoreModel.Record(
+          Schema.Literals(["a.b"]).pipe(
+            Schema.decodeTo(Schema.Literals(["yes"]), {
+              decode: SchemaGetter.transform(() => "yes" as const),
+              encode: SchemaGetter.transform(() => "a.b" as const),
+            }),
+          ),
+          FirestoreModel.Number(Schema.Int),
+        ),
+      }) {}
+      const exit = yield* Schema.encodeEffect(Ballot.update)({
+        answers: { yes: FieldValue.increment(1) },
+      }).pipe(Effect.exit);
+      expect(String(exit)).toContain(`Invalid Firestore field name "a.b" in "answers"`);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect.each(modes(Survey))("writes each key at its own path ($mode)", ({ update }) =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(update)(
+        update.make({
+          counts: { yes: FieldValue.increment(1) },
+          notes: { no: FieldValue.deleteField },
+        }),
+      );
+      expect(Object.keys(encoded).sort()).toEqual(["counts.yes", "notes.no"]);
+      expect(encoded["counts.yes"]).toBeInstanceOf(SdkIncrement);
+      expect(encoded["notes.no"]).toBeInstanceOf(SdkDeleteField);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.each(["", "a.b"])("refuses a literal no path can name (%j)", (literal) => {
+    expect(() => FirestoreModel.Record(Schema.Literals([literal, "b"]), Schema.String)).toThrow(
+      /Invalid Firestore field name/,
+    );
+  });
+
+  it("refuses the removal of a key every document holds", () => {
+    expect(() =>
+      // @ts-expect-error `yes` is a key every survey holds
+      Survey.update.make({ counts: { yes: FieldValue.deleteField } }),
+    ).toThrow();
+  });
+});
+
+describe("a Record a document may go without", () => {
+  class Tally extends FirestoreModel.Class<Tally>("Tally")({
+    votes: FirestoreModel.Optional(
+      FirestoreModel.Record(Schema.String, FirestoreModel.Number(Schema.Int)),
+    ),
+    counts: FirestoreModel.Optional(
+      FirestoreModel.Record(Schema.Literals(["yes", "no"]), FirestoreModel.Number(Schema.Int)),
+    ),
+  }) {}
+
+  it.effect("is an optional key where it is read and created", () =>
+    Effect.gen(function* () {
+      expectTypeOf<(typeof Tally)["Type"]["votes"]>().toEqualTypeOf<
+        { readonly [x: string]: number } | undefined
+      >();
+      const tally = yield* Schema.decodeUnknownEffect(Tally)({} as unknown);
+      expect("votes" in tally).toBe(false);
+      const encoded = yield* Schema.encodeEffect(Tally.create)(Tally.create.make({}));
+      expect(encoded).toStrictEqual({});
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect.each(modes(Tally))("removes the whole Record ($mode)", ({ update }) =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(update)(
+        update.make({ votes: FieldValue.deleteField, counts: FieldValue.deleteField }),
+      );
+      expect(Object.keys(encoded).sort()).toEqual(["counts", "votes"]);
+      expect(encoded.votes).toBeInstanceOf(SdkDeleteField);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect.each(modes(Tally))(
+    "is patched key by key where its keys come from the data, since any of them may be missing ($mode)",
+    ({ update }) =>
+      Effect.gen(function* () {
+        const encoded = yield* Schema.encodeEffect(update)(
+          update.make({ votes: { pizza: FieldValue.increment(1) } }),
+        );
+        expect(Object.keys(encoded)).toEqual(["votes.pizza"]);
+      }).pipe(Effect.provide(encoder)),
+  );
+
+  it("is not patched where its keys are literals, which a missing Record would lack", () => {
+    expect(() =>
+      // @ts-expect-error a missing Record would be created holding only `yes`
+      Tally.update.make({ counts: { yes: 1 } }),
+    ).toThrow();
+    expect(Tally.updateUnchecked.make({ counts: { yes: 1 } })).toStrictEqual({
+      counts: { yes: 1 },
+    });
+  });
+
+  it("takes the removal at its own path in its encoded type", () => {
+    expectTypeOf<(typeof Tally.update)["Encoded"]["votes"]>().toEqualTypeOf<unknown>();
+    expectTypeOf<"votes">().toExtend<keyof (typeof Tally.update)["Encoded"]>();
+  });
+});
+
+describe("a Record of a value no update writes", () => {
+  class Archive extends FirestoreModel.Class<Archive>("Archive")({
+    name: Schema.String,
+    frozen: FirestoreModel.Record(Schema.String, FirestoreModel.Immutable(Schema.String)),
+  }) {}
+
+  it("is left out of the update", () => {
+    expectTypeOf<keyof (typeof Archive.update)["Type"]>().toEqualTypeOf<"name">();
+    expect(Object.keys(Archive.update.from.fields)).toEqual(["name"]);
+  });
+
+  it("is left out at any depth", () => {
+    class Nested extends FirestoreModel.Class<Nested>("Nested")({
+      name: Schema.String,
+      frozen: FirestoreModel.Record(
+        Schema.String,
+        FirestoreModel.Record(Schema.String, FirestoreModel.Immutable(Schema.String)),
+      ),
+    }) {}
+    expectTypeOf<keyof (typeof Nested.update)["Type"]>().toEqualTypeOf<"name">();
+    expect(Object.keys(Nested.update.from.fields)).toEqual(["name"]);
+  });
+
+  it.effect("is still read and created", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Archive.create)(
+        Archive.create.make({ name: "a", frozen: { k: "v" } }),
+      );
+      expect(encoded).toStrictEqual({ name: "a", frozen: { k: "v" } });
     }).pipe(Effect.provide(encoder)),
   );
 });
