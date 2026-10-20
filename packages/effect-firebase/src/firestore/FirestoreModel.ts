@@ -138,8 +138,6 @@ export type Any = Schema.Top & {
   readonly updateUnchecked: Schema.Top;
 };
 
-const OptionalTypeId = firestoreModel.OptionalTypeId;
-
 const RecordTypeId = firestoreModel.RecordTypeId;
 
 /**
@@ -211,12 +209,17 @@ type RecordSchema<K extends Schema.Record.Key, S extends Schema.Top> = Schema.$R
   IsOpen<K> extends true ? WithoutOptionalKey<S> : S
 >;
 
+/** Any field made {@link Optional}, whatever it holds. */
+type AnyOptional = { readonly "~optionality": "optional"; readonly field: Value };
+
+/** Whether a field was made {@link Optional}. */
+type IsOptional<F> = F extends AnyOptional ? true : false;
+
+/** What a field was made {@link Optional} of, or the field itself where it was not. */
+type Unwrap<F> = F extends AnyOptional ? F["field"] : F;
+
 /** The key and the value of a Record a field is, or `never` where it is none. */
-type RecordOf<F> = F extends { readonly [OptionalTypeId]: VariantSchema.Struct<any> }
-  ? never
-  : F extends { readonly [OptionalTypeId]: infer R }
-    ? RecordParts<R>
-    : RecordParts<F>;
+type RecordOf<F> = RecordParts<Unwrap<F>>;
 
 /** The key and the value a Record field carries, or `never` where it is none. */
 type RecordParts<F> = F extends {
@@ -229,12 +232,8 @@ type RecordParts<F> = F extends {
   : never;
 
 /** Whether `V` is something an update reaches into: a struct or a Record. */
-type IsNode<V> = V extends
-  | VariantSchema.Struct<any>
-  | { readonly [OptionalTypeId]: any }
-  | { readonly [RecordTypeId]: any }
-  ? true
-  : false;
+type IsNode<V> =
+  Unwrap<V> extends VariantSchema.Struct<any> | { readonly [RecordTypeId]: any } ? true : false;
 
 /** Whether an update writes anything into a Record of `V`, at any depth. */
 type IsWritable<V extends Value> = [RecordOf<V>] extends [never]
@@ -255,13 +254,11 @@ type KnownFields<Keys, V extends Value> = {
 
 /** What a key of a Record only the data names takes, which may be missing. */
 type EntryUpdate<V extends Value, Mode extends UpdateMode> =
-  V extends VariantSchema.Struct<infer G>
+  Unwrap<V> extends VariantSchema.Struct<infer G>
     ? StructTakes<G, true, Mode>
-    : V extends { readonly [OptionalTypeId]: VariantSchema.Struct<infer G> }
-      ? StructTakes<G, true, Mode>
-      : [RecordOf<V>] extends [never]
-        ? FirestoreSchema.DeleteFieldOr<WithoutOptionalKey<UpdateSchema<V>>>
-        : RecordTakes<RecordOf<V>["key"], RecordOf<V>["value"], true, Mode>;
+    : [RecordOf<V>] extends [never]
+      ? FirestoreSchema.DeleteFieldOr<WithoutOptionalKey<UpdateSchema<V>>>
+      : RecordTakes<RecordOf<V>["key"], RecordOf<V>["value"], true, Mode>;
 
 /** The patch of a Record: key by key. */
 type RecordPatch<K extends Schema.Record.Key, V extends Value, Mode extends UpdateMode> =
@@ -307,10 +304,11 @@ type EntryPaths<V extends Value, Mode extends UpdateMode> = WithoutOptionalKey<
 >;
 
 /** `V` as a key of a Record only the data names, which may be missing. */
-type AsEntry<V extends Value> = V extends { readonly [OptionalTypeId]: any }
-  ? V
-  : IsNode<V> extends true
-    ? Optional<V>
+type AsEntry<V extends Value> =
+  IsNode<V> extends true
+    ? V extends AnyOptional
+      ? V
+      : Optional<V>
     : VariantSchema.Field<{
         readonly update: FirestoreSchema.DeleteFieldOr<WithoutOptionalKey<UpdateSchema<V>>>;
       }>;
@@ -340,6 +338,25 @@ type RecordPaths<
           ? { readonly [_ in `${Path}.${string}`]: EntryPaths<V, Mode> }
           : UpdatePaths<KnownFields<K["Encoded"], V>, Mode, `${Path}.`>);
 
+/** The paths a struct at `Path` is written at. */
+type StructPaths<
+  Fields extends VariantSchema.Struct.Fields,
+  Optional extends boolean,
+  Mode extends UpdateMode,
+  Path extends string,
+> = (Optional extends true
+  ? {
+      readonly [_ in Path]: Schema.optionalKey<
+        IsReplaceable<Fields> extends true
+          ? FirestoreSchema.DeleteFieldOr<WholeStruct<Fields>>
+          : FirestoreSchema.DeleteField
+      >;
+    }
+  : IsReplaceable<Fields> extends true
+    ? { readonly [_ in Path]: Schema.optionalKey<WholeStruct<Fields>> }
+    : {}) &
+  UpdatePaths<Fields, Mode, `${Path}.`>;
+
 /**
  * Which patches an update takes.
  *
@@ -362,12 +379,7 @@ type RecordPaths<
 export type UpdateMode = "checked" | "unchecked";
 
 /** The fields of the struct a field reaches into, or `never` if it is none. */
-type StructOf<F> =
-  F extends VariantSchema.Struct<infer G>
-    ? G
-    : F extends { readonly [OptionalTypeId]: VariantSchema.Struct<infer G> }
-      ? G
-      : never;
+type StructOf<F> = Unwrap<F> extends VariantSchema.Struct<infer G> ? G : never;
 
 /**
  * Whether a struct may be written whole by an update: only where every field it
@@ -459,17 +471,13 @@ export type UpdateFields<
 
 /** What a field takes in an update in `Mode`, or `never` where it takes nothing. */
 type FieldUpdate<F, Mode extends UpdateMode> =
-  F extends VariantSchema.Struct<infer G>
-    ? StructUpdate<G, false, Mode>
-    : F extends { readonly [OptionalTypeId]: infer N }
-      ? N extends VariantSchema.Struct<infer G>
-        ? StructUpdate<G, true, Mode>
-        : RecordUpdate<RecordParts<N>, true, Mode>
-      : F extends { readonly [RecordTypeId]: any }
-        ? RecordUpdate<RecordParts<F>, false, Mode>
-        : [UpdateSchema<F>] extends [never]
-          ? never
-          : Schema.optionalKey<UpdateSchema<F>>;
+  Unwrap<F> extends VariantSchema.Struct<infer G>
+    ? StructUpdate<G, IsOptional<F>, Mode>
+    : [RecordOf<F>] extends [never]
+      ? [UpdateSchema<F>] extends [never]
+        ? never
+        : Schema.optionalKey<UpdateSchema<F>>
+      : RecordUpdate<RecordOf<F>, IsOptional<F>, Mode>;
 
 /**
  * The services the key of each Record an update writes into takes to encode,
@@ -481,15 +489,13 @@ type KeyServices<Fields extends VariantSchema.Struct.Fields> = {
 
 /** The services the keys of the Records a field holds take to encode. */
 type FieldKeyServices<F> =
-  F extends VariantSchema.Struct<infer G>
+  Unwrap<F> extends VariantSchema.Struct<infer G>
     ? KeyServices<G>
-    : F extends { readonly [OptionalTypeId]: VariantSchema.Struct<infer G> }
-      ? KeyServices<G>
-      : [RecordOf<F>] extends [never]
-        ? never
-        : IsWritable<RecordOf<F>["value"]> extends true
-          ? RecordOf<F>["key"]["EncodingServices"] | FieldKeyServices<RecordOf<F>["value"]>
-          : never;
+    : [RecordOf<F>] extends [never]
+      ? never
+      : IsWritable<RecordOf<F>["value"]> extends true
+        ? RecordOf<F>["key"]["EncodingServices"] | FieldKeyServices<RecordOf<F>["value"]>
+        : never;
 
 /** What a Record takes as a field of the struct it sits in. */
 type RecordUpdate<
@@ -524,30 +530,19 @@ export type UpdatePaths<
 > = Struct_.Simplify<
   UnionToIntersection<
     {
-      [K in keyof Fields & string]: Fields[K] extends VariantSchema.Struct<infer G>
-        ? (IsReplaceable<G> extends true
-            ? { readonly [_ in `${Prefix}${K}`]: Schema.optionalKey<WholeStruct<G>> }
-            : {}) &
-            UpdatePaths<G, Mode, `${Prefix}${K}.`>
-        : Fields[K] extends { readonly [OptionalTypeId]: VariantSchema.Struct<infer G> }
-          ? {
-              readonly [_ in `${Prefix}${K}`]: Schema.optionalKey<
-                IsReplaceable<G> extends true
-                  ? FirestoreSchema.DeleteFieldOr<WholeStruct<G>>
-                  : FirestoreSchema.DeleteField
-              >;
-            } & UpdatePaths<G, Mode, `${Prefix}${K}.`>
-          : [RecordOf<Fields[K]>] extends [never]
-            ? [UpdateSchema<Fields[K]>] extends [never]
-              ? {}
-              : { readonly [_ in `${Prefix}${K}`]: Schema.optionalKey<UpdateSchema<Fields[K]>> }
-            : RecordPaths<
-                RecordOf<Fields[K]>["key"],
-                RecordOf<Fields[K]>["value"],
-                Fields[K] extends { readonly [OptionalTypeId]: any } ? true : false,
-                Mode,
-                `${Prefix}${K}`
-              >;
+      [K in keyof Fields & string]: Unwrap<Fields[K]> extends VariantSchema.Struct<infer G>
+        ? StructPaths<G, IsOptional<Fields[K]>, Mode, `${Prefix}${K}`>
+        : [RecordOf<Fields[K]>] extends [never]
+          ? [UpdateSchema<Fields[K]>] extends [never]
+            ? {}
+            : { readonly [_ in `${Prefix}${K}`]: Schema.optionalKey<UpdateSchema<Fields[K]>> }
+          : RecordPaths<
+              RecordOf<Fields[K]>["key"],
+              RecordOf<Fields[K]>["value"],
+              IsOptional<Fields[K]>,
+              Mode,
+              `${Prefix}${K}`
+            >;
     }[keyof Fields & string]
   > & {}
 >;
@@ -947,74 +942,57 @@ export const Record: <K extends Schema.Record.Key, V extends Value>(
 /** Any {@link Record}, whatever it holds. */
 type AnyRecord = VariantSchema.Field<any> & { readonly [RecordTypeId]: any };
 
-/**
- * Type-level representation of {@link Optional}, made of a {@link Record}.
- *
- * @stability unstable
- * @category models
- * @since 0.2.0
- */
-export interface OptionalRecord<in out R extends AnyRecord> extends VariantSchema.Field<
-  IsWritable<RecordOf<R>["value"]> extends true
-    ? {
-        readonly read: Schema.optionalKey<R["schemas"]["read"]>;
-        readonly create: Schema.optionalKey<R["schemas"]["create"]>;
-        readonly update: Schema.optionalKey<
-          RecordTakes<RecordOf<R>["key"], RecordOf<R>["value"], true, "unchecked">
-        >;
-      }
-    : {
-        readonly read: Schema.optionalKey<R["schemas"]["read"]>;
-        readonly create: Schema.optionalKey<R["schemas"]["create"]>;
-      }
-> {
-  readonly [OptionalTypeId]: R;
-}
-
-/**
- * Type-level representation of {@link Optional}, made of a struct.
- *
- * It carries the struct it was made of, which is what an update reaches into.
- *
- * @stability unstable
- * @category models
- * @since 0.2.0
- */
-export interface OptionalStruct<G extends VariantSchema.Struct<any>> extends VariantSchema.Field<{
-  readonly read: Schema.optionalKey<VariantSchema.Extract<"read", G>>;
-  readonly create: Schema.optionalKey<VariantSchema.Extract<"create", G>>;
-  readonly update: StructUpdate<G[typeof VariantSchema.TypeId], true, "unchecked">;
-}> {
-  readonly [OptionalTypeId]: G;
-}
-
-/**
- * Type-level representation of {@link Optional}.
- *
- * @stability unstable
- * @category models
- * @since 0.2.0
- */
-export type Optional<F extends Value> =
+/** The variants of `F` made {@link Optional}. */
+type OptionalSchemas<F extends Value> =
   F extends VariantSchema.Struct<any>
-    ? OptionalStruct<F>
+    ? {
+        readonly read: Schema.optionalKey<VariantSchema.Extract<"read", F>>;
+        readonly create: Schema.optionalKey<VariantSchema.Extract<"create", F>>;
+        readonly update: StructUpdate<F[typeof VariantSchema.TypeId], true, "unchecked">;
+      }
     : F extends AnyRecord
-      ? OptionalRecord<F>
+      ? IsWritable<RecordOf<F>["value"]> extends true
+        ? {
+            readonly read: Schema.optionalKey<F["schemas"]["read"]>;
+            readonly create: Schema.optionalKey<F["schemas"]["create"]>;
+            readonly update: Schema.optionalKey<
+              RecordTakes<RecordOf<F>["key"], RecordOf<F>["value"], true, "unchecked">
+            >;
+          }
+        : {
+            readonly read: Schema.optionalKey<F["schemas"]["read"]>;
+            readonly create: Schema.optionalKey<F["schemas"]["create"]>;
+          }
       : F extends Schema.Top
-        ? VariantSchema.Field<{
+        ? {
             readonly read: Schema.optionalKey<F>;
             readonly create: Schema.optionalKey<F>;
             readonly update: Schema.optionalKey<FirestoreSchema.DeleteFieldOr<F>>;
-          }>
+          }
         : F extends VariantSchema.Field<infer S>
-          ? VariantSchema.Field<{
+          ? {
               readonly [K in keyof S]: S[K] extends Schema.Top
                 ? K extends "update"
                   ? Schema.optionalKey<FirestoreSchema.DeleteFieldOr<S[K]>>
                   : Schema.optionalKey<S[K]>
                 : never;
-            }>
+            }
           : never;
+
+/**
+ * Type-level representation of {@link Optional}.
+ *
+ * It carries the field it was made of as `field`, which is what an update
+ * reaches into where that is a struct or a {@link Record}.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface Optional<in out F extends Value> extends VariantSchema.Field<OptionalSchemas<F>> {
+  readonly "~optionality": "optional";
+  readonly field: F;
+}
 
 /**
  * A field a document may go without, and an update may take away.
@@ -1045,6 +1023,9 @@ export type Optional<F extends Value> =
  * A field with no `update` variant - {@link Immutable}, say - is made optional
  * where it is read and created, and stays out of the update as before.
  *
+ * A field made optional already is handed back as it is, so making it optional
+ * twice is the same as once.
+ *
  * Inside a struct, an optional field is removed the same way as at the top,
  * since an update writes a struct at its paths - see {@link Update}.
  *
@@ -1074,4 +1055,5 @@ export type Optional<F extends Value> =
  * @category schemas
  * @since 0.2.0
  */
-export const Optional: <F extends Value>(self: F) => Optional<F> = firestoreModel.Optional;
+export const Optional: <F extends Value>(self: F) => F extends AnyOptional ? F : Optional<F> =
+  firestoreModel.Optional;
