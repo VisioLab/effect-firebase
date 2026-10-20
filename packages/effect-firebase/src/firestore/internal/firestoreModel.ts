@@ -6,6 +6,8 @@ import {
   SchemaGetter,
   SchemaIssue,
   SchemaParser,
+  SchemaTransformation,
+  Struct as Struct_,
 } from "effect";
 import { VariantSchema } from "effect/schema";
 import type * as FirestoreModel from "../FirestoreModel.ts";
@@ -59,7 +61,7 @@ export const RecordTypeId = "~@visiolab/effect-firebase/firestore/FirestoreModel
  */
 interface Shape {
   readonly fields: { readonly [key: string]: Shape };
-  readonly rest: Rest<Shape | undefined> | undefined;
+  readonly rest: { readonly value: Shape | undefined } | undefined;
 }
 
 /** The keys of a Record that only the data names, and what each of them holds. */
@@ -68,49 +70,130 @@ interface Rest<A> {
   readonly value: A;
 }
 
+/** A key known up front, as an update is written with it and as Firestore holds it. */
+interface Name {
+  readonly decoded: string;
+  readonly encoded: string;
+}
+
 /**
- * A path an update writes at, one segment per key, with `undefined` where the
- * key is one only the data names.
+ * A path an update writes at, one segment per key, with the schema of the key
+ * where it is one only the data names.
  */
-type Path = ReadonlyArray<string | undefined>;
+type Path = ReadonlyArray<Name | Schema.Top>;
 
 /**
  * The schemas an update writes at: by path where every key on it is known, and
- * by the pattern of the paths otherwise.
+ * by the pattern of the paths otherwise. A known path Firestore holds under
+ * another name is renamed to it, once its value is encoded.
  */
 interface Paths {
   readonly known: Record<string, Schema.Top>;
+  readonly renamed: Record<string, string>;
   readonly patterns: Array<Schema.Top>;
 }
+
+/** The reason a key is not one a path can name on its own, if it is not. */
+const unaddressable = (key: string): string | undefined =>
+  key === "" ? "must not be empty" : key.includes(".") ? 'must not contain "."' : undefined;
 
 /** A key a path names on its own, which is a non-empty one holding no dot. */
 const Segment = Schema.String.check(Schema.isPattern(/^[^.]+$/));
 
-const addPath = (paths: Paths, path: Path, schema: Schema.Top): void => {
-  if (path.every((segment) => segment !== undefined)) {
-    paths.known[path.join(".")] = Schema.optionalKey(schema);
-    return;
-  }
-  const parts: Array<string | Schema.Top> = [];
+/** Where a path sits, with `*` for each key only the data names. */
+const where = (path: Path): string =>
+  path.map((segment) => (Schema.isSchema(segment) ? "*" : segment.decoded)).join(".");
+
+/**
+ * The parts of the template literal a path matches: the names along it, joined
+ * by dots, and `key` for each key only the data names.
+ */
+const template = <A>(
+  path: Path,
+  name: (name: Name) => string,
+  key: (schema: Schema.Top, i: number) => A,
+): Array<string | A> => {
+  const parts: Array<string | A> = [];
   let literal = "";
   path.forEach((segment, i) => {
     if (i > 0) {
       literal += ".";
     }
-    if (segment === undefined) {
+    if (Schema.isSchema(segment)) {
       if (literal !== "") {
         parts.push(literal);
       }
-      parts.push(Segment);
+      parts.push(key(segment, i));
       literal = "";
     } else {
-      literal += segment;
+      literal += name(segment);
     }
   });
   if (literal !== "") {
     parts.push(literal);
   }
-  paths.patterns.push(Schema.Record(Schema.TemplateLiteral(parts as any), schema));
+  return parts;
+};
+
+/**
+ * The key of a pattern of paths, as an update is written with it and as
+ * Firestore holds it: each key only the data names is encoded by its own
+ * schema, and refused where its encoded form is one no path can name.
+ */
+const PathKey = (path: Path): Schema.Top => {
+  const encoded = template(
+    path,
+    (name) => name.encoded,
+    (key, i) =>
+      Schema.String.check(
+        Schema.makeFilter((segment: string) => {
+          const reason = unaddressable(segment);
+          return reason === undefined
+            ? undefined
+            : `Invalid Firestore field name "${segment}" in "${where(path.slice(0, i))}": it ${reason}`;
+        }),
+      ).pipe(Schema.decodeTo(key as Schema.Codec<unknown, string>)),
+  );
+  const decoded = template(
+    path,
+    (name) => name.decoded,
+    () => Segment,
+  );
+  const parser = Schema.TemplateLiteralParser(encoded as any) as unknown as Schema.Codec<
+    ReadonlyArray<unknown>,
+    string
+  >;
+  return parser.pipe(
+    Schema.decodeTo(Schema.TemplateLiteral(decoded as any) as Schema.Codec<string, string>, {
+      decode: SchemaGetter.transform((parts) =>
+        parts.map((part, j) => (typeof encoded[j] === "string" ? decoded[j] : part)).join(""),
+      ),
+      // A key a path names holds no dot, so splitting the path at each one
+      // gives back its keys.
+      encode: SchemaGetter.transform((key) => {
+        const segments = key.split(".");
+        return template(
+          path,
+          (name) => name.encoded,
+          (_, i) => segments[i],
+        );
+      }),
+    }),
+  );
+};
+
+const addPath = (paths: Paths, path: Path, schema: Schema.Top): void => {
+  const names = path.filter((segment): segment is Name => !Schema.isSchema(segment));
+  if (names.length === path.length) {
+    const decoded = names.map((name) => name.decoded).join(".");
+    const encoded = names.map((name) => name.encoded).join(".");
+    paths.known[decoded] = Schema.optionalKey(schema);
+    if (encoded !== decoded) {
+      paths.renamed[decoded] = encoded;
+    }
+    return;
+  }
+  paths.patterns.push(Schema.Record(PathKey(path) as Schema.Record.Key, schema));
 };
 
 const variantSchema = (
@@ -172,25 +255,30 @@ const withoutOptionalKey = (schema: Schema.Top): Schema.Top => {
   );
 };
 
-/** The keys a Record key schema names up front, and whether the data names more. */
-const recordKeys = (key: Schema.Top): { readonly known: Array<string>; readonly rest: boolean } => {
+/**
+ * The keys a Record key schema names up front, and whether the data names
+ * more. Each key known up front is encoded here, once, for the path Firestore
+ * holds it at.
+ */
+const recordKeys = (key: Schema.Top): { readonly known: Array<Name>; readonly rest: boolean } => {
   const ast = Schema.Record(key as Schema.Record.Key, Schema.Unknown).ast;
   const known = ast.propertySignatures.map(({ name }) => {
-    if (typeof name === "symbol") {
-      throw new Error(`Invalid Firestore field name ${String(name)}: it must be a string`);
+    const encoded = SchemaParser.encodeUnknownSync(key as Schema.Codec<unknown, unknown>)(name);
+    for (const segment of [name, encoded]) {
+      if (typeof segment !== "string") {
+        throw new Error(`Invalid Firestore field name ${String(segment)}: it must be a string`);
+      }
+      const reason = unaddressable(segment);
+      if (reason !== undefined) {
+        throw new Error(`Invalid Firestore field name "${segment}": it ${reason}`);
+      }
     }
-    const segment = String(name);
-    if (segment === "" || segment.includes(".")) {
-      throw new Error(
-        `Invalid Firestore field name "${segment}": it must not be empty or contain "."`,
-      );
-    }
-    return segment;
+    return { decoded: name as string, encoded: encoded as string };
   });
   const rest = ast.indexSignatures.length > 0;
   if (rest && known.length > 0) {
     throw new Error(
-      `Invalid Record key: it names ${known.map((k) => `"${k}"`).join(", ")} besides keys only the data names, which an update cannot tell apart`,
+      `Invalid Record key: it names ${known.map((k) => `"${k.decoded}"`).join(", ")} besides keys only the data names, which an update cannot tell apart`,
     );
   }
   return { known, rest };
@@ -202,6 +290,8 @@ const recordKeys = (key: Schema.Top): { readonly known: Array<string>; readonly 
  */
 interface Node {
   readonly fields: VariantSchema.Struct.Fields;
+  /** The name Firestore holds a field at, where it differs from its own. */
+  readonly names: Record<string, string>;
   readonly rest: Rest<unknown> | undefined;
   /** The whole node, as `set` writes it. */
   readonly create: () => Schema.Top;
@@ -219,7 +309,10 @@ const recordNode = (
 ): Node => {
   const keys = recordKeys(key);
   return {
-    fields: Object.fromEntries(keys.known.map((k) => [k, value])) as VariantSchema.Struct.Fields,
+    fields: Object.fromEntries(
+      keys.known.map((k) => [k.decoded, value]),
+    ) as VariantSchema.Struct.Fields,
+    names: Object.fromEntries(keys.known.map((k) => [k.decoded, k.encoded])),
     rest: keys.rest ? { key, value } : undefined,
     create,
     optional,
@@ -240,6 +333,7 @@ const nodeOf = (field: unknown, optional = false): Node | undefined => {
   if (VariantSchema.isStruct(field)) {
     return {
       fields: VariantSchema.fields(field),
+      names: {},
       rest: undefined,
       create: () => extract(field, "create") as Schema.Top,
       optional,
@@ -321,6 +415,7 @@ const build = (
   path: Path,
   paths: Paths,
   mode: FirestoreModel.UpdateMode,
+  names: Record<string, string> = {},
 ): { readonly patch: Schema.Top; readonly shape: Shape } => {
   const schemas: Record<string, Schema.Top> = {};
   const shapes: Record<string, Shape> = {};
@@ -329,10 +424,11 @@ const build = (
       throw new Error(`Invalid Firestore field name "${key}": it must not contain "."`);
     }
     const field = fields[key];
+    const at = [...path, { decoded: key, encoded: names[key] ?? key }];
     const node = nodeOf(field);
     if (node !== undefined) {
       if (node.writable) {
-        const built = buildNode(node, [...path, key], paths, mode);
+        const built = buildNode(node, at, paths, mode);
         schemas[key] = Schema.optionalKey(built.schema);
         shapes[key] = built.shape;
       }
@@ -341,7 +437,7 @@ const build = (
       if (update !== undefined) {
         const schema = withoutConstructorDefault(update);
         schemas[key] = Schema.optionalKey(schema);
-        addPath(paths, [...path, key], schema);
+        addPath(paths, at, schema);
       }
     }
   }
@@ -367,7 +463,7 @@ const buildNode = (
 ): { readonly schema: Schema.Top; readonly shape: Shape } => {
   const inner =
     node.rest === undefined
-      ? build(node.fields, path, paths, mode)
+      ? build(node.fields, path, paths, mode, node.names)
       : buildRest(node.rest, path, paths, mode);
   const create = isNodeReplaceable(node) ? node.create() : undefined;
   const takes: Array<Schema.Top> = [];
@@ -401,7 +497,7 @@ const buildRest = (
   paths: Paths,
   mode: FirestoreModel.UpdateMode,
 ): { readonly patch: Schema.Top; readonly shape: Shape } => {
-  const entryPath = [...path, undefined];
+  const entryPath = [...path, rest.key];
   const node = nodeOf(rest.value, true);
   let entry: Schema.Top;
   let shape: Shape | undefined;
@@ -417,22 +513,9 @@ const buildRest = (
   }
   return {
     patch: Schema.Record(Schema.toType(rest.key) as Schema.Record.Key, entry),
-    shape: { fields: {}, rest: { key: rest.key, value: shape } },
+    shape: { fields: {}, rest: { value: shape } },
   };
 };
-
-/** The issue of a key no path can name. */
-const unaddressable = (
-  key: string,
-  path: string,
-  reason: string,
-  options: SchemaAST.ParseOptions,
-): SchemaIssue.Issue =>
-  new SchemaIssue.InvalidValue(
-    { message: `Invalid Firestore field name "${key}" in "${path}": it ${reason}` },
-    key,
-    options,
-  );
 
 /**
  * Goes one level down where the shape says a group or a Record sits, unless it
@@ -440,8 +523,9 @@ const unaddressable = (
  * before anything is encoded, so the removal and the replacement are still
  * this library's to recognise.
  *
- * A replacement is written whole, as the group it holds. A key of a Record is
- * written in its encoded form, and fails where no path could name it.
+ * A replacement is written whole, as the group it holds. A key of a Record
+ * fails where no path could name it; the paths it builds are encoded by the
+ * schema of each, keys and all.
  */
 const flatten = (
   value: Record<string, unknown>,
@@ -453,56 +537,78 @@ const flatten = (
   Effect.gen(function* () {
     for (const key of Object.keys(value)) {
       const inner = value[key];
-      let segment = key;
       let child: Shape | undefined;
       if (shape.rest !== undefined) {
-        const encoded = yield* SchemaParser.encodeUnknownEffect(
-          shape.rest.key as Schema.Codec<unknown, unknown>,
-        )(key, options);
-        const path = prefix.slice(0, -1);
-        if (typeof encoded !== "string") {
+        const reason = unaddressable(key);
+        if (reason !== undefined) {
           return yield* Effect.fail(
-            unaddressable(String(encoded), path, "must be a string", options),
+            new SchemaIssue.InvalidValue(
+              {
+                message: `Invalid Firestore field name "${key}" in "${prefix.slice(0, -1)}": it ${reason}`,
+              },
+              key,
+              options,
+            ),
           );
         }
-        if (encoded === "") {
-          return yield* Effect.fail(unaddressable(encoded, path, "must not be empty", options));
-        }
-        if (encoded.includes(".")) {
-          return yield* Effect.fail(unaddressable(encoded, path, 'must not contain "."', options));
-        }
-        segment = encoded;
         child = shape.rest.value;
       } else if (Object.hasOwn(shape.fields, key)) {
         child = shape.fields[key];
       }
       if (child === undefined || fieldValue.isDeleteField(inner)) {
-        out[prefix + segment] = inner;
+        out[prefix + key] = inner;
       } else if (patch.isReplace(inner)) {
-        out[prefix + segment] = inner.value;
+        out[prefix + key] = inner.value;
       } else {
-        yield* flatten(
-          inner as Record<string, unknown>,
-          child,
-          `${prefix}${segment}.`,
-          out,
-          options,
-        );
+        yield* flatten(inner as Record<string, unknown>, child, `${prefix}${key}.`, out, options);
       }
     }
     return out;
   });
 
+/**
+ * The paths an update writes at, under the names Firestore holds them at:
+ * each is renamed once its value is encoded, as `Schema.encodeKeys` does.
+ */
+const pathsSchema = (paths: Paths): Schema.Top => {
+  const struct = (known: Record<string, Schema.Top>, patterns: ReadonlyArray<Schema.Top>) =>
+    patterns.length === 0
+      ? Schema.Struct(known)
+      : Schema.StructWithRest(Schema.Struct(known), patterns as any);
+  const decoded = struct(paths.known, paths.patterns);
+  if (Object.keys(paths.renamed).length === 0) {
+    return decoded;
+  }
+  const encoded = struct(
+    Object.fromEntries(
+      Object.entries(paths.known).map(([path, schema]) => [
+        paths.renamed[path] ?? path,
+        Schema.toEncoded(schema),
+      ]),
+    ),
+    paths.patterns.map((pattern) => Schema.toEncoded(pattern)),
+  );
+  const back = Object.fromEntries(
+    Object.entries(paths.renamed).map(([path, renamed]) => [renamed, path]),
+  );
+  return encoded.pipe(
+    Schema.decodeTo(
+      decoded,
+      SchemaTransformation.transform<any, any>({
+        decode: Struct_.renameKeys(back),
+        encode: Struct_.renameKeys(paths.renamed),
+      }),
+    ),
+  );
+};
+
 const update = (
   fields: VariantSchema.Struct.Fields,
   mode: FirestoreModel.UpdateMode,
 ): Schema.Top => {
-  const paths: Paths = { known: {}, patterns: [] };
+  const paths: Paths = { known: {}, renamed: {}, patterns: [] };
   const { patch, shape } = build(fields, [], paths, mode);
-  const known = Schema.Struct(paths.known);
-  return (
-    paths.patterns.length === 0 ? known : Schema.StructWithRest(known, paths.patterns as any)
-  ).pipe(
+  return pathsSchema(paths).pipe(
     Schema.decodeTo(Schema.toType(patch), {
       decode: SchemaGetter.forbidden(() => "An update is only ever written, never read back"),
       encode: SchemaGetter.transformEffect((value, options) =>
@@ -586,7 +692,9 @@ const optionalField = fieldEvolve({
  * `extract` hands back: the patches an unchecked update takes.
  */
 const nodeUpdate = (node: Node): Schema.Top =>
-  Schema.optionalKey(buildNode(node, [], { known: {}, patterns: [] }, "unchecked").schema);
+  Schema.optionalKey(
+    buildNode(node, [], { known: {}, renamed: {}, patterns: [] }, "unchecked").schema,
+  );
 
 /** @internal */
 export const Record = <K extends Schema.Record.Key, V extends FirestoreModel.Value>(

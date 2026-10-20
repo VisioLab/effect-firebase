@@ -246,9 +246,12 @@ type IsWritable<V extends Value> = [RecordOf<V>] extends [never]
       : true
   : IsWritable<RecordOf<V>["value"]>;
 
-/** The fields of a Record at the keys of `K` known up front, as a group holds them. */
-type KnownFields<K extends Schema.Record.Key, V extends Value> = {
-  readonly [_ in KnownKeys<K["Type"]> & string]: V;
+/**
+ * The fields of a Record at the keys out of `Keys` known up front, as a group
+ * holds them: decoded for its patch, encoded for its paths.
+ */
+type KnownFields<Keys, V extends Value> = {
+  readonly [_ in KnownKeys<Keys> & string]: V;
 };
 
 /** What a key of a Record only the data names takes, which may be missing. */
@@ -265,7 +268,7 @@ type EntryUpdate<V extends Value, Mode extends UpdateMode> =
 type RecordPatch<K extends Schema.Record.Key, V extends Value, Mode extends UpdateMode> =
   IsOpen<K> extends true
     ? Schema.$Record<Schema.toType<K>, EntryUpdate<V, Mode>>
-    : Schema.Struct<UpdateFields<KnownFields<K, V>, Mode>>;
+    : Schema.Struct<UpdateFields<KnownFields<K["Type"], V>, Mode>>;
 
 /**
  * What a Record takes in `Mode`. One keyed by keys only the data names is
@@ -336,7 +339,7 @@ type RecordPaths<
           : {}) &
         (IsOpen<K> extends true
           ? { readonly [_ in `${Path}.${string}`]: EntryPaths<V, Mode> }
-          : UpdatePaths<KnownFields<K, V>, Mode, `${Path}.`>);
+          : UpdatePaths<KnownFields<K["Encoded"], V>, Mode, `${Path}.`>);
 
 /**
  * Which patches an update takes.
@@ -905,9 +908,10 @@ export interface Record<
  * Either way it takes {@link Patch.replace} to be written whole, unless
  * `value` holds a field that `set` or an update leaves out.
  *
- * The path of a key is the key as `key` encodes it. A key no path can name -
- * empty, or holding a `.` - fails the update when it is encoded, or, where it
- * is a literal, throws when the Record is declared. A value made
+ * The path of a key is the key as `key` encodes it, so `key` takes no service
+ * to encode one. A key no path can name - empty, or holding a `.` either way -
+ * fails the update when it is encoded, or, where it is a literal, throws when
+ * the Record is declared. A value made
  * {@link Optional} takes the removal it would take anyway, and a value no
  * update writes, such as {@link Immutable}, leaves the whole Record out of the
  * update.
@@ -916,7 +920,10 @@ export interface Record<
  * @category schemas
  * @since 0.2.0
  */
-export const Record: <K extends Schema.Record.Key, V extends Value>(
+export const Record: <
+  K extends Schema.Record.Key & { readonly EncodingServices: never },
+  V extends Value,
+>(
   key: K,
   value: V,
 ) => Record<K, V> = firestoreModel.Record;

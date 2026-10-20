@@ -1308,6 +1308,14 @@ describe("a geopoint field", () => {
   );
 });
 
+/** A key written in upper case, read in lower case. */
+const Upper = Schema.String.pipe(
+  Schema.decodeTo(Schema.String, {
+    decode: SchemaGetter.transform((s: string) => s.toLowerCase()),
+    encode: SchemaGetter.transform((s: string) => s.toUpperCase()),
+  }),
+);
+
 describe("Record", () => {
   const Member = FirestoreModel.Struct({
     name: Schema.String,
@@ -1523,20 +1531,55 @@ describe("Record", () => {
   it.effect("writes a key in its encoded form", () =>
     Effect.gen(function* () {
       class Lookup extends FirestoreModel.Class<Lookup>("Lookup")({
-        byCode: FirestoreModel.Record(
-          Schema.String.pipe(
-            Schema.decodeTo(Schema.String, {
-              decode: SchemaGetter.transform((s: string) => s.toLowerCase()),
-              encode: SchemaGetter.transform((s: string) => s.toUpperCase()),
-            }),
-          ),
-          Schema.String,
-        ),
+        byCode: FirestoreModel.Record(Upper, Schema.String),
       }) {}
       const encoded = yield* Schema.encodeEffect(Lookup.update)({ byCode: { de: "Germany" } });
       expect(encoded).toStrictEqual({ "byCode.DE": "Germany" });
     }).pipe(Effect.provide(encoder)),
   );
+
+  it.effect("writes each key of a Record of Records in its encoded form", () =>
+    Effect.gen(function* () {
+      class Grid extends FirestoreModel.Class<Grid>("Grid")({
+        cells: FirestoreModel.Record(Upper, FirestoreModel.Record(Upper, Schema.Finite)),
+      }) {}
+      const encoded = yield* Schema.encodeEffect(Grid.update)({ cells: { a: { b: 1 } } });
+      expect(encoded).toStrictEqual({ "cells.A.B": 1 });
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it.effect("refuses a key whose encoded form no path can name", () =>
+    Effect.gen(function* () {
+      class Lookup extends FirestoreModel.Class<Lookup>("Lookup")({
+        byCode: FirestoreModel.Record(
+          Schema.String.pipe(
+            Schema.decodeTo(Schema.String, {
+              decode: SchemaGetter.transform((s: string) => s.replace("_", ".")),
+              encode: SchemaGetter.transform((s: string) => s.replace("_", ".")),
+            }),
+          ),
+          Schema.String,
+        ),
+      }) {}
+      const exit = yield* Schema.encodeEffect(Lookup.update)({ byCode: { a_b: "x" } }).pipe(
+        Effect.exit,
+      );
+      expect(String(exit)).toContain(`Invalid Firestore field name "a.b" in "byCode"`);
+    }).pipe(Effect.provide(encoder)),
+  );
+
+  it("refuses a key that needs a service to encode", () => {
+    const Key = Schema.String.pipe(
+      Schema.decodeTo(Schema.String, {
+        decode: SchemaGetter.passthrough(),
+        encode: SchemaGetter.transformEffect((s: string) =>
+          Effect.as(Effect.service(FirestoreEncoder), s),
+        ),
+      }),
+    );
+    // @ts-expect-error: an update could not name the service it needs
+    FirestoreModel.Record(Key, Schema.String);
+  });
 
   it("takes a patch, a replacement, and a removal per key", () => {
     type T = (typeof Poll.update)["Type"];
@@ -1603,6 +1646,29 @@ describe("a Record keyed by literals", () => {
       "counts" | "counts.yes" | "counts.no" | "notes" | "notes.yes" | "notes.no"
     >();
   });
+
+  it.effect("writes a key in its encoded form", () =>
+    Effect.gen(function* () {
+      class Ballot extends FirestoreModel.Class<Ballot>("Ballot")({
+        answers: FirestoreModel.Record(
+          Schema.Literals(["Y", "N"]).pipe(
+            Schema.decodeTo(Schema.Literals(["yes", "no"]), {
+              decode: SchemaGetter.transform((s) => (s === "Y" ? "yes" : "no")),
+              encode: SchemaGetter.transform((s) => (s === "yes" ? "Y" : "N")),
+            }),
+          ),
+          FirestoreModel.Number(Schema.Int),
+        ),
+      }) {}
+      expectTypeOf<keyof (typeof Ballot.update)["Encoded"]>().toEqualTypeOf<
+        "answers" | "answers.Y" | "answers.N"
+      >();
+      const encoded = yield* Schema.encodeEffect(Ballot.update)({
+        answers: { yes: FieldValue.increment(1) },
+      });
+      expect(Object.keys(encoded)).toEqual(["answers.Y"]);
+    }).pipe(Effect.provide(encoder)),
+  );
 
   it.effect.each(modes(Survey))("writes each key at its own path ($mode)", ({ update }) =>
     Effect.gen(function* () {
