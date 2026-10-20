@@ -1,8 +1,15 @@
-import { describe, expect, it } from "@effect/vitest";
-import { Effect, Schema } from "effect";
+import { expect, layer } from "@effect/vitest";
+import { Effect, Layer, Schema } from "effect";
 import { FieldValue, FirestoreModel, FirestoreSchema } from "@visiolab/effect-firebase/firestore";
 import { FieldValue as NativeFieldValue, Firestore } from "firebase-admin/firestore";
+import * as App from "../../src/App.ts";
 import * as FirestoreEncoder from "../../src/firestore/FirestoreEncoder.ts";
+
+// A named app keeps each run independent of whatever the default app is, and of
+// the apps the other suites register.
+const encoder = FirestoreEncoder.layer.pipe(
+  Layer.provide(App.layer({ projectId: "demo-model" }, "model")),
+);
 
 const Address = FirestoreModel.Struct({
   city: Schema.String,
@@ -21,7 +28,7 @@ const doc = new Firestore({ projectId: "demo" }).doc("places/a");
 const applies = (data: object) => () =>
   new Firestore({ projectId: "demo" }).batch().update(doc, data as any);
 
-describe("an update reaching into a struct", () => {
+layer(encoder)("an update reaching into a struct", (it) => {
   it.effect("is one the Admin SDK applies, removal and all", () =>
     Effect.gen(function* () {
       const encoded = yield* Schema.encodeEffect(Place.update)(
@@ -34,7 +41,7 @@ describe("an update reaching into a struct", () => {
         "address.verifiedAt": NativeFieldValue.serverTimestamp(),
       });
       expect(applies(encoded)).not.toThrow();
-    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+    }),
   );
 
   it.effect("is one the Admin SDK applies where a whole map is removed", () =>
@@ -47,6 +54,6 @@ describe("an update reaching into a struct", () => {
         "address.city": "Berlin",
       });
       expect(applies(encoded)).not.toThrow();
-    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+    }),
   );
 });

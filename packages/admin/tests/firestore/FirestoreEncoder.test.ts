@@ -1,6 +1,7 @@
-import { describe, expect, it } from "@effect/vitest";
-import { Effect, Schema } from "effect";
+import { expect, layer } from "@effect/vitest";
+import { Effect, Layer, Schema } from "effect";
 import {
+  Collection,
   FieldValue,
   FirestoreModel,
   FirestoreSchema,
@@ -8,25 +9,39 @@ import {
   Timestamp,
 } from "@visiolab/effect-firebase/firestore";
 import {
+  DocumentReference as NativeDocumentReference,
+  getFirestore,
   GeoPoint as NativeGeoPoint,
   FieldValue as NativeFieldValue,
   Timestamp as Native,
 } from "firebase-admin/firestore";
+import * as App from "../../src/App.ts";
 import * as FirestoreEncoder from "../../src/firestore/FirestoreEncoder.ts";
 
-const Post = Schema.Struct({ title: Schema.String, createdAt: FirestoreSchema.Timestamp });
+// A named app keeps each run independent of whatever the default app is, and of
+// the apps the other suites register.
+const encoder = FirestoreEncoder.layer.pipe(
+  Layer.provideMerge(App.layer({ projectId: "demo-encoder" }, "encoder")),
+);
 
-describe("FirestoreEncoder", () => {
+class Post extends FirestoreModel.Class<Post>("Post")({
+  title: Schema.String,
+  createdAt: FirestoreSchema.Timestamp,
+}) {}
+
+layer(encoder)("FirestoreEncoder", (it) => {
   it.effect("encodes a document into the values the Admin SDK writes", () =>
     Effect.gen(function* () {
-      const encoded = yield* Schema.encodeEffect(Post)({
-        title: "hello",
-        createdAt: Timestamp.makeUnsafe(1_700_000_000, 123_456_789),
-      });
+      const encoded = yield* Schema.encodeEffect(Post)(
+        new Post({
+          title: "hello",
+          createdAt: Timestamp.makeUnsafe(1_700_000_000, 123_456_789),
+        }),
+      );
 
       expect(encoded.createdAt).toBeInstanceOf(Native);
       expect(encoded.title).toBe("hello");
-    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+    }),
   );
 
   it.effect("carries the digits finer than a millisecond through to the SDK", () =>
@@ -35,7 +50,7 @@ describe("FirestoreEncoder", () => {
         Timestamp.makeUnsafe(1_700_000_000, 123_456_789),
       );
       expect((encoded as Native).isEqual(new Native(1_700_000_000, 123_456_789))).toBe(true);
-    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+    }),
   );
 
   it.effect("reads a document the SDK handed back without an encoder at all", () =>
@@ -55,7 +70,7 @@ describe("FirestoreEncoder", () => {
       const post = yield* Schema.decodeEffect(Post)({ title: "t", createdAt: original });
       const encoded = yield* Schema.encodeEffect(Post)(post);
       expect((encoded.createdAt as Native).isEqual(original)).toBe(true);
-    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+    }),
   );
 });
 
@@ -65,7 +80,7 @@ class User extends FirestoreModel.Class<User>("User")({
   updatedAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
 }) {}
 
-describe("ServerTimestamp", () => {
+layer(encoder)("ServerTimestamp", (it) => {
   it.effect("writes the sentinel the Admin SDK resolves at the server", () =>
     Effect.gen(function* () {
       const encoded = yield* Schema.encodeEffect(FirestoreSchema.ServerTimestamp)(
@@ -73,7 +88,7 @@ describe("ServerTimestamp", () => {
       );
       expect(encoded).toBeInstanceOf(NativeFieldValue);
       expect(encoded).toStrictEqual(NativeFieldValue.serverTimestamp());
-    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+    }),
   );
 
   it.effect("writes a document the Admin SDK can set as it stands", () =>
@@ -90,7 +105,7 @@ describe("ServerTimestamp", () => {
         createdAt: NativeFieldValue.serverTimestamp(),
         updatedAt: NativeFieldValue.serverTimestamp(),
       });
-    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+    }),
   );
 
   it.effect("writes an update the Admin SDK can apply as it stands", () =>
@@ -105,7 +120,7 @@ describe("ServerTimestamp", () => {
         displayName: "alice in chains",
         updatedAt: NativeFieldValue.serverTimestamp(),
       });
-    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+    }),
   );
 });
 
@@ -114,7 +129,7 @@ class Page extends FirestoreModel.Class<Page>("Page")({
   visits: FirestoreModel.Number(Schema.Int),
 }) {}
 
-describe("Increment", () => {
+layer(encoder)("Increment", (it) => {
   it.effect("writes the sentinel the Admin SDK resolves at the server", () =>
     Effect.gen(function* () {
       const encoded = yield* Schema.encodeEffect(FirestoreSchema.Increment)(
@@ -122,7 +137,7 @@ describe("Increment", () => {
       );
       expect(encoded).toBeInstanceOf(NativeFieldValue);
       expect(encoded).toStrictEqual(NativeFieldValue.increment(2));
-    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+    }),
   );
 
   it.effect("writes a move down as the negative the SDK takes", () =>
@@ -131,7 +146,7 @@ describe("Increment", () => {
         FieldValue.decrement(2),
       );
       expect(encoded).toStrictEqual(NativeFieldValue.increment(-2));
-    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+    }),
   );
 
   it.effect("writes an update the Admin SDK can apply as it stands", () =>
@@ -140,7 +155,7 @@ describe("Increment", () => {
         Page.update.make({ visits: FieldValue.increment(1) }),
       );
       expect(encoded).toStrictEqual({ visits: NativeFieldValue.increment(1) });
-    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+    }),
   );
 
   it.effect("sets the number outright where a write was handed one", () =>
@@ -149,7 +164,7 @@ describe("Increment", () => {
         Page.create.make({ slug: "home", visits: 0 }),
       );
       expect(encoded).toStrictEqual({ slug: "home", visits: 0 });
-    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+    }),
   );
 });
 
@@ -158,7 +173,7 @@ class Profile extends FirestoreModel.Class<Profile>("Profile")({
   nickname: FirestoreModel.Optional(Schema.String),
 }) {}
 
-describe("DeleteField", () => {
+layer(encoder)("DeleteField", (it) => {
   it.effect("writes the sentinel the Admin SDK removes the field with", () =>
     Effect.gen(function* () {
       const encoded = yield* Schema.encodeEffect(FirestoreSchema.DeleteField)(
@@ -166,7 +181,7 @@ describe("DeleteField", () => {
       );
       expect(encoded).toBeInstanceOf(NativeFieldValue);
       expect(encoded).toStrictEqual(NativeFieldValue.delete());
-    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+    }),
   );
 
   it.effect("writes an update the Admin SDK can apply as it stands", () =>
@@ -175,7 +190,7 @@ describe("DeleteField", () => {
         Profile.update.make({ nickname: FieldValue.deleteField }),
       );
       expect(encoded).toStrictEqual({ nickname: NativeFieldValue.delete() });
-    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+    }),
   );
 });
 
@@ -185,7 +200,7 @@ class Article extends FirestoreModel.Class<Article>("Article")({
   revisedAt: FirestoreModel.Array(FirestoreSchema.Timestamp),
 }) {}
 
-describe("ArrayUnion", () => {
+layer(encoder)("ArrayUnion", (it) => {
   it.effect("writes the sentinel the Admin SDK grows the array with", () =>
     Effect.gen(function* () {
       const encoded = yield* Schema.encodeEffect(FirestoreSchema.ArrayUnion(Schema.String))(
@@ -195,7 +210,7 @@ describe("ArrayUnion", () => {
       expect((encoded as NativeFieldValue).isEqual(NativeFieldValue.arrayUnion("a", "b"))).toBe(
         true,
       );
-    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+    }),
   );
 
   it.effect("hands the SDK its own timestamps among the elements", () =>
@@ -208,11 +223,11 @@ describe("ArrayUnion", () => {
           NativeFieldValue.arrayUnion(new Native(1, 2)),
         ),
       ).toBe(true);
-    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+    }),
   );
 });
 
-describe("ArrayRemove", () => {
+layer(encoder)("ArrayRemove", (it) => {
   it.effect("writes the sentinel the Admin SDK shrinks the array with", () =>
     Effect.gen(function* () {
       const encoded = yield* Schema.encodeEffect(Article.update)(
@@ -221,7 +236,7 @@ describe("ArrayRemove", () => {
       expect((encoded.tags as NativeFieldValue).isEqual(NativeFieldValue.arrayRemove("news"))).toBe(
         true,
       );
-    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+    }),
   );
 });
 
@@ -230,7 +245,7 @@ class Landmark extends FirestoreModel.Class<Landmark>("Landmark")({
   location: FirestoreSchema.GeoPoint,
 }) {}
 
-describe("GeoPoint", () => {
+layer(encoder)("GeoPoint", (it) => {
   it.effect("reads a geopoint the SDK handed back", () =>
     Effect.gen(function* () {
       const landmark = yield* Schema.decodeEffect(Landmark)({
@@ -251,7 +266,7 @@ describe("GeoPoint", () => {
       expect((encoded.location as NativeGeoPoint).isEqual(new NativeGeoPoint(52.52, 13.405))).toBe(
         true,
       );
-    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+    }),
   );
 
   it.effect("writes an update the Admin SDK stores a geopoint in", () =>
@@ -260,6 +275,55 @@ describe("GeoPoint", () => {
         Landmark.update.make({ location: GeoPoint.makeUnsafe(52.52, 13.405) }),
       );
       expect(encoded.location).toBeInstanceOf(NativeGeoPoint);
-    }).pipe(Effect.provide(FirestoreEncoder.layer)),
+    }),
+  );
+});
+
+const Users = Collection.make("users", User);
+const Posts = Users.subcollection("posts", Post);
+
+class Comment extends FirestoreModel.Class<Comment>("Comment")({
+  body: Schema.String,
+  author: FirestoreSchema.DocumentReference(Users),
+  post: FirestoreSchema.DocumentReference(Posts),
+}) {}
+
+const alice = Users.doc(Users.id.make("alice"));
+const hello = Posts.doc(Users.id.make("alice"), Posts.id.make("hello"));
+
+layer(encoder)("DocumentReference", (it) => {
+  it.effect("writes the SDK's own reference into the app's database", () =>
+    Effect.gen(function* () {
+      const firestore = getFirestore(yield* App.App);
+      const encoded = yield* Schema.encodeEffect(FirestoreSchema.DocumentReference(Posts))(hello);
+      expect(encoded).toBeInstanceOf(NativeDocumentReference);
+      expect(
+        (encoded as NativeDocumentReference).isEqual(firestore.doc("users/alice/posts/hello")),
+      ).toBe(true);
+    }),
+  );
+
+  it.effect("round-trips a reference through the SDK's own representation", () =>
+    Effect.gen(function* () {
+      const original = getFirestore(yield* App.App).doc("users/alice");
+      const author = yield* Schema.decodeEffect(FirestoreSchema.DocumentReference(Users))(original);
+      expect(author.collection).toBe(Users);
+      expect(author.path).toBe(alice.path);
+      const encoded = yield* Schema.encodeEffect(FirestoreSchema.DocumentReference(Users))(author);
+      expect((encoded as NativeDocumentReference).isEqual(original)).toBe(true);
+    }),
+  );
+
+  it.effect("writes a document the Admin SDK can set as it stands", () =>
+    Effect.gen(function* () {
+      const firestore = getFirestore(yield* App.App);
+      const encoded = yield* Schema.encodeEffect(Comment.create)(
+        Comment.create.make({ body: "first", author: alice, post: hello }),
+      );
+      expect(encoded.author).toBeInstanceOf(NativeDocumentReference);
+      expect(encoded.post).toBeInstanceOf(NativeDocumentReference);
+      // `set` on a batch validates synchronously and sends nothing until a commit.
+      expect(() => firestore.batch().set(firestore.doc("comments/a"), encoded)).not.toThrow();
+    }),
   );
 });
