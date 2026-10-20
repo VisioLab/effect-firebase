@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import * as Patch from "../../src/firestore/Patch.ts";
 
 describe("replace", () => {
-  it("carries the value the group is written as", () => {
+  it("carries the value the struct is written as", () => {
     const value = { city: "Berlin" };
     expect(Patch.replace(value).value).toBe(value);
   });

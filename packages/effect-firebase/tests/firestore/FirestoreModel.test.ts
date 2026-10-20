@@ -237,7 +237,7 @@ describe("update", () => {
 });
 
 describe("fields", () => {
-  it("carries a group through every variant", () => {
+  it("carries a struct through every variant", () => {
     const Address = FirestoreModel.Struct({
       city: Schema.String,
       verifiedAt: FirestoreModel.FieldOnly(["read"])(Schema.String),
@@ -489,7 +489,7 @@ describe("Array", () => {
     }).pipe(Effect.provide(encoder)),
   );
 
-  it.effect("writes a sentinel at its path inside a group", () =>
+  it.effect("writes a sentinel at its path inside a struct", () =>
     Effect.gen(function* () {
       const encoded = yield* Schema.encodeEffect(Article.update)(
         Article.update.make({ meta: { keywords: FieldValue.arrayUnion("effect") } }),
@@ -638,7 +638,7 @@ describe("Optional", () => {
   });
 });
 
-describe("an update reaching into a group", () => {
+describe("an update reaching into a struct", () => {
   const Geo = FirestoreModel.Struct({
     lat: Schema.Finite,
     lng: Schema.Finite,
@@ -672,7 +672,7 @@ describe("an update reaching into a group", () => {
     expectTypeOf<NonNullable<T["tags"]>>().toEqualTypeOf<{ readonly primary: string }>();
   });
 
-  it.effect("writes each field of a group at its path", () =>
+  it.effect("writes each field of a struct at its path", () =>
     Effect.gen(function* () {
       const encoded = yield* Schema.encodeEffect(Place.update)(
         Place.update.make({
@@ -708,7 +708,7 @@ describe("an update reaching into a group", () => {
     }).pipe(Effect.provide(encoder)),
   );
 
-  it.effect("writes nothing for a group handed nothing", () =>
+  it.effect("writes nothing for a struct handed nothing", () =>
     Effect.gen(function* () {
       const encoded = yield* Schema.encodeEffect(Place.update)({ address: {} });
       expect(encoded).toStrictEqual({});
@@ -759,7 +759,7 @@ describe("an update reaching into a group", () => {
   });
 
   it.effect.each(modes(Place))(
-    "writes a group handed a replacement whole, at its path ($mode)",
+    "writes a struct handed a replacement whole, at its path ($mode)",
     ({ update }) =>
       Effect.gen(function* () {
         const encoded = yield* Schema.encodeEffect(update)(
@@ -769,7 +769,7 @@ describe("an update reaching into a group", () => {
       }).pipe(Effect.provide(encoder)),
   );
 
-  it("refuses to replace a group holding a field no update writes", () => {
+  it("refuses to replace a struct holding a field no update writes", () => {
     expect(() =>
       Place.update.make({
         // @ts-expect-error replacing the address would write `country`, which is written once
@@ -786,13 +786,13 @@ describe("an update reaching into a group", () => {
   it("refuses a field name a path would read as two", () => {
     expect(() =>
       FirestoreModel.Class<{}>("Bad")({
-        group: FirestoreModel.Struct({ "a.b": Schema.String }),
+        nested: FirestoreModel.Struct({ "a.b": Schema.String }),
       }),
     ).toThrow(/must not contain/);
   });
 });
 
-describe("a group a document may go without", () => {
+describe("a struct a document may go without", () => {
   const Geo = FirestoreModel.Struct({
     lat: Schema.Finite,
     lng: Schema.Finite,
@@ -949,7 +949,7 @@ describe("a group a document may go without", () => {
       }).pipe(Effect.provide(encoder)),
   );
 
-  it("refuses a patch, which would create a missing group holding only the patch", () => {
+  it("refuses a patch, which would create a missing struct holding only the patch", () => {
     expect(() =>
       // @ts-expect-error a missing address would be created holding only `city`
       Place.update.make({ address: { city: "Berlin" } }),
@@ -965,7 +965,7 @@ describe("a group a document may go without", () => {
     }).pipe(Effect.provide(encoder)),
   );
 
-  it("refuses a replacement that is not a whole group", () => {
+  it("refuses a replacement that is not a whole struct", () => {
     expect(() =>
       // @ts-expect-error a replacement is written whole, so it needs `verifiedAt`, `geo` and `notes`
       Place.update.make({ address: Patch.replace({ city: "Berlin" }) }),
@@ -1007,7 +1007,7 @@ describe("a group a document may go without", () => {
   });
 });
 
-describe("a group a document may go without, inside one every document holds", () => {
+describe("a struct a document may go without, inside one every document holds", () => {
   class User extends FirestoreModel.Class<User>("User")({
     profile: FirestoreModel.Struct({
       bio: Schema.String,
@@ -1039,7 +1039,7 @@ describe("a group a document may go without, inside one every document holds", (
   });
 });
 
-describe("a group holding a field no update writes", () => {
+describe("a struct holding a field no update writes", () => {
   class Shop extends FirestoreModel.Class<Shop>("Shop")({
     address: FirestoreModel.Optional(
       FirestoreModel.Struct({
@@ -1072,9 +1072,9 @@ describe("a group holding a field no update writes", () => {
   });
 });
 
-describe("a group holding a field no set writes", () => {
+describe("a struct holding a field no set writes", () => {
   class Doc extends FirestoreModel.Class<Doc>("Doc")({
-    group: FirestoreModel.Struct({
+    entry: FirestoreModel.Struct({
       name: Schema.String,
       // Kept up by updates alone, so a replacement written as `set` would drop it.
       rank: FirestoreModel.FieldOnly(["read", "update"])(Schema.Finite),
@@ -1084,26 +1084,26 @@ describe("a group holding a field no set writes", () => {
   it("is not replaced, since the replacement would drop that field", () => {
     expect(() =>
       // @ts-expect-error `rank` is never written by `set`
-      Doc.update.make({ group: Patch.replace({ name: "a", rank: 1 }) }),
+      Doc.update.make({ entry: Patch.replace({ name: "a", rank: 1 }) }),
     ).toThrow();
   });
 
   it.effect("is still patched", () =>
     Effect.gen(function* () {
       const encoded = yield* Schema.encodeEffect(Doc.update)(
-        Doc.update.make({ group: { rank: 2 } }),
+        Doc.update.make({ entry: { rank: 2 } }),
       );
-      expect(encoded).toStrictEqual({ "group.rank": 2 });
+      expect(encoded).toStrictEqual({ "entry.rank": 2 });
     }).pipe(Effect.provide(encoder)),
   );
 });
 
-describe("a replacement handed to a field that is no group", () => {
+describe("a replacement handed to a field that is no struct", () => {
   class Doc extends FirestoreModel.Class<Doc>("Doc")({
     anything: Schema.Unknown,
   }) {}
 
-  it.effect("is written as it was handed, since only a group is replaced", () =>
+  it.effect("is written as it was handed, since only a struct is replaced", () =>
     Effect.gen(function* () {
       const replacement = Patch.replace({ x: 1 });
       const encoded = yield* Schema.encodeEffect(Doc.update)(
@@ -1114,7 +1114,7 @@ describe("a replacement handed to a field that is no group", () => {
   );
 });
 
-describe("the update of a group every document holds", () => {
+describe("the update of a struct every document holds", () => {
   const Address = FirestoreModel.Struct({
     city: Schema.String,
     zip: Schema.String,
@@ -1184,7 +1184,7 @@ describe("a field with a constructor default", () => {
     }).pipe(Effect.provide(encoder)),
   );
 
-  it.effect("fills it in where a group is replaced, as where it is created", () =>
+  it.effect("fills it in where a struct is replaced, as where it is created", () =>
     Effect.gen(function* () {
       const encoded = yield* Schema.encodeEffect(Doc.update)(
         Doc.update.make({
@@ -1456,7 +1456,7 @@ describe("Record", () => {
   );
 
   it.effect.each(modes(Poll))(
-    "writes a Record inside a group at the full path ($mode)",
+    "writes a Record inside a struct at the full path ($mode)",
     ({ update }) =>
       Effect.gen(function* () {
         const encoded = yield* Schema.encodeEffect(update)(
@@ -1466,7 +1466,7 @@ describe("Record", () => {
       }).pipe(Effect.provide(encoder)),
   );
 
-  it.effect.each(modes(Poll))("replaces or removes a group at one key ($mode)", ({ update }) =>
+  it.effect.each(modes(Poll))("replaces or removes a struct at one key ($mode)", ({ update }) =>
     Effect.gen(function* () {
       const encoded = yield* Schema.encodeEffect(update)(
         update.make({
@@ -1482,20 +1482,24 @@ describe("Record", () => {
     }).pipe(Effect.provide(encoder)),
   );
 
-  it("refuses a patch into a group at one key, which may be missing", () => {
+  it("refuses a patch into a struct at one key, which may be missing", () => {
     expect(() =>
       // @ts-expect-error a missing member would be created holding only `badges`
       Poll.update.make({ members: { m1: { badges: FieldValue.arrayUnion("early") } } }),
     ).toThrow();
   });
 
-  it.effect("writes a patch into a group at one key at the full path where updated unchecked", () =>
-    Effect.gen(function* () {
-      const encoded = yield* Schema.encodeEffect(Poll.updateUnchecked)(
-        Poll.updateUnchecked.make({ members: { m1: { badges: FieldValue.arrayUnion("early") } } }),
-      );
-      expect(encoded).toStrictEqual({ "members.m1.badges": new SdkArrayUnion(["early"]) });
-    }).pipe(Effect.provide(encoder)),
+  it.effect(
+    "writes a patch into a struct at one key at the full path where updated unchecked",
+    () =>
+      Effect.gen(function* () {
+        const encoded = yield* Schema.encodeEffect(Poll.updateUnchecked)(
+          Poll.updateUnchecked.make({
+            members: { m1: { badges: FieldValue.arrayUnion("early") } },
+          }),
+        );
+        expect(encoded).toStrictEqual({ "members.m1.badges": new SdkArrayUnion(["early"]) });
+      }).pipe(Effect.provide(encoder)),
   );
 
   it.effect.each(modes(Poll))("writes a Record handed a replacement whole ($mode)", ({ update }) =>
@@ -1586,7 +1590,7 @@ describe("Record", () => {
               ),
             }),
           ),
-          // A group holding a field written once, so the Record is never
+          // A struct holding a field written once, so the Record is never
           // written whole, and no schema of it but its paths names the key.
           FirestoreModel.Struct({
             id: FirestoreModel.Immutable(Schema.String),

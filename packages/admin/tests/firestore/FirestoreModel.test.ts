@@ -21,7 +21,7 @@ const doc = new Firestore({ projectId: "demo" }).doc("places/a");
 const applies = (data: object) => () =>
   new Firestore({ projectId: "demo" }).batch().update(doc, data as any);
 
-describe("an update reaching into a group", () => {
+describe("an update reaching into a struct", () => {
   it.effect("is one the Admin SDK applies, removal and all", () =>
     Effect.gen(function* () {
       const encoded = yield* Schema.encodeEffect(Place.update)(

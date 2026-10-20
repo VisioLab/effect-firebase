@@ -4,10 +4,10 @@
  * A patch reads like the document it changes, and each part of it says how it
  * is written:
  *
- * - A plain object, handed to a group, is a patch of its own, written field by
+ * - A plain object, handed to a struct, is a patch of its own, written field by
  *   field at its paths: `{ address: { city } }` writes `"address.city"` and
  *   leaves the rest of the map as it is.
- * - {@link replace}, handed to a group, writes the group whole, as a map,
+ * - {@link replace}, handed to a struct, writes the struct whole, as a map,
  *   dropping whatever it held that the value leaves out.
  * - Any other value is written whole where it stands, and a sentinel from
  *   `FieldValue` may stand at any depth.
@@ -38,10 +38,10 @@ import * as patch from "./internal/patch.ts";
 const ReplaceTypeId = patch.ReplaceTypeId;
 
 /**
- * A group written whole, as the map `value`.
+ * A struct written whole, as the map `value`.
  *
  * Unlike the sentinels in `FieldValue`, it never reaches Firestore: it only
- * says how the update writes the group, and by the time the update is encoded
+ * says how the update writes the struct, and by the time the update is encoded
  * it is the map itself.
  *
  * @stability unstable
@@ -50,7 +50,7 @@ const ReplaceTypeId = patch.ReplaceTypeId;
  */
 export interface Replace<A> extends Inspectable.Inspectable {
   readonly [ReplaceTypeId]: typeof ReplaceTypeId;
-  /** What the group holds once the update lands. */
+  /** What the struct holds once the update lands. */
   readonly value: A;
 }
 
@@ -62,12 +62,12 @@ export interface Replace<A> extends Inspectable.Inspectable {
 export const isReplace: (u: unknown) => u is Replace<unknown> = patch.isReplace;
 
 /**
- * Writes a group whole, rather than field by field.
+ * Writes a struct whole, rather than field by field.
  *
- * The group comes out holding `value` and nothing else, so a field it held
+ * The struct comes out holding `value` and nothing else, so a field it held
  * that `value` leaves out is gone. That is also what makes it safe where the
- * group may be missing: `value` is a whole group, the shape `set` would write
- * it in, so the group is there in full whatever the document held before.
+ * struct may be missing: `value` is a whole struct, the shape `set` would write
+ * it in, so the struct is there in full whatever the document held before.
  *
  * @stability unstable
  * @category constructors
