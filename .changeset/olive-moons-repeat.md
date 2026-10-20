@@ -9,7 +9,7 @@ Add Firestore timestamps.
 the seconds and nanoseconds Firestore stores. `firestore/FirestoreSchema` holds
 its codecs, and `firestore/FirestoreEncoder` is the service that builds the
 SDK's own value when a document is written. The Admin SDK's implementation
-ships as `firestore/FirestoreEncoder.layer`.
+ships as `firestore/FirestoreEncoder.make`.
 
 The Admin package's Firestore entry moves to `firestore` as well, and is no
 longer re-exported from the root.

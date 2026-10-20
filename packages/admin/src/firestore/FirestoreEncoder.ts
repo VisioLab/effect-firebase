@@ -1,14 +1,16 @@
 /**
  * The Admin SDK's implementation of {@link FirestoreEncoder.FirestoreEncoder}.
  *
+ * `firestore/Firestore.layerWithEncoder` provides one for the database it
+ * opens, so this is only needed to encode against a database built some other
+ * way.
+ *
  * @stability unstable
  * @since 0.2.0
  */
-import { Effect, Layer } from "effect";
 import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
-import { FieldValue, GeoPoint, getFirestore, Timestamp } from "firebase-admin/firestore";
+import { FieldValue, GeoPoint, Timestamp } from "firebase-admin/firestore";
 import type { Firestore } from "firebase-admin/firestore";
-import * as App from "../App.ts";
 
 /**
  * Builds the values the Admin SDK writes into `firestore`.
@@ -31,29 +33,3 @@ export const make = (firestore: Firestore): FirestoreEncoder =>
     arrayUnion: (elements) => FieldValue.arrayUnion(...elements),
     arrayRemove: (elements) => FieldValue.arrayRemove(...elements),
   });
-
-/**
- * A layer providing {@link make} for the default database of the
- * {@link App.App} in context.
- *
- * Building it cannot fail: `getFirestore` only throws on an app that was
- * already deleted, which is a wiring mistake and surfaces as a defect. To write
- * into a named database, build the encoder from that one instead:
- *
- * ```ts
- * Layer.succeed(FirestoreEncoder)(make(getFirestore(app, "my-database")));
- * ```
- *
- * @stability unstable
- * @category layers
- * @since 0.2.0
- */
-export const layer: Layer.Layer<FirestoreEncoder, never, App.App> = Layer.effect(
-  FirestoreEncoder,
-  Effect.gen(function* () {
-    const app = yield* App.App;
-    // `getFirestore` memoizes the instance on the app itself, and deleting the
-    // app terminates it, so there is nothing to release here.
-    return make(getFirestore(app));
-  }),
-);
