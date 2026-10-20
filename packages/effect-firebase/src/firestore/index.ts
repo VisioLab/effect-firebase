@@ -9,6 +9,11 @@ export * as Collection from "./Collection.ts";
  * @stability unstable
  * @since 0.2.0
  */
+export * as DocumentSnapshot from "./DocumentSnapshot.ts";
+/**
+ * @stability unstable
+ * @since 0.2.0
+ */
 export * as FieldValue from "./FieldValue.ts";
 /**
  * @stability unstable
