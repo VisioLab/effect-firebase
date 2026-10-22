@@ -136,6 +136,38 @@ describe("fromPath", () => {
   });
 });
 
+describe("fromPathUntyped", () => {
+  it("references the document at a path, whichever collection it was defined through", () => {
+    const ref = Option.getOrThrow(Collection.fromPathUntyped("users/alice/posts/hello"));
+    expect(Collection.isDocumentReference(ref)).toBe(true);
+    expect(ref.path).toBe("users/alice/posts/hello");
+    expect(ref.id).toBe("hello");
+    expect(ref.ancestors).toEqual(["alice"]);
+    expect(ref.parent.path).toBe("users/alice/posts");
+    expect(ref.collection.path).toEqual(["users", "posts"]);
+  });
+
+  it("gives equal references for the same path", () => {
+    const self = Collection.fromPathUntyped("users/alice/posts/hello");
+    const that = Collection.fromPathUntyped("users/alice/posts/hello");
+    expect(Equal.equals(self, that)).toBe(true);
+    expect(Hash.hash(self)).toBe(Hash.hash(that));
+    expect(Equal.equals(self, Collection.fromPathUntyped("users/bob/posts/hello"))).toBe(false);
+  });
+
+  it("is not a reference the collections defined here would build", () => {
+    const ref = Option.getOrThrow(Collection.fromPathUntyped("users/alice/posts/hello"));
+    expect(Equal.equals(ref, Posts.doc(alice, hello))).toBe(false);
+  });
+
+  it("refuses a path that does not address a document", () => {
+    expect(Option.isNone(Collection.fromPathUntyped("users"))).toBe(true);
+    expect(Option.isNone(Collection.fromPathUntyped("users/alice/posts"))).toBe(true);
+    expect(Option.isNone(Collection.fromPathUntyped("users//posts/hello"))).toBe(true);
+    expect(Option.isNone(Collection.fromPathUntyped(""))).toBe(true);
+  });
+});
+
 describe("extractors", () => {
   it("recover the schema of the documents in a collection", () => {
     const schema: Collection.DocumentSchema<typeof Posts> = Post;

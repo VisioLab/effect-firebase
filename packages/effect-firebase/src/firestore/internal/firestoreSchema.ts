@@ -1,13 +1,4 @@
-import {
-  Array,
-  DateTime,
-  Effect,
-  Equal,
-  Schema,
-  SchemaGetter,
-  SchemaIssue,
-  SchemaParser,
-} from "effect";
+import { Array, Effect, Equal, Schema, SchemaGetter, SchemaIssue, SchemaParser } from "effect";
 import type * as Collection from "../Collection.ts";
 import type * as FieldValue from "../FieldValue.ts";
 import { FirestoreEncoder } from "../FirestoreEncoder.ts";
@@ -21,122 +12,55 @@ import * as geoPoint from "./geoPoint.ts";
 import * as timestamp from "./timestamp.ts";
 
 /**
- * Marks what an encoder-backed codec hands over as already in Firestore form,
- * so `toCodecFirestore` passes the SDK value it built through untouched.
+ * Marks what an encoder-backed sentinel hands over as already in Firestore
+ * form, so `toCodecFirestore` passes the SDK value it built through untouched.
  *
- * Temporary: it goes once these codecs stop going through `FirestoreEncoder`
- * (#75, #76).
- */
-const sdkValue = (): undefined => undefined;
-
-/**
- * The encoded side of a sentinel: whatever the encoder built. Still
- * `Schema.Unknown`, but marked so `toCodecFirestore` passes it through rather
- * than asking for a Firestore Value. Temporary, as {@link sdkValue} is.
+ * Temporary: it goes once the sentinels stop going through `FirestoreEncoder`
+ * (#76, #77).
  */
 const SdkSentinel = Schema.Unknown.annotate({ [firestoreValueAnnotations.sdkValue]: true });
-
-/** Accepts a timestamp in the shape Firestore hands back, whichever SDK read it. */
-const TimestampLikeValue = Schema.declare<Timestamp_.TimestampLike>(timestamp.isTimestampLike, {
-  representation: { id: "@visiolab/effect-firebase/firestore/Timestamp/Like", payload: null },
-  expected: "a Firestore timestamp",
-  toCodecFirestore: sdkValue,
-  toEquivalence: () => (self, that) =>
-    self.seconds === that.seconds && self.nanoseconds === that.nanoseconds,
-});
 
 /** Writes a timestamp as JSON without losing the digits finer than a millisecond. */
 const TimestampJson = Schema.Struct({ seconds: Schema.Int, nanoseconds: Schema.Int });
 
 /** @internal */
-export const TimestampValue = Schema.declare<Timestamp_.Timestamp>(timestamp.isTimestamp, {
-  representation: { id: "@visiolab/effect-firebase/firestore/Timestamp", payload: null },
-  expected: "a Firestore Timestamp",
-  toEquivalence: () => Equal.equals,
-  toCodecFirestore: () => undefined,
-  toCodecJson: () =>
-    Schema.link<Timestamp_.Timestamp>()(TimestampJson, {
-      decode: SchemaGetter.transformEffect((json: typeof TimestampJson.Type, options) =>
-        Effect.fromOption(timestamp.make(json.seconds, json.nanoseconds)).pipe(
-          Effect.mapError(
-            () =>
-              new SchemaIssue.InvalidValue(
-                { message: "Expected an instant Firestore can store" },
-                json,
-                options,
-              ),
+export const Timestamp: FirestoreSchema.Timestamp = Schema.declare<Timestamp_.Timestamp>(
+  timestamp.isTimestamp,
+  {
+    representation: { id: "@visiolab/effect-firebase/firestore/Timestamp", payload: null },
+    expected: "a Firestore Timestamp",
+    toEquivalence: () => Equal.equals,
+    toCodecFirestore: () => undefined,
+    toCodecJson: () =>
+      Schema.link<Timestamp_.Timestamp>()(TimestampJson, {
+        decode: SchemaGetter.transformEffect((json: typeof TimestampJson.Type, options) =>
+          Effect.fromOption(timestamp.make(json.seconds, json.nanoseconds)).pipe(
+            Effect.mapError(
+              () =>
+                new SchemaIssue.InvalidValue(
+                  { message: "Expected an instant Firestore can store" },
+                  json,
+                  options,
+                ),
+            ),
           ),
         ),
-      ),
-      encode: SchemaGetter.transform((value: Timestamp_.Timestamp) => ({
-        seconds: value.seconds,
-        nanoseconds: value.nanoseconds,
-      })),
-    }),
-});
-
-/** @internal */
-export const Timestamp: FirestoreSchema.Timestamp = TimestampLikeValue.pipe(
-  Schema.decodeTo(TimestampValue, {
-    decode: SchemaGetter.transform(timestamp.fromTimestampLikeUnsafe),
-    encode: SchemaGetter.transformEffect((value: Timestamp_.Timestamp) =>
-      Effect.map(FirestoreEncoder, (encoder) => encoder.timestamp(value)),
-    ),
-  }),
+        encode: SchemaGetter.transform((value: Timestamp_.Timestamp) => ({
+          seconds: value.seconds,
+          nanoseconds: value.nanoseconds,
+        })),
+      }),
+  },
 );
 
 /** @internal */
-export const DateTimeUtcFromTimestamp: FirestoreSchema.DateTimeUtcFromTimestamp =
-  TimestampLikeValue.pipe(
-    Schema.decodeTo(Schema.DateTimeUtc, {
-      decode: SchemaGetter.transform((like: Timestamp_.TimestampLike) =>
-        timestamp.toDateTime(timestamp.fromTimestampLikeUnsafe(like)),
-      ),
-      encode: SchemaGetter.transformEffect((dateTime: DateTime.Utc) =>
-        Effect.map(FirestoreEncoder, (encoder) =>
-          encoder.timestamp(timestamp.fromDateTimeUnsafe(dateTime)),
-        ),
-      ),
-    }),
-  );
-
-/** Accepts a geopoint in the shape Firestore hands back, whichever SDK read it. */
-const GeoPointLikeValue = Schema.declare<GeoPoint_.GeoPointLike>(geoPoint.isGeoPointLike, {
-  representation: { id: "@visiolab/effect-firebase/firestore/GeoPoint/Like", payload: null },
-  expected: "a Firestore geopoint",
-  toCodecFirestore: sdkValue,
-  toEquivalence: () => (self, that) =>
-    self.latitude === that.latitude && self.longitude === that.longitude,
-});
-
-const GeoPointValue = Schema.declare<GeoPoint_.GeoPoint>(geoPoint.isGeoPoint, {
-  representation: { id: "@visiolab/effect-firebase/firestore/GeoPoint", payload: null },
-  expected: "a Firestore GeoPoint",
-  toEquivalence: () => Equal.equals,
-  toCodecFirestore: () => undefined,
-});
-
-/** @internal */
-export const GeoPoint: FirestoreSchema.GeoPoint = GeoPointLikeValue.pipe(
-  Schema.decodeTo(GeoPointValue, {
-    decode: SchemaGetter.transform(geoPoint.fromGeoPointLikeUnsafe),
-    encode: SchemaGetter.transformEffect((value: GeoPoint_.GeoPoint) =>
-      Effect.map(FirestoreEncoder, (encoder) => encoder.geoPoint(value)),
-    ),
-  }),
-);
-
-/** Accepts a reference in the shape Firestore hands back, whichever SDK read it. */
-const DocumentReferenceLikeValue = Schema.declare<Collection.DocumentReferenceLike>(
-  collection_.isDocumentReferenceLike,
+export const GeoPoint: FirestoreSchema.GeoPoint = Schema.declare<GeoPoint_.GeoPoint>(
+  geoPoint.isGeoPoint,
   {
-    representation: {
-      id: "@visiolab/effect-firebase/firestore/DocumentReference/Like",
-      payload: null,
-    },
-    expected: "a Firestore document reference",
-    toCodecFirestore: sdkValue,
-    toEquivalence: () => (self, that) => self.path === that.path,
+    representation: { id: "@visiolab/effect-firebase/firestore/GeoPoint", payload: null },
+    expected: "a Firestore GeoPoint",
+    toEquivalence: () => Equal.equals,
+    toCodecFirestore: () => undefined,
   },
 );
 
@@ -145,9 +69,27 @@ export const DocumentReference = <C extends Collection.Any>(
   collection: C,
 ): FirestoreSchema.DocumentReference<C> => {
   const pattern = collection_.pattern(collection);
-  const DocumentReferenceValue = Schema.declare<Collection.DocumentReference<C>>(
-    (u): u is Collection.DocumentReference<C> =>
-      collection_.isDocumentReference(u) && u.collection === collection,
+  // A reference read back names its path but not the collection it was
+  // defined through, so a reference into any collection is taken, and
+  // re-homed into `collection` when its path is one of `collection`'s.
+  return Schema.declareConstructor<Collection.DocumentReference<C>>()(
+    [],
+    () => (input, ast, options) => {
+      if (!collection_.isDocumentReference(input))
+        return Effect.fail(new SchemaIssue.InvalidType(ast, input, options));
+      if (input.collection === collection)
+        return Effect.succeed(input as Collection.DocumentReference<C>);
+      return Effect.fromOption(collection_.fromPath(collection, input.path)).pipe(
+        Effect.mapError(
+          () =>
+            new SchemaIssue.InvalidValue(
+              { message: `Expected a document in ${pattern}, got "${input.path}"` },
+              input,
+              options,
+            ),
+        ),
+      );
+    },
     {
       representation: {
         id: "@visiolab/effect-firebase/firestore/DocumentReference",
@@ -157,26 +99,7 @@ export const DocumentReference = <C extends Collection.Any>(
       toEquivalence: () => Equal.equals,
       toCodecFirestore: () => undefined,
     },
-  );
-  return DocumentReferenceLikeValue.pipe(
-    Schema.decodeTo(DocumentReferenceValue, {
-      decode: SchemaGetter.transformEffect((like: Collection.DocumentReferenceLike, options) =>
-        Effect.fromOption(collection_.fromPath(collection, like.path)).pipe(
-          Effect.mapError(
-            () =>
-              new SchemaIssue.InvalidValue(
-                { message: `Expected a document in ${pattern}, got "${like.path}"` },
-                like,
-                options,
-              ),
-          ),
-        ),
-      ),
-      encode: SchemaGetter.transformEffect((ref: Collection.DocumentReference<C>) =>
-        Effect.map(FirestoreEncoder, (encoder) => encoder.documentReference(ref)),
-      ),
-    }),
-  );
+  ) as unknown as FirestoreSchema.DocumentReference<C>;
 };
 
 const ServerTimestampValue = Schema.declare<FieldValue.ServerTimestamp>(
@@ -208,9 +131,7 @@ export const ServerTimestamp: FirestoreSchema.ServerTimestamp = ServerTimestampS
 );
 
 /** @internal */
-export const ServerTimestampOr = <
-  S extends Schema.Codec<unknown, Timestamp_.TimestampLike, unknown, unknown>,
->(
+export const ServerTimestampOr = <S extends FirestoreSchema.TimeSchema>(
   schema: S,
 ): FirestoreSchema.ServerTimestampOr<S> => Schema.Union([schema, ServerTimestamp]);
 

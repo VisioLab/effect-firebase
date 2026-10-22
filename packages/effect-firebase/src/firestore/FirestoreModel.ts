@@ -36,7 +36,6 @@ import type { VariantSchema } from "effect/schema";
 import type * as FirestoreSchema from "./FirestoreSchema.ts";
 import * as firestoreModel from "./internal/firestoreModel.ts";
 import type * as Patch from "./Patch.ts";
-import type * as Timestamp_ from "./Timestamp.ts";
 
 /**
  * The shapes a document is read and written in.
@@ -703,9 +702,7 @@ export const Immutable: <S extends Schema.Top>(schema: S) => Immutable<S> =
  * @category models
  * @since 0.2.0
  */
-export interface Timestamp<
-  S extends Schema.Codec<unknown, Timestamp_.TimestampLike, unknown, unknown>,
-> extends VariantSchema.Field<{
+export interface Timestamp<S extends FirestoreSchema.TimeSchema> extends VariantSchema.Field<{
   readonly read: S;
   readonly create: FirestoreSchema.ServerTimestampOr<S>;
   readonly update: FirestoreSchema.ServerTimestampOr<S>;
@@ -721,15 +718,17 @@ export interface Timestamp<
  *
  * What the instant is held as is `schema`'s to say:
  * {@link FirestoreSchema.Timestamp} where the digits finer than a millisecond
- * are to survive a round trip, {@link FirestoreSchema.DateTimeUtcFromTimestamp}
- * where a `DateTime.Utc` is the easier value to hold onto.
+ * are to survive a round trip, `Schema.DateTimeUtc` or `Schema.Date` where one
+ * of those is the easier value to hold onto. Firestore stores each of them as a
+ * timestamp.
  *
  * ```ts
+ * import { Schema } from "effect";
  * import { FirestoreModel, FirestoreSchema } from "@visiolab/effect-firebase/firestore";
  *
  * class Session extends FirestoreModel.Class<Session>("Session")({
  *   createdAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
- *   seenAt: FirestoreModel.Timestamp(FirestoreSchema.DateTimeUtcFromTimestamp),
+ *   seenAt: FirestoreModel.Timestamp(Schema.DateTimeUtc),
  * }) {}
  * ```
  *
@@ -741,11 +740,8 @@ export interface Timestamp<
  * @category schemas
  * @since 0.2.0
  */
-export const Timestamp: <
-  S extends Schema.Codec<unknown, Timestamp_.TimestampLike, unknown, unknown>,
->(
-  schema: S,
-) => Timestamp<S> = firestoreModel.Timestamp;
+export const Timestamp: <S extends FirestoreSchema.TimeSchema>(schema: S) => Timestamp<S> =
+  firestoreModel.Timestamp;
 
 /**
  * Type-level representation of {@link Number}.

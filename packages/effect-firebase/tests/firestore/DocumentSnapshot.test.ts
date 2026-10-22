@@ -6,14 +6,6 @@ import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
 import * as FirestoreSchema from "../../src/firestore/FirestoreSchema.ts";
 import * as Timestamp from "../../src/firestore/Timestamp.ts";
 
-/** Stands in for an SDK's own `Timestamp`. */
-class SdkTimestamp implements Timestamp.TimestampLike {
-  constructor(
-    readonly seconds: number,
-    readonly nanoseconds: number,
-  ) {}
-}
-
 class User extends FirestoreModel.Class<User>("User")({
   name: Schema.String,
   createdAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
@@ -32,7 +24,7 @@ describe("make", () => {
   });
 
   it("reads a document the SDK handed data for as there, holding that data", () => {
-    const raw = { name: "Alice", createdAt: new SdkTimestamp(1, 2) };
+    const raw = { name: "Alice", createdAt: Timestamp.makeUnsafe(1, 2) };
     const snapshot = DocumentSnapshot.make(Users.doc(alice), raw);
     assert(DocumentSnapshot.isExisting(snapshot));
     expect(snapshot.ref.path).toBe("users/alice");
@@ -46,7 +38,7 @@ describe("data", () => {
     Effect.gen(function* () {
       const snapshot = DocumentSnapshot.existing(Users.doc(alice), {
         name: "Alice",
-        createdAt: new SdkTimestamp(1_700_000_000, 123_456_789),
+        createdAt: Timestamp.makeUnsafe(1_700_000_000, 123_456_789),
       });
       const user = yield* snapshot.data;
       expect(user).toBeInstanceOf(User);

@@ -12,6 +12,7 @@
 import type { Brand, Equal, Inspectable, Option, Schema } from "effect";
 import type * as FirestoreModel from "./FirestoreModel.ts";
 import * as collection from "./internal/collection.ts";
+import * as untypedReference from "./internal/untypedReference.ts";
 
 const CollectionTypeId = collection.CollectionTypeId;
 const CollectionReferenceTypeId = collection.CollectionReferenceTypeId;
@@ -337,3 +338,22 @@ export const fromPath: <C extends Any>(
   collection: C,
   path: string,
 ) => Option.Option<DocumentReference<C>> = collection.fromPath;
+
+/**
+ * References the document found at `path`, without knowing the collection it
+ * was defined through.
+ *
+ * This is how a reference read back from Firestore is held before a schema
+ * claims it, since its path is all Firestore hands back. Every reference built
+ * from the same path is equal to every other, but not to one built from a
+ * collection defined with {@link make}: `FirestoreSchema.DocumentReference`
+ * turns it into one of those by its path.
+ *
+ * Comes back as `None` when `path` does not address a document.
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.2.0
+ */
+export const fromPathUntyped: (path: string) => Option.Option<DocumentReference<Any>> =
+  untypedReference.fromPathUntyped;

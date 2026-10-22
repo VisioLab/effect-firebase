@@ -1,30 +1,18 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { Context, DateTime, Effect, Exit, Layer, Schema, SchemaGetter } from "effect";
+import { Context, DateTime, Effect, Exit, Layer, Option, Schema, SchemaGetter } from "effect";
 import type { VariantSchema } from "effect/schema";
 import * as Collection from "../../src/firestore/Collection.ts";
 import * as FieldValue from "../../src/firestore/FieldValue.ts";
 import { FirestoreEncoder } from "../../src/firestore/FirestoreEncoder.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
 import * as FirestoreSchema from "../../src/firestore/FirestoreSchema.ts";
+import * as FirestoreValue from "../../src/firestore/FirestoreValue.ts";
 import * as GeoPoint from "../../src/firestore/GeoPoint.ts";
 import * as Patch from "../../src/firestore/Patch.ts";
 import * as Timestamp from "../../src/firestore/Timestamp.ts";
 
-/** Stands in for an SDK's own `Timestamp`. */
-class SdkTimestamp implements Timestamp.TimestampLike {
-  constructor(
-    readonly seconds: number,
-    readonly nanoseconds: number,
-  ) {}
-}
-
-/** Stands in for an SDK's own `GeoPoint`. */
-class SdkGeoPoint implements GeoPoint.GeoPointLike {
-  constructor(
-    readonly latitude: number,
-    readonly longitude: number,
-  ) {}
-}
+/** A reference as an SDK mapping reads it back: by its path alone. */
+const untyped = (path: string) => Option.getOrThrow(Collection.fromPathUntyped(path));
 
 /** Stands in for an SDK's own sentinel. */
 class SdkServerTimestamp {}
@@ -47,23 +35,11 @@ class SdkArrayRemove {
   constructor(readonly elements: ReadonlyArray<unknown>) {}
 }
 
-/** Stands in for an SDK's own `DocumentReference`. */
-class SdkDocumentReference implements Collection.DocumentReferenceLike {
-  readonly firestore = {};
-  constructor(readonly path: string) {}
-  get id(): string {
-    return this.path.slice(this.path.lastIndexOf("/") + 1);
-  }
-  get parent(): string {
-    return this.path.slice(0, this.path.lastIndexOf("/"));
-  }
-}
-
 const encoder = Layer.succeed(FirestoreEncoder)(
   FirestoreEncoder.of({
-    timestamp: (value) => new SdkTimestamp(value.seconds, value.nanoseconds),
-    geoPoint: (value) => new SdkGeoPoint(value.latitude, value.longitude),
-    documentReference: (ref) => new SdkDocumentReference(ref.path),
+    timestamp: (value) => value,
+    geoPoint: (value) => value,
+    documentReference: (ref) => ref,
     serverTimestamp: () => new SdkServerTimestamp(),
     increment: (by) => new SdkIncrement(by),
     deleteField: () => new SdkDeleteField(),
@@ -97,8 +73,8 @@ const read = (overrides?: Partial<Record<string, unknown>>): unknown => ({
   displayName: "alice",
   signupSource: "web",
   plan: "free",
-  createdAt: new SdkTimestamp(1_700_000_000, 0),
-  updatedAt: new SdkTimestamp(1_700_000_001, 0),
+  createdAt: Timestamp.makeUnsafe(1_700_000_000, 0),
+  updatedAt: Timestamp.makeUnsafe(1_700_000_001, 0),
   ...overrides,
 });
 
@@ -181,7 +157,7 @@ describe("create", () => {
           updatedAt: FieldValue.serverTimestamp,
         }),
       );
-      expect(encoded.createdAt).toBeInstanceOf(SdkTimestamp);
+      expect(Timestamp.isTimestamp(encoded.createdAt)).toBe(true);
       expect(encoded.updatedAt).toBeInstanceOf(SdkServerTimestamp);
     }).pipe(Effect.provide(encoder)),
   );
@@ -284,7 +260,7 @@ describe("a field written either way", () => {
       const encoded = yield* Schema.encodeEffect(Event.create)(
         Event.create.make({ name: "a", occurredAt: Timestamp.makeUnsafe(1, 2) }),
       );
-      expect(encoded.occurredAt).toBeInstanceOf(SdkTimestamp);
+      expect(Timestamp.isTimestamp(encoded.occurredAt)).toBe(true);
     }).pipe(Effect.provide(encoder)),
   );
 
@@ -301,7 +277,7 @@ describe("a field written either way", () => {
     Effect.gen(function* () {
       const event = yield* Schema.decodeUnknownEffect(Event)({
         name: "a",
-        occurredAt: new SdkTimestamp(1, 2),
+        occurredAt: Timestamp.makeUnsafe(1, 2),
       } as unknown);
       expect(Timestamp.isTimestamp(event.occurredAt)).toBe(true);
     }),
@@ -310,25 +286,43 @@ describe("a field written either way", () => {
   it.effect("holds the instant the way the schema it was handed does", () =>
     Effect.gen(function* () {
       class Visit extends FirestoreModel.Class<Visit>("Visit")({
-        seenAt: FirestoreModel.Timestamp(FirestoreSchema.DateTimeUtcFromTimestamp),
+        seenAt: FirestoreModel.Timestamp(Schema.DateTimeUtc),
+        leftAt: FirestoreModel.Timestamp(Schema.Date),
       }) {}
 
-      const visit = yield* Schema.decodeEffect(Visit)({
-        seenAt: new SdkTimestamp(1_700_000_000, 123_000_000),
+      const visit = yield* Schema.decodeEffect(FirestoreValue.toCodecFirestore(Visit))({
+        seenAt: Timestamp.makeUnsafe(1_700_000_000, 123_000_000),
+        leftAt: Timestamp.makeUnsafe(1_700_000_001, 0),
       });
       expect(visit.seenAt).toStrictEqual(DateTime.makeUnsafe(1_700_000_000_123));
+      expect(visit.leftAt).toStrictEqual(new Date(1_700_000_001_000));
 
-      const stamped = yield* Schema.encodeEffect(Visit.update)(
-        Visit.update.make({ seenAt: DateTime.makeUnsafe(1_700_000_000_123) }),
+      const stamped = yield* Schema.encodeEffect(FirestoreValue.toCodecFirestore(Visit.update))(
+        Visit.update.make({
+          seenAt: DateTime.makeUnsafe(1_700_000_000_123),
+          leftAt: new Date(1_700_000_001_000),
+        }),
       );
-      expect(stamped.seenAt).toBeInstanceOf(SdkTimestamp);
+      expect(stamped).toStrictEqual({
+        seenAt: Timestamp.makeUnsafe(1_700_000_000, 123_000_000),
+        leftAt: Timestamp.makeUnsafe(1_700_000_001, 0),
+      });
 
-      const left = yield* Schema.encodeEffect(Visit.update)(
-        Visit.update.make({ seenAt: FieldValue.serverTimestamp }),
+      const left = yield* Schema.encodeEffect(FirestoreValue.toCodecFirestore(Visit.create))(
+        Visit.create.make({
+          seenAt: FieldValue.serverTimestamp,
+          leftAt: FieldValue.serverTimestamp,
+        }),
       );
-      expect(left.seenAt).toBeInstanceOf(SdkServerTimestamp);
+      expect((left as { seenAt: unknown }).seenAt).toBeInstanceOf(SdkServerTimestamp);
+      expect((left as { leftAt: unknown }).leftAt).toBeInstanceOf(SdkServerTimestamp);
     }).pipe(Effect.provide(encoder)),
   );
+
+  it("is only built from a schema Firestore stores as a timestamp", () => {
+    // @ts-expect-error a string is stored as a string, not a timestamp
+    FirestoreModel.Timestamp(Schema.String);
+  });
 });
 
 describe("Number", () => {
@@ -525,8 +519,8 @@ describe("Array", () => {
       const grown = yield* Schema.encodeEffect(Log.update)(
         Log.update.make({ seenAt: FieldValue.arrayUnion(Timestamp.makeUnsafe(1, 2)) }),
       );
-      expect((whole.seenAt as ReadonlyArray<unknown>)[0]).toStrictEqual(new SdkTimestamp(1, 2));
-      expect((grown.seenAt as SdkArrayUnion).elements[0]).toStrictEqual(new SdkTimestamp(1, 2));
+      expect((whole.seenAt as ReadonlyArray<unknown>)[0]).toStrictEqual(Timestamp.makeUnsafe(1, 2));
+      expect((grown.seenAt as SdkArrayUnion).elements[0]).toStrictEqual(Timestamp.makeUnsafe(1, 2));
     }).pipe(Effect.provide(encoder)),
   );
 
@@ -582,7 +576,7 @@ describe("Optional", () => {
       const profile = yield* Schema.decodeUnknownEffect(Profile)({
         name: "alice",
         nickname: "ally",
-        lastSeenAt: new SdkTimestamp(1, 2),
+        lastSeenAt: Timestamp.makeUnsafe(1, 2),
       } as unknown);
       expect(profile.nickname).toBe("ally");
       expect(Timestamp.isTimestamp(profile.lastSeenAt)).toBe(true);
@@ -703,7 +697,7 @@ describe("an update reaching into a struct", () => {
         address: { verifiedAt: Timestamp.makeUnsafe(1, 2) },
         tags: { primary: "cafe" },
       });
-      expect(encoded["address.verifiedAt"]).toBeInstanceOf(SdkTimestamp);
+      expect(Timestamp.isTimestamp(encoded["address.verifiedAt"])).toBe(true);
       expect(encoded.tags).toStrictEqual({ primary: "cafe" });
     }).pipe(Effect.provide(encoder)),
   );
@@ -906,7 +900,7 @@ describe("a struct a document may go without", () => {
         name: "a",
         address: {
           city: "Berlin",
-          verifiedAt: new SdkTimestamp(1, 2),
+          verifiedAt: Timestamp.makeUnsafe(1, 2),
           geo: { lat: 1, lng: 2 },
           notes: {},
         },
@@ -1282,8 +1276,8 @@ describe("a field holding a document reference", () => {
     Effect.gen(function* () {
       const post = yield* Schema.decodeEffect(Post)({
         title: "hello",
-        author: new SdkDocumentReference("users/alice"),
-        meta: { category: new SdkDocumentReference("categories/news") },
+        author: untyped("users/alice"),
+        meta: { category: untyped("categories/news") },
       });
       expectTypeOf(post.author).toEqualTypeOf<Collection.DocumentReference<typeof Users>>();
       expect(post.author.collection).toBe(Users);
@@ -1298,9 +1292,9 @@ describe("a field holding a document reference", () => {
       const encoded = yield* Schema.encodeEffect(Post.create)(
         Post.create.make({ title: "hello", author: alice, meta: { category: news } }),
       );
-      expect(encoded.author).toBeInstanceOf(SdkDocumentReference);
+      expect(Collection.isDocumentReference(encoded.author)).toBe(true);
       expect(encoded.author.path).toBe("users/alice");
-      expect(encoded.meta.category).toBeInstanceOf(SdkDocumentReference);
+      expect(Collection.isDocumentReference(encoded.meta.category)).toBe(true);
     }).pipe(Effect.provide(encoder)),
   );
 
@@ -1310,8 +1304,8 @@ describe("a field holding a document reference", () => {
         Post.update.make({ author: alice, meta: { category: news } }),
       );
       expect(Object.keys(encoded).sort()).toEqual(["author", "meta.category"]);
-      expect(encoded.author).toBeInstanceOf(SdkDocumentReference);
-      expect(encoded["meta.category"]).toBeInstanceOf(SdkDocumentReference);
+      expect(Collection.isDocumentReference(encoded.author)).toBe(true);
+      expect(Collection.isDocumentReference(encoded["meta.category"])).toBe(true);
       expect(encoded["meta.category"]?.path).toBe("categories/news");
     }).pipe(Effect.provide(encoder)),
   );
@@ -1327,7 +1321,7 @@ describe("a geopoint field", () => {
     Effect.gen(function* () {
       const landmark = yield* Schema.decodeEffect(Landmark)({
         name: "Fernsehturm",
-        location: new SdkGeoPoint(52.52, 13.405),
+        location: GeoPoint.makeUnsafe(52.52, 13.405),
       });
       expect(GeoPoint.isGeoPoint(landmark.location)).toBe(true);
       expect(landmark.location.latitude).toBe(52.52);
@@ -1339,7 +1333,7 @@ describe("a geopoint field", () => {
       const encoded = yield* Schema.encodeEffect(Landmark.create)(
         Landmark.create.make({ name: "Fernsehturm", location: GeoPoint.makeUnsafe(52.52, 13.405) }),
       );
-      expect(encoded.location).toBeInstanceOf(SdkGeoPoint);
+      expect(GeoPoint.isGeoPoint(encoded.location)).toBe(true);
     }).pipe(Effect.provide(encoder)),
   );
 
@@ -1349,7 +1343,7 @@ describe("a geopoint field", () => {
         Landmark.update.make({ location: GeoPoint.makeUnsafe(52.52, 13.405) }),
       );
       expect(Object.keys(encoded)).toEqual(["location"]);
-      expect(encoded.location).toBeInstanceOf(SdkGeoPoint);
+      expect(GeoPoint.isGeoPoint(encoded.location)).toBe(true);
     }).pipe(Effect.provide(encoder)),
   );
 });
@@ -1398,7 +1392,7 @@ describe("Record", () => {
     title: "lunch",
     votes: { pizza: 2, sushi: 1 },
     tags: { pizza: ["hot"] },
-    seenAt: { alice: new SdkTimestamp(1, 2) },
+    seenAt: { alice: Timestamp.makeUnsafe(1, 2) },
     aliases: {},
     members: { m1: { name: "alice", badges: [] } },
     scores: { r1: { a: 1 } },
@@ -1470,7 +1464,7 @@ describe("Record", () => {
       expect(encoded["tags.pizza"]).toStrictEqual(new SdkArrayUnion(["cheesy"]));
       expect(encoded["tags.sushi"]).toStrictEqual(new SdkArrayRemove(["raw"]));
       expect(encoded["seenAt.alice"]).toBeInstanceOf(SdkServerTimestamp);
-      expect(encoded["seenAt.bob"]).toBeInstanceOf(SdkTimestamp);
+      expect(Timestamp.isTimestamp(encoded["seenAt.bob"])).toBe(true);
     }).pipe(Effect.provide(encoder)),
   );
 

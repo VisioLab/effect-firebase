@@ -9,8 +9,7 @@ import * as FirestoreValue from "../../src/firestore/FirestoreValue.ts";
 import * as GeoPoint from "../../src/firestore/GeoPoint.ts";
 import * as Timestamp from "../../src/firestore/Timestamp.ts";
 
-/** The portable `Timestamp` declaration, without the encoder-backed transformation. */
-const PortableTimestamp = Schema.toType(FirestoreSchema.Timestamp);
+const PortableTimestamp = FirestoreSchema.Timestamp;
 
 class MoneyValue {
   constructor(readonly cents: number) {}
@@ -229,8 +228,8 @@ describe("toCodecFirestore", () => {
           gone: Schema.toType(FirestoreSchema.DeleteField),
           tags: Schema.toType(FirestoreSchema.ArrayUnion(Schema.String)),
           old: Schema.toType(FirestoreSchema.ArrayRemove(Schema.String)),
-          owner: Schema.toType(FirestoreSchema.DocumentReference(Users)),
-          where: Schema.toType(FirestoreSchema.GeoPoint),
+          owner: FirestoreSchema.DocumentReference(Users),
+          where: FirestoreSchema.GeoPoint,
         });
         const value = {
           createdAt: FieldValue.serverTimestamp,
@@ -288,19 +287,13 @@ describe("toCodecFirestore", () => {
   );
 
   it.effect(
-    "passes through what the encoder-backed FirestoreSchema codecs build, during the migration",
+    "passes through the sentinels the encoder-backed FirestoreSchema codecs build, during the migration",
     () =>
       Effect.gen(function* () {
-        class SdkTimestamp {
-          constructor(
-            readonly seconds: number,
-            readonly nanoseconds: number,
-          ) {}
-        }
         class SdkServerTimestamp {}
         const encoder = Layer.succeed(FirestoreEncoder)(
           FirestoreEncoder.of({
-            timestamp: (value) => new SdkTimestamp(value.seconds, value.nanoseconds),
+            timestamp: (value) => value,
             geoPoint: (value) => value,
             documentReference: (ref) => ref,
             serverTimestamp: () => new SdkServerTimestamp(),
@@ -319,8 +312,8 @@ describe("toCodecFirestore", () => {
           at: Timestamp.makeUnsafe(1, 2),
           createdAt: FieldValue.serverTimestamp,
         }).pipe(Effect.provide(encoder));
-        expect(encoded).toEqual({
-          at: new SdkTimestamp(1, 2),
+        expect(encoded).toStrictEqual({
+          at: Timestamp.makeUnsafe(1, 2),
           createdAt: new SdkServerTimestamp(),
         });
       }),

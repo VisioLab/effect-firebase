@@ -1,28 +1,13 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { DateTime, Effect, Equal, Layer, Schema } from "effect";
+import { DateTime, Effect, Equal, Layer, Option, Schema } from "effect";
 import * as Collection from "../../src/firestore/Collection.ts";
 import * as FieldValue from "../../src/firestore/FieldValue.ts";
 import { FirestoreEncoder } from "../../src/firestore/FirestoreEncoder.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
 import * as FirestoreSchema from "../../src/firestore/FirestoreSchema.ts";
+import * as FirestoreValue from "../../src/firestore/FirestoreValue.ts";
 import * as GeoPoint from "../../src/firestore/GeoPoint.ts";
 import * as Timestamp from "../../src/firestore/Timestamp.ts";
-
-/** Stands in for an SDK's own `Timestamp`. */
-class SdkTimestamp implements Timestamp.TimestampLike {
-  constructor(
-    readonly seconds: number,
-    readonly nanoseconds: number,
-  ) {}
-}
-
-/** Stands in for an SDK's own `GeoPoint`. */
-class SdkGeoPoint implements GeoPoint.GeoPointLike {
-  constructor(
-    readonly latitude: number,
-    readonly longitude: number,
-  ) {}
-}
 
 /** Stands in for an SDK's own sentinel. */
 class SdkServerTimestamp {}
@@ -45,23 +30,12 @@ class SdkArrayRemove {
   constructor(readonly elements: ReadonlyArray<unknown>) {}
 }
 
-/** Stands in for an SDK's own `DocumentReference`. */
-class SdkDocumentReference implements Collection.DocumentReferenceLike {
-  readonly firestore = {};
-  constructor(readonly path: string) {}
-  get id(): string {
-    return this.path.slice(this.path.lastIndexOf("/") + 1);
-  }
-  get parent(): string {
-    return this.path.slice(0, this.path.lastIndexOf("/"));
-  }
-}
-
+/** The sentinels are still built by an encoder, until they become plain values too (#76). */
 const encoder = Layer.succeed(FirestoreEncoder)(
   FirestoreEncoder.of({
-    timestamp: (value) => new SdkTimestamp(value.seconds, value.nanoseconds),
-    geoPoint: (value) => new SdkGeoPoint(value.latitude, value.longitude),
-    documentReference: (ref) => new SdkDocumentReference(ref.path),
+    timestamp: (value) => value,
+    geoPoint: (value) => value,
+    documentReference: (ref) => ref,
     serverTimestamp: () => new SdkServerTimestamp(),
     increment: (by) => new SdkIncrement(by),
     deleteField: () => new SdkDeleteField(),
@@ -70,177 +44,92 @@ const encoder = Layer.succeed(FirestoreEncoder)(
   }),
 );
 
-/** The shape an SDK hands back. */
-const native = (seconds: number, nanoseconds: number): Timestamp.TimestampLike =>
-  new SdkTimestamp(seconds, nanoseconds);
+const toFirestore = <S extends Schema.Top>(schema: S) =>
+  Schema.encodeUnknownEffect(FirestoreValue.toCodecFirestore(schema));
+
+const fromFirestore = <S extends Schema.Top>(schema: S) =>
+  Schema.decodeUnknownEffect(FirestoreValue.toCodecFirestore(schema));
 
 describe("Timestamp", () => {
-  it("keeps the constructor input typed rather than widening it to unknown", () => {
+  it("is the portable Timestamp on both sides, and asks for no services", () => {
+    expectTypeOf<(typeof FirestoreSchema.Timestamp)["Type"]>().toEqualTypeOf<Timestamp.Timestamp>();
+    expectTypeOf<
+      (typeof FirestoreSchema.Timestamp)["Encoded"]
+    >().toEqualTypeOf<Timestamp.Timestamp>();
+    expectTypeOf<(typeof FirestoreSchema.Timestamp)["EncodingServices"]>().toEqualTypeOf<never>();
+    expectTypeOf<(typeof FirestoreSchema.Timestamp)["DecodingServices"]>().toEqualTypeOf<never>();
     expectTypeOf<
       Parameters<typeof FirestoreSchema.Timestamp.make>[0]
     >().toEqualTypeOf<Timestamp.Timestamp>();
-    expectTypeOf<
-      (typeof FirestoreSchema.Timestamp)["Encoded"]
-    >().toEqualTypeOf<Timestamp.TimestampLike>();
   });
 
   it("keeps its own name through a rebuild", () => {
     expectTypeOf(FirestoreSchema.Timestamp.annotate({})).toEqualTypeOf<FirestoreSchema.Timestamp>();
-    expectTypeOf(
-      FirestoreSchema.DateTimeUtcFromTimestamp.annotate({}),
-    ).toEqualTypeOf<FirestoreSchema.DateTimeUtcFromTimestamp>();
   });
 
-  const decode = Schema.decodeEffect(FirestoreSchema.Timestamp);
-  const encode = Schema.encodeEffect(FirestoreSchema.Timestamp);
-
-  it.effect("decodes a timestamp read through an SDK", () =>
+  it.effect("is stored as the portable Timestamp, to the nanosecond, with no layer", () =>
     Effect.gen(function* () {
-      const decoded = yield* decode(native(1_700_000_000, 123_456_789));
-      expect(Timestamp.isTimestamp(decoded)).toBe(true);
-      expect(Equal.equals(decoded, Timestamp.makeUnsafe(1_700_000_000, 123_456_789))).toBe(true);
-    }),
-  );
-
-  it.effect("decodes one of ours unchanged", () =>
-    Effect.gen(function* () {
-      const timestamp = Timestamp.makeUnsafe(1, 2);
-      expect(yield* decode(timestamp)).toBe(timestamp);
-    }),
-  );
-
-  it("asks for an encoder to write, and for nothing at all to read", () => {
-    expectTypeOf<
-      (typeof FirestoreSchema.Timestamp)["EncodingServices"]
-    >().toEqualTypeOf<FirestoreEncoder>();
-    expectTypeOf<(typeof FirestoreSchema.Timestamp)["DecodingServices"]>().toEqualTypeOf<never>();
-  });
-
-  it.effect("hands the encoder the value, and writes what it builds", () =>
-    Effect.gen(function* () {
-      const encoded = yield* encode(Timestamp.makeUnsafe(1_700_000_000, 123_456_789));
-      expect(encoded).toBeInstanceOf(SdkTimestamp);
-      expect(encoded.seconds).toBe(1_700_000_000);
-      expect(encoded.nanoseconds).toBe(123_456_789);
-    }).pipe(Effect.provide(encoder)),
-  );
-
-  it.effect("reaches every value it owns, however they are nested", () =>
-    Effect.gen(function* () {
-      const timestamp = Timestamp.makeUnsafe(1, 2);
       const Clip = Schema.Struct({
         at: FirestoreSchema.Timestamp,
         takes: Schema.Array(Schema.Struct({ at: FirestoreSchema.Timestamp })),
       });
-      const encoded = yield* Schema.encodeEffect(Clip)({
-        at: timestamp,
-        takes: [{ at: timestamp }],
-      });
-      expect(encoded.at).toBeInstanceOf(SdkTimestamp);
-      expect(encoded.takes[0]?.at).toBeInstanceOf(SdkTimestamp);
-    }).pipe(Effect.provide(encoder)),
-  );
-
-  it.effect("keeps the digits finer than a millisecond across a round trip", () =>
-    Effect.gen(function* () {
-      const encoded = yield* encode(yield* decode(native(1, 123_456_789)));
-      expect(encoded.nanoseconds).toBe(123_456_789);
-    }).pipe(Effect.provide(encoder)),
-  );
-
-  it.effect("refuses what Firestore would not have handed back", () =>
-    Effect.gen(function* () {
-      const decodeUnknown = Schema.decodeUnknownEffect(FirestoreSchema.Timestamp);
-      expect(yield* Effect.flip(decodeUnknown(native(0, -1)))).toBeDefined();
-      expect(yield* Effect.flip(decodeUnknown({ seconds: 0 }))).toBeDefined();
-      expect(yield* Effect.flip(decodeUnknown("2024-01-01T00:00:00Z"))).toBeDefined();
+      const at = Timestamp.makeUnsafe(1_700_000_000, 123_456_789);
+      const encoded = yield* toFirestore(Clip)({ at, takes: [{ at }] });
+      expect(encoded).toStrictEqual({ at, takes: [{ at }] });
+      const decoded = yield* fromFirestore(Clip)(encoded);
+      expect(Equal.equals(decoded.at, at)).toBe(true);
+      expect(decoded.at.nanoseconds).toBe(123_456_789);
     }),
   );
 
-  it.effect("decodes a field of a document", () =>
+  it.effect("refuses what is not a portable Timestamp", () =>
     Effect.gen(function* () {
-      const Post = Schema.Struct({ title: Schema.String, createdAt: FirestoreSchema.Timestamp });
-      const post = yield* Schema.decodeEffect(Post)({ title: "hello", createdAt: native(1, 2) });
-      expect(Equal.equals(post.createdAt, Timestamp.makeUnsafe(1, 2))).toBe(true);
-    }),
-  );
-});
-
-describe("DateTimeUtcFromTimestamp", () => {
-  const decode = Schema.decodeEffect(FirestoreSchema.DateTimeUtcFromTimestamp);
-  const encode = Schema.encodeEffect(FirestoreSchema.DateTimeUtcFromTimestamp);
-
-  it.effect("decodes a timestamp read through an SDK", () =>
-    Effect.gen(function* () {
-      expect(yield* decode(native(1_700_000_000, 123_000_000))).toStrictEqual(
-        DateTime.makeUnsafe(1_700_000_000_123),
-      );
+      const decode = Schema.decodeUnknownEffect(FirestoreSchema.Timestamp);
+      expect(yield* Effect.flip(decode({ seconds: 0, nanoseconds: 0 }))).toBeDefined();
+      expect(yield* Effect.flip(decode("2024-01-01T00:00:00Z"))).toBeDefined();
     }),
   );
 
-  it.effect("encodes back to the shape an SDK binding writes", () =>
+  it.effect("serializes as JSON without losing the digits finer than a millisecond", () =>
     Effect.gen(function* () {
-      const encoded = yield* encode(DateTime.makeUnsafe(1_700_000_000_123));
-      expect(encoded).toBeInstanceOf(SdkTimestamp);
-      expect(encoded.seconds).toBe(1_700_000_000);
-      expect(encoded.nanoseconds).toBe(123_000_000);
-    }).pipe(Effect.provide(encoder)),
-  );
-
-  it.effect("drops the digits a DateTime cannot hold", () =>
-    Effect.gen(function* () {
-      const encoded = yield* encode(yield* decode(native(1, 123_456_789)));
-      expect(encoded.nanoseconds).toBe(123_000_000);
-    }).pipe(Effect.provide(encoder)),
+      const codec = Schema.toCodecJson(FirestoreSchema.Timestamp);
+      const at = Timestamp.makeUnsafe(1, 123_456_789);
+      const json = yield* Schema.encodeEffect(codec)(at);
+      expect(json).toStrictEqual({ seconds: 1, nanoseconds: 123_456_789 });
+      expect(Equal.equals(yield* Schema.decodeEffect(codec)(json), at)).toBe(true);
+    }),
   );
 });
 
 describe("GeoPoint", () => {
+  it("is the portable GeoPoint on both sides, and asks for no services", () => {
+    expectTypeOf<(typeof FirestoreSchema.GeoPoint)["Encoded"]>().toEqualTypeOf<GeoPoint.GeoPoint>();
+    expectTypeOf<(typeof FirestoreSchema.GeoPoint)["EncodingServices"]>().toEqualTypeOf<never>();
+    expectTypeOf<(typeof FirestoreSchema.GeoPoint)["DecodingServices"]>().toEqualTypeOf<never>();
+  });
+
   it("keeps its own name through a rebuild", () => {
     expectTypeOf(FirestoreSchema.GeoPoint.annotate({})).toEqualTypeOf<FirestoreSchema.GeoPoint>();
   });
 
-  const decode = Schema.decodeEffect(FirestoreSchema.GeoPoint);
-  const encode = Schema.encodeEffect(FirestoreSchema.GeoPoint);
-
-  it.effect("decodes a geopoint read through an SDK", () =>
+  it.effect("is stored as the portable GeoPoint, with no layer", () =>
     Effect.gen(function* () {
-      const decoded = yield* decode(new SdkGeoPoint(52.52, 13.405));
-      expect(GeoPoint.isGeoPoint(decoded)).toBe(true);
-      expect(Equal.equals(decoded, GeoPoint.makeUnsafe(52.52, 13.405))).toBe(true);
+      const Place = Schema.Struct({ where: FirestoreSchema.GeoPoint });
+      const where = GeoPoint.makeUnsafe(52.52, 13.405);
+      const encoded = yield* toFirestore(Place)({ where });
+      expect(encoded).toStrictEqual({ where });
+      const decoded = yield* fromFirestore(Place)(encoded);
+      expect(Equal.equals(decoded.where, where)).toBe(true);
     }),
   );
 
-  it("asks for an encoder to write, and for nothing at all to read", () => {
-    expectTypeOf<
-      (typeof FirestoreSchema.GeoPoint)["EncodingServices"]
-    >().toEqualTypeOf<FirestoreEncoder>();
-    expectTypeOf<(typeof FirestoreSchema.GeoPoint)["DecodingServices"]>().toEqualTypeOf<never>();
-  });
-
-  it.effect("hands the encoder the value, and writes what it builds", () =>
+  it.effect("refuses what is not a portable GeoPoint", () =>
     Effect.gen(function* () {
-      const encoded = yield* encode(GeoPoint.makeUnsafe(52.52, 13.405));
-      expect(encoded).toBeInstanceOf(SdkGeoPoint);
-      expect(encoded.latitude).toBe(52.52);
-      expect(encoded.longitude).toBe(13.405);
-    }).pipe(Effect.provide(encoder)),
-  );
-
-  it.effect("refuses what Firestore would not have handed back", () =>
-    Effect.gen(function* () {
-      const decodeUnknown = Schema.decodeUnknownEffect(FirestoreSchema.GeoPoint);
-      expect(yield* Effect.flip(decodeUnknown(new SdkGeoPoint(91, 0)))).toBeDefined();
-      expect(yield* Effect.flip(decodeUnknown(new SdkGeoPoint(0, 181)))).toBeDefined();
-      expect(yield* Effect.flip(decodeUnknown({ latitude: 0 }))).toBeDefined();
+      const decode = Schema.decodeUnknownEffect(FirestoreSchema.GeoPoint);
+      expect(yield* Effect.flip(decode({ latitude: 0, longitude: 0 }))).toBeDefined();
+      const encode = Schema.encodeUnknownEffect(FirestoreSchema.GeoPoint);
+      expect(yield* Effect.flip(encode({ latitude: 0, longitude: 0 }))).toBeDefined();
     }),
-  );
-
-  it.effect("refuses to write a place out of range", () =>
-    Effect.gen(function* () {
-      const encodeUnknown = Schema.encodeUnknownEffect(FirestoreSchema.GeoPoint);
-      expect(yield* Effect.flip(encodeUnknown({ latitude: 0, longitude: 0 }))).toBeDefined();
-    }).pipe(Effect.provide(encoder)),
   );
 });
 
@@ -255,16 +144,20 @@ describe("DocumentReference", () => {
 
   const Post = FirestoreSchema.DocumentReference(Posts);
   const decode = Schema.decodeUnknownEffect(Post);
-  const encode = Schema.encodeEffect(Post);
   const hello = Posts.doc(Users.id.make("alice"), Posts.id.make("hello"));
 
-  it("is typed by the collection it points into", () => {
+  /** A reference as an SDK mapping reads it back: by its path alone. */
+  const untyped = (path: string) => Option.getOrThrow(Collection.fromPathUntyped(path));
+
+  it("is typed by the collection it points into, and asks for no services", () => {
     expectTypeOf<(typeof Post)["Type"]>().toEqualTypeOf<
       Collection.DocumentReference<typeof Posts>
     >();
-    expectTypeOf<(typeof Post)["Encoded"]>().toEqualTypeOf<Collection.DocumentReferenceLike>();
+    expectTypeOf<(typeof Post)["Encoded"]>().toEqualTypeOf<
+      Collection.DocumentReference<typeof Posts>
+    >();
     expectTypeOf<(typeof Post)["DecodingServices"]>().toEqualTypeOf<never>();
-    expectTypeOf<(typeof Post)["EncodingServices"]>().toEqualTypeOf<FirestoreEncoder>();
+    expectTypeOf<(typeof Post)["EncodingServices"]>().toEqualTypeOf<never>();
   });
 
   it("keeps its own name through a rebuild", () => {
@@ -273,9 +166,9 @@ describe("DocumentReference", () => {
     >();
   });
 
-  it.effect("decodes a reference read through an SDK", () =>
+  it.effect("decodes a reference read back by its path into one of the collection's own", () =>
     Effect.gen(function* () {
-      const decoded = yield* decode(new SdkDocumentReference("users/alice/posts/hello"));
+      const decoded = yield* decode(untyped("users/alice/posts/hello"));
       expect(Collection.isDocumentReference(decoded)).toBe(true);
       expect(decoded.collection).toBe(Posts);
       expect(decoded.ancestors).toEqual(["alice"]);
@@ -286,7 +179,7 @@ describe("DocumentReference", () => {
 
   it.effect("decodes one of ours unchanged", () =>
     Effect.gen(function* () {
-      expect(Equal.equals(yield* decode(hello), hello)).toBe(true);
+      expect(yield* decode(hello)).toBe(hello);
     }),
   );
 
@@ -296,27 +189,31 @@ describe("DocumentReference", () => {
         "orgs/acme/posts/hello",
         "users/alice",
         "users/alice/posts/hello/comments/first",
-        "users//posts/hello",
       ]) {
-        const failure = yield* Effect.flip(decode(new SdkDocumentReference(path)));
+        const failure = yield* Effect.flip(decode(untyped(path)));
         expect(String(failure)).toContain(`Expected a document in users/{id}/posts/{id}`);
       }
+      const elsewhere = OrgPosts.doc(Orgs.id.make("acme"), OrgPosts.id.make("hello"));
+      expect(yield* Effect.flip(decode(elsewhere))).toBeDefined();
     }),
   );
 
   it.effect("refuses a map that only looks like a reference", () =>
     Effect.gen(function* () {
       const failure = yield* Effect.flip(decode({ id: "hello", path: "users/alice/posts/hello" }));
-      expect(String(failure)).toContain("a Firestore document reference");
+      expect(String(failure)).toContain("users/{id}/posts/{id}");
     }),
   );
 
-  it.effect("writes the SDK's own reference", () =>
+  it.effect("is stored as the portable reference, and reads back equal, with no layer", () =>
     Effect.gen(function* () {
-      const encoded = yield* encode(hello);
-      expect(encoded).toBeInstanceOf(SdkDocumentReference);
-      expect(encoded.path).toBe("users/alice/posts/hello");
-    }).pipe(Effect.provide(encoder)),
+      const Comment = Schema.Struct({ post: Post });
+      const encoded = yield* toFirestore(Comment)({ post: hello });
+      expect(encoded).toStrictEqual({ post: hello });
+      // What an SDK mapping hands back holds the path, not the collection.
+      const decoded = yield* fromFirestore(Comment)({ post: untyped(hello.path) });
+      expect(Equal.equals(decoded.post, hello)).toBe(true);
+    }),
   );
 
   it.effect("refuses to write a reference into another collection", () =>
@@ -324,26 +221,15 @@ describe("DocumentReference", () => {
       const elsewhere = OrgPosts.doc(Orgs.id.make("acme"), OrgPosts.id.make("hello"));
       const failure = yield* Effect.flip(Schema.encodeUnknownEffect(Post)(elsewhere));
       expect(failure).toBeDefined();
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("tells collections apart in a union", () =>
     Effect.gen(function* () {
       const Either = Schema.Union([Post, FirestoreSchema.DocumentReference(OrgPosts)]);
-      const decoded = yield* Schema.decodeEffect(Either)(
-        new SdkDocumentReference("orgs/acme/posts/hello"),
-      );
+      const decoded = yield* Schema.decodeEffect(Either)(untyped("orgs/acme/posts/hello"));
       expect(decoded.collection).toBe(OrgPosts);
     }),
-  );
-
-  it.effect("writes each element of an array union as the SDK's own", () =>
-    Effect.gen(function* () {
-      const encoded = yield* Schema.encodeEffect(FirestoreSchema.ArrayUnion(Post))(
-        FieldValue.arrayUnion(hello),
-      );
-      expect((encoded as SdkArrayUnion).elements[0]).toBeInstanceOf(SdkDocumentReference);
-    }).pipe(Effect.provide(encoder)),
   );
 
   it("compares by where it points", () => {
@@ -352,6 +238,23 @@ describe("DocumentReference", () => {
       true,
     );
     expect(equivalence(hello, Posts.doc(Users.id.make("bob"), Posts.id.make("hello")))).toBe(false);
+  });
+});
+
+describe("a model of them", () => {
+  class Member extends FirestoreModel.Class<Member>("Member")({ name: Schema.String }) {}
+  const Members = Collection.make("members", Member);
+
+  class Venue extends FirestoreModel.Class<Venue>("Venue")({
+    openedAt: FirestoreSchema.Timestamp,
+    where: FirestoreSchema.GeoPoint,
+    owner: FirestoreSchema.DocumentReference(Members),
+  }) {}
+
+  it("encodes with no services", () => {
+    expectTypeOf<(typeof Venue)["EncodingServices"]>().toEqualTypeOf<never>();
+    expectTypeOf<(typeof Venue.create)["EncodingServices"]>().toEqualTypeOf<never>();
+    expectTypeOf<(typeof Venue.update)["EncodingServices"]>().toEqualTypeOf<never>();
   });
 });
 
@@ -393,42 +296,56 @@ describe("ServerTimestamp", () => {
 });
 
 describe("ServerTimestampOr", () => {
-  const WrittenAt = FirestoreSchema.ServerTimestampOr(FirestoreSchema.Timestamp);
-  const encode = Schema.encodeEffect(WrittenAt);
-
-  it.effect("writes the instant it was handed", () =>
+  it.effect("writes the instant it was handed as the portable Timestamp", () =>
     Effect.gen(function* () {
-      expect(yield* encode(Timestamp.makeUnsafe(1, 2))).toBeInstanceOf(SdkTimestamp);
+      const at = Timestamp.makeUnsafe(1_700_000_000, 123_000_000);
+      for (const [schema, value] of [
+        [FirestoreSchema.ServerTimestampOr(FirestoreSchema.Timestamp), at],
+        [
+          FirestoreSchema.ServerTimestampOr(Schema.DateTimeUtc),
+          DateTime.makeUnsafe(1_700_000_000_123),
+        ],
+        [FirestoreSchema.ServerTimestampOr(Schema.Date), new Date(1_700_000_000_123)],
+      ] as const) {
+        const encoded = yield* toFirestore(schema)(value);
+        expect(Equal.equals(encoded, at)).toBe(true);
+      }
+      // The sentinel is still written through an encoder (#76).
     }).pipe(Effect.provide(encoder)),
   );
 
   it.effect("writes the sentinel just as readily", () =>
     Effect.gen(function* () {
-      expect(yield* encode(FieldValue.serverTimestamp)).toBeInstanceOf(SdkServerTimestamp);
-    }).pipe(Effect.provide(encoder)),
-  );
-
-  it.effect("decodes the timestamp it wraps, which is all a read ever holds", () =>
-    Effect.gen(function* () {
-      const decoded = yield* Schema.decodeEffect(WrittenAt)(native(1, 2));
-      expect(Timestamp.isTimestamp(decoded)).toBe(true);
-    }),
-  );
-
-  it.effect("holds the instant however the schema it was handed holds it", () =>
-    Effect.gen(function* () {
-      const SeenAt = FirestoreSchema.ServerTimestampOr(FirestoreSchema.DateTimeUtcFromTimestamp);
-      expect(yield* Schema.decodeEffect(SeenAt)(native(1_700_000_000, 123_000_000))).toStrictEqual(
-        DateTime.makeUnsafe(1_700_000_000_123),
-      );
-      expect(
-        yield* Schema.encodeEffect(SeenAt)(DateTime.makeUnsafe(1_700_000_000_123)),
-      ).toBeInstanceOf(SdkTimestamp);
-      expect(yield* Schema.encodeEffect(SeenAt)(FieldValue.serverTimestamp)).toBeInstanceOf(
+      const WrittenAt = FirestoreSchema.ServerTimestampOr(Schema.DateTimeUtc);
+      expect(yield* toFirestore(WrittenAt)(FieldValue.serverTimestamp)).toBeInstanceOf(
         SdkServerTimestamp,
       );
     }).pipe(Effect.provide(encoder)),
   );
+
+  it.effect("holds the instant a read hands back however the schema it was handed holds it", () =>
+    Effect.gen(function* () {
+      const at = Timestamp.makeUnsafe(1_700_000_000, 123_000_000);
+      const utc = yield* fromFirestore(FirestoreSchema.ServerTimestampOr(Schema.DateTimeUtc))(at);
+      expect(utc).toStrictEqual(DateTime.makeUnsafe(1_700_000_000_123));
+      const date = yield* fromFirestore(FirestoreSchema.ServerTimestampOr(Schema.Date))(at);
+      expect(date).toStrictEqual(new Date(1_700_000_000_123));
+      const timestamp = yield* fromFirestore(
+        FirestoreSchema.ServerTimestampOr(FirestoreSchema.Timestamp),
+      )(at);
+      expect(Equal.equals(timestamp, at)).toBe(true);
+    }),
+  );
+
+  it("is only built from a schema Firestore stores as a timestamp", () => {
+    FirestoreSchema.ServerTimestampOr(Schema.DateTimeUtc);
+    FirestoreSchema.ServerTimestampOr(Schema.Date);
+    FirestoreSchema.ServerTimestampOr(FirestoreSchema.Timestamp);
+    // @ts-expect-error a string is stored as a string, not a timestamp
+    FirestoreSchema.ServerTimestampOr(Schema.String);
+    // @ts-expect-error a DateTime written as a string is stored as a string
+    FirestoreSchema.ServerTimestampOr(Schema.DateTimeUtcFromString);
+  });
 });
 
 describe("Increment", () => {
@@ -596,13 +513,9 @@ describe("ArrayUnion", () => {
 
   it.effect("encodes each element through the schema it was built from", () =>
     Effect.gen(function* () {
-      const Seen = FirestoreSchema.ArrayUnion(FirestoreSchema.Timestamp);
-      const encoded = yield* Schema.encodeEffect(Seen)(
-        FieldValue.arrayUnion(Timestamp.makeUnsafe(1, 2)),
-      );
-      const [element] = (encoded as SdkArrayUnion).elements;
-      expect(element).toBeInstanceOf(SdkTimestamp);
-      expect(element).toMatchObject({ seconds: 1, nanoseconds: 2 });
+      const Counts = FirestoreSchema.ArrayUnion(Schema.FiniteFromString);
+      const encoded = yield* Schema.encodeEffect(Counts)(FieldValue.arrayUnion(1, 2));
+      expect((encoded as SdkArrayUnion).elements).toEqual(["1", "2"]);
     }).pipe(Effect.provide(encoder)),
   );
 
@@ -629,9 +542,7 @@ describe("ArrayUnion", () => {
   });
 
   it("compares by the elements, as the schema it was built from compares them", () => {
-    const equivalence = Schema.toEquivalence(
-      FirestoreSchema.ArrayUnion(FirestoreSchema.DateTimeUtcFromTimestamp),
-    );
+    const equivalence = Schema.toEquivalence(FirestoreSchema.ArrayUnion(Schema.DateTimeUtc));
     const at = (millis: number) => DateTime.makeUnsafe(millis);
     expect(
       equivalence(FieldValue.arrayUnion(at(1), at(2)), FieldValue.arrayUnion(at(1), at(2))),
@@ -657,13 +568,9 @@ describe("ArrayRemove", () => {
 
   it.effect("encodes each element through the schema it was built from", () =>
     Effect.gen(function* () {
-      const Seen = FirestoreSchema.ArrayRemove(Schema.Struct({ at: FirestoreSchema.Timestamp }));
-      const encoded = yield* Schema.encodeEffect(Seen)(
-        FieldValue.arrayRemove({ at: Timestamp.makeUnsafe(1, 2) }),
-      );
-      expect((encoded as SdkArrayRemove).elements[0]).toMatchObject({
-        at: new SdkTimestamp(1, 2),
-      });
+      const Seen = FirestoreSchema.ArrayRemove(Schema.Struct({ count: Schema.FiniteFromString }));
+      const encoded = yield* Schema.encodeEffect(Seen)(FieldValue.arrayRemove({ count: 1 }));
+      expect((encoded as SdkArrayRemove).elements[0]).toEqual({ count: "1" });
     }).pipe(Effect.provide(encoder)),
   );
 

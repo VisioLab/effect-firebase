@@ -97,14 +97,14 @@ const timestampFromMillis = (millis: number, options: SchemaAST.ParseOptions) =>
       );
 };
 
-const dateToTimestamp = Schema.link<globalThis.Date>()(firestoreSchema.TimestampValue, {
+const dateToTimestamp = Schema.link<globalThis.Date>()(firestoreSchema.Timestamp, {
   decode: SchemaGetter.transform((ts: Timestamp_.Timestamp) => new Date(timestamp.toMillis(ts))),
   encode: SchemaGetter.transformEffect((date: globalThis.Date, options) =>
     timestampFromMillis(date.getTime(), options),
   ),
 });
 
-const dateTimeUtcToTimestamp = Schema.link<DateTime.Utc>()(firestoreSchema.TimestampValue, {
+const dateTimeUtcToTimestamp = Schema.link<DateTime.Utc>()(firestoreSchema.Timestamp, {
   decode: SchemaGetter.transform(timestamp.toDateTime),
   encode: SchemaGetter.transformEffect((dateTime: DateTime.Utc, options) =>
     timestampFromMillis(DateTime.toEpochMillis(dateTime), options),

@@ -9,7 +9,7 @@ import {
 } from "effect";
 import { VariantSchema } from "effect/schema";
 import type * as FirestoreModel from "../FirestoreModel.ts";
-import type * as Timestamp_ from "../Timestamp.ts";
+import type * as FirestoreSchema from "../FirestoreSchema.ts";
 import * as fieldValue from "./fieldValue.ts";
 import * as firestoreSchema from "./firestoreSchema.ts";
 import * as patch from "./patch.ts";
@@ -589,9 +589,7 @@ export const Immutable = <S extends Schema.Top>(schema: S): FirestoreModel.Immut
   Field({ read: schema, create: schema });
 
 /** @internal */
-export const Timestamp = <
-  S extends Schema.Codec<unknown, Timestamp_.TimestampLike, unknown, unknown>,
->(
+export const Timestamp = <S extends FirestoreSchema.TimeSchema>(
   schema: S,
 ): FirestoreModel.Timestamp<S> =>
   Field({

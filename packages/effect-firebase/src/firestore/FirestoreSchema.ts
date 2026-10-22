@@ -1,16 +1,17 @@
 /**
- * Schemas for the values Firestore stores.
+ * Schemas for the Firestore Values Effect has no schema of its own for.
  *
- * Firestore holds a handful of values that are not plain JSON, and hands each
- * back as an instance belonging to whichever SDK read it. The codecs here decode
- * those shapes into values this library owns, and encode them back through an
- * {@link FirestoreEncoder}, so a document schema is written once and reads the same under
- * the Admin SDK and the web SDK.
+ * Each is a plain schema of a portable value this library owns - a
+ * `Timestamp`, a `GeoPoint`, a typed document reference - with no encoding step
+ * of its own. `toCodecFirestore` keeps them as they are, and each SDK package
+ * turns them into the SDK's own values on the way out and back on the way in,
+ * so a document schema is written once and reads the same under the Admin SDK
+ * and the web SDK.
  *
  * @stability unstable
  * @since 0.2.0
  */
-import type { Schema } from "effect";
+import type { DateTime, Schema } from "effect";
 import type * as Collection from "./Collection.ts";
 import type * as FieldValue from "./FieldValue.ts";
 import type { FirestoreEncoder } from "./FirestoreEncoder.ts";
@@ -25,21 +26,20 @@ import type * as Timestamp_ from "./Timestamp.ts";
  * @category models
  * @since 0.2.0
  */
-export interface Timestamp extends Schema.decodeTo<
-  Schema.declare<Timestamp_.Timestamp>,
-  Schema.declare<Timestamp_.TimestampLike>,
-  never,
-  FirestoreEncoder
-> {
+export interface Timestamp extends Schema.declare<Timestamp_.Timestamp> {
   readonly Rebuild: Timestamp;
 }
 
 /**
- * Schema that decodes a Firestore timestamp into a `Timestamp`.
+ * Schema for a Firestore timestamp, held as the portable `Timestamp`.
  *
  * Nothing is lost in either direction, so reach for this over
- * {@link DateTimeUtcFromTimestamp} when a document is read, written back, and
- * expected to come out unchanged.
+ * `Schema.DateTimeUtc` or `Schema.Date` - which Firestore stores as a
+ * timestamp just the same, but which stop at the millisecond - when a
+ * document is read, written back, and expected to come out unchanged.
+ *
+ * It serializes with `Schema.toCodecJson` as `{ seconds, nanoseconds }`, so
+ * the same model can be sent over HTTP.
  *
  * @stability unstable
  * @category schemas
@@ -48,35 +48,20 @@ export interface Timestamp extends Schema.decodeTo<
 export const Timestamp: Timestamp = firestoreSchema.Timestamp;
 
 /**
- * Type-level representation of {@link DateTimeUtcFromTimestamp}.
+ * A schema whose encoded side Firestore stores as a timestamp:
+ * {@link Timestamp}, `Schema.DateTimeUtc` or `Schema.Date`, or any schema
+ * transformed into one of them.
  *
  * @stability unstable
  * @category models
  * @since 0.2.0
  */
-export interface DateTimeUtcFromTimestamp extends Schema.decodeTo<
-  Schema.DateTimeUtc,
-  Schema.declare<Timestamp_.TimestampLike>,
-  never,
-  FirestoreEncoder
-> {
-  readonly Rebuild: DateTimeUtcFromTimestamp;
-}
-
-/**
- * Schema that decodes a Firestore timestamp into a `DateTime.Utc`.
- *
- * `DateTime.Utc` counts in milliseconds, so the finer digits of a timestamp
- * Firestore filled in - a server timestamp, say - are dropped on the way in and
- * do not come back on the way out. Reach for {@link Timestamp} where that
- * matters.
- *
- * @stability unstable
- * @category schemas
- * @since 0.2.0
- */
-export const DateTimeUtcFromTimestamp: DateTimeUtcFromTimestamp =
-  firestoreSchema.DateTimeUtcFromTimestamp;
+export type TimeSchema = Schema.Codec<
+  unknown,
+  Timestamp_.Timestamp | DateTime.Utc | globalThis.Date,
+  unknown,
+  unknown
+>;
 
 /**
  * Type-level representation of {@link GeoPoint}.
@@ -85,22 +70,15 @@ export const DateTimeUtcFromTimestamp: DateTimeUtcFromTimestamp =
  * @category models
  * @since 0.2.0
  */
-export interface GeoPoint extends Schema.decodeTo<
-  Schema.declare<GeoPoint_.GeoPoint>,
-  Schema.declare<GeoPoint_.GeoPointLike>,
-  never,
-  FirestoreEncoder
-> {
+export interface GeoPoint extends Schema.declare<GeoPoint_.GeoPoint> {
   readonly Rebuild: GeoPoint;
 }
 
 /**
- * Schema that decodes a Firestore geopoint into a `GeoPoint`.
+ * Schema for a Firestore geopoint, held as the portable `GeoPoint`.
  *
- * Declaring the shape by hand - a struct of `latitude` and `longitude` - reads
- * a geopoint just as well, but writes it back as a plain object, which
- * Firestore stores as a map. This writes it through the encoder, as the SDK's
- * own `GeoPoint`.
+ * Declaring the shape by hand - a struct of `latitude` and `longitude` - would
+ * be stored as a map. This one is stored as the SDK's own `GeoPoint`.
  *
  * @stability unstable
  * @category schemas
@@ -115,27 +93,27 @@ export const GeoPoint: GeoPoint = firestoreSchema.GeoPoint;
  * @category models
  * @since 0.2.0
  */
-export interface DocumentReference<C extends Collection.Any> extends Schema.decodeTo<
-  Schema.declare<Collection.DocumentReference<C>>,
-  Schema.declare<Collection.DocumentReferenceLike>,
-  never,
-  FirestoreEncoder
+export interface DocumentReference<C extends Collection.Any> extends Schema.declare<
+  Collection.DocumentReference<C>
 > {
   readonly Rebuild: DocumentReference<C>;
 }
 
 /**
- * Schema that decodes a Firestore document reference into a reference typed by
- * `collection`.
+ * Schema for a reference to a document in `collection`.
  *
- * The path the reference points at is checked against the collection's
- * segments, so a reference into any other collection - one sharing its last
- * segment included - is refused rather than read as one into this. A field
- * that may point into more than one collection is a `Schema.Union` of one of
- * these per collection.
+ * A reference Firestore hands back names its path but not the collection it
+ * was defined through, so it is read back as one built by
+ * `Collection.fromPathUntyped`. This schema takes such a reference, checks its
+ * path against the collection's segments and turns it into the collection's
+ * own, so a reference read back is equal to one built from `collection`. A
+ * reference into any other collection - one sharing its last segment
+ * included - is refused rather than read as one into this. A field that may
+ * point into more than one collection is a `Schema.Union` of one of these per
+ * collection.
  *
- * A reference is written as the SDK's own, built by the encoder, since one
- * handed over as it is would be stored as a nested map.
+ * It is stored as the SDK's own reference, built against the database the
+ * document is written to.
  *
  * @stability unstable
  * @category schemas
@@ -191,9 +169,9 @@ export const ServerTimestamp: ServerTimestamp = firestoreSchema.ServerTimestamp;
  * @category models
  * @since 0.2.0
  */
-export interface ServerTimestampOr<
-  S extends Schema.Codec<unknown, Timestamp_.TimestampLike, unknown, unknown>,
-> extends Schema.Union<readonly [S, ServerTimestamp]> {
+export interface ServerTimestampOr<S extends TimeSchema> extends Schema.Union<
+  readonly [S, ServerTimestamp]
+> {
   readonly Rebuild: ServerTimestampOr<S>;
 }
 
@@ -203,8 +181,8 @@ export interface ServerTimestampOr<
  *
  * This is the write side of a timestamp, and `schema` is the read side it is
  * built from: {@link Timestamp} where the finer digits are to survive a round
- * trip, {@link DateTimeUtcFromTimestamp} where a `DateTime.Utc` is what the
- * document is to hold, or any codec of a value Firestore stores as a timestamp.
+ * trip, or `Schema.DateTimeUtc` or `Schema.Date` where one of those is what
+ * the document is to hold - see {@link TimeSchema}.
  *
  * A read is only ever that schema - the sentinel is gone by then - so this
  * belongs in the variants a document is written through, against a `read` of
@@ -214,11 +192,8 @@ export interface ServerTimestampOr<
  * @category schemas
  * @since 0.2.0
  */
-export const ServerTimestampOr: <
-  S extends Schema.Codec<unknown, Timestamp_.TimestampLike, unknown, unknown>,
->(
-  schema: S,
-) => ServerTimestampOr<S> = firestoreSchema.ServerTimestampOr;
+export const ServerTimestampOr: <S extends TimeSchema>(schema: S) => ServerTimestampOr<S> =
+  firestoreSchema.ServerTimestampOr;
 
 /**
  * Type-level representation of {@link Increment}.
