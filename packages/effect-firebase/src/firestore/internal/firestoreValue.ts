@@ -10,62 +10,13 @@ import {
 } from "effect";
 import type * as FirestoreValue from "../FirestoreValue.ts";
 import type * as Timestamp_ from "../Timestamp.ts";
-import * as collection from "./collection.ts";
-import * as fieldValue from "./fieldValue.ts";
 import * as firestoreSchema from "./firestoreSchema.ts";
-import * as geoPoint from "./geoPoint.ts";
+import * as firestoreValueWalk from "./firestoreValueWalk.ts";
 import * as schemaAST from "./schemaAST.ts";
 import * as timestamp from "./timestamp.ts";
 
 /** @internal */
-export const isFirestoreValue = (u: unknown): u is FirestoreValue.FirestoreValue =>
-  isValue(u, new Set());
-
-const isValue = (u: unknown, ancestors: Set<unknown>): boolean => {
-  switch (typeof u) {
-    case "boolean":
-    case "number":
-    case "string":
-      return true;
-    case "object":
-      break;
-    default:
-      return false;
-  }
-  if (u === null || u instanceof Uint8Array) return true;
-  if (
-    timestamp.isTimestamp(u) ||
-    geoPoint.isGeoPoint(u) ||
-    collection.isDocumentReference(u) ||
-    fieldValue.isServerTimestamp(u) ||
-    fieldValue.isIncrement(u) ||
-    fieldValue.isDeleteField(u)
-  ) {
-    return true;
-  }
-  if (ancestors.has(u)) return false;
-  if (fieldValue.isArrayUnion(u) || fieldValue.isArrayRemove(u)) {
-    return withAncestor(ancestors, u, () => u.elements.every((v) => isValue(v, ancestors)));
-  }
-  if (Array.isArray(u))
-    return withAncestor(ancestors, u, () => u.every((v) => isValue(v, ancestors)));
-  if (!isPlainObject(u)) return false;
-  return withAncestor(ancestors, u, () => Object.values(u).every((v) => isValue(v, ancestors)));
-};
-
-const withAncestor = (ancestors: Set<unknown>, u: object, f: () => boolean): boolean => {
-  ancestors.add(u);
-  try {
-    return f();
-  } finally {
-    ancestors.delete(u);
-  }
-};
-
-const isPlainObject = (u: object): boolean => {
-  const proto = Object.getPrototypeOf(u);
-  return proto === Object.prototype || proto === null;
-};
+export const isFirestoreValue = firestoreValueWalk.isFirestoreValue;
 
 /**
  * Accepts only Firestore Values. A declaration with no link to any canonical

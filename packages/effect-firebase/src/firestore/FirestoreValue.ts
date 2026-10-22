@@ -12,11 +12,13 @@
  * @stability unstable
  * @since 0.2.0
  */
-import type { Schema, SchemaAST } from "effect";
+import type { Result, Schema, SchemaAST } from "effect";
 import type * as Collection from "./Collection.ts";
 import type * as FieldValue from "./FieldValue.ts";
+import type { FirestoreError } from "./Firestore.ts";
 import type * as GeoPoint from "./GeoPoint.ts";
 import * as firestoreValue from "./internal/firestoreValue.ts";
+import * as firestoreValueWalk from "./internal/firestoreValueWalk.ts";
 import type * as Timestamp from "./Timestamp.ts";
 
 declare module "effect/Schema" {
@@ -73,6 +75,40 @@ export type FirestoreValue =
  */
 export const isFirestoreValue: (u: unknown) => u is FirestoreValue =
   firestoreValue.isFirestoreValue;
+
+// The walk the SDK packages map Firestore Values with. Not API: they reach it
+// here because a package can only import another's public modules.
+
+/** @internal */
+export type FieldPath = firestoreValueWalk.FieldPath;
+
+/** @internal */
+export type Kinds = firestoreValueWalk.Kinds;
+
+/** @internal */
+export type Writer = firestoreValueWalk.Writer;
+
+/** @internal */
+export type Reader = firestoreValueWalk.Reader;
+
+/** @internal */
+export const formatFieldPath: (path: FieldPath) => string = firestoreValueWalk.formatFieldPath;
+
+/** @internal */
+export const toSdk: (value: FirestoreValue, writer: Writer) => unknown = firestoreValueWalk.toSdk;
+
+/** @internal */
+export const fromSdk: (
+  value: unknown,
+  reader: Reader,
+) => Result.Result<FirestoreValue, FirestoreError> = firestoreValueWalk.fromSdk;
+
+/** @internal */
+export const readDocument: (
+  path: string,
+  data: unknown,
+  reader: Reader,
+) => Result.Result<FirestoreValue | undefined, FirestoreError> = firestoreValueWalk.readDocument;
 
 /**
  * Type-level representation returned by {@link toCodecFirestore}.
