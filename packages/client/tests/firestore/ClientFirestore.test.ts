@@ -419,6 +419,30 @@ describe("ClientFirestore, Firestore Values", () => {
       expect(listed.message).toContain("VectorValue");
     }).pipe(Effect.provide(layer)),
   );
+
+  it.effect("fails a write holding a value that isn't one, with a schema error", () =>
+    Effect.gen(function* () {
+      class Widget {
+        readonly name = "widget";
+      }
+      // `Schema.Any` is no way past the codec.
+      class Loose extends FirestoreModel.Class<Loose>("Loose")({ extra: Schema.Any }) {}
+      const Looses = Collection.make("loose", Loose);
+      const firestore = yield* freshFirestore;
+      const { instance } = yield* ClientFirestore.ClientFirestore;
+
+      for (const extra of [new SdkTimestamp(1, 2), { deep: [new Widget()] }]) {
+        const error = yield* Effect.flip(
+          firestore.setDoc(Looses.doc(Looses.id.make("one")), { extra }),
+        );
+        expect(error).toBeInstanceOf(Schema.SchemaError);
+        expect(error.message).toContain('["extra"]');
+      }
+
+      const raw = yield* Effect.promise(() => getDoc(doc(instance, "loose/one")));
+      expect(raw.exists()).toBe(false);
+    }).pipe(Effect.provide(layer)),
+  );
 });
 
 class Member extends FirestoreModel.Class<Member>("Member")({ name: Schema.String }) {}

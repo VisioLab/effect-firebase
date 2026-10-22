@@ -212,6 +212,28 @@ describe("toCodecFirestore", () => {
         expect(yield* encode(Model)({ title: "hello" })).toEqual({ title: "hello" });
       }),
     );
+
+    it.effect("refuses a value that isn't one through Schema.Any and Schema.Unknown too", () =>
+      Effect.gen(function* () {
+        const Loose = Schema.Struct({ any: Schema.Any, unknown: Schema.Unknown });
+
+        const viaAny = yield* Effect.flip(
+          encode(Loose)({ any: { deep: [new Unmapped("x")] }, unknown: null }),
+        );
+        expect(viaAny).toBeInstanceOf(Schema.SchemaError);
+        expect(viaAny.message).toContain('at ["any"]');
+
+        const viaUnknown = yield* Effect.flip(
+          encode(Loose)({ any: null, unknown: new Unmapped("x") }),
+        );
+        expect(viaUnknown.message).toContain('at ["unknown"]');
+
+        expect(yield* encode(Loose)({ any: { deep: [1, "a"] }, unknown: true })).toEqual({
+          any: { deep: [1, "a"] },
+          unknown: true,
+        });
+      }),
+    );
   });
 
   describe("portable values", () => {

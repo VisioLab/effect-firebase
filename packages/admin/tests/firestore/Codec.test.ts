@@ -105,6 +105,32 @@ describe("A plain model, against the emulator", () => {
   );
 });
 
+class Widget {
+  readonly name = "widget";
+}
+
+// `Schema.Any` is no way past the codec: what it holds must be a Firestore Value.
+class Loose extends FirestoreModel.Class<Loose>("Loose")({ extra: Schema.Any }) {}
+const Looses = Collection.make("loose", Loose);
+const looseDoc = Looses.doc(Looses.id.make("one"));
+
+describe("A value that isn't a Firestore Value, against the emulator", () => {
+  it.effect("fails the write with a schema error and writes nothing", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh;
+
+      for (const extra of [new Admin.Timestamp(1, 2), { deep: [new Widget()] }]) {
+        const error = yield* Effect.flip(firestore.setDoc(looseDoc, { extra }));
+        expect(error).toBeInstanceOf(Schema.SchemaError);
+        expect(error.message).toContain('["extra"]');
+      }
+
+      const raw = yield* Effect.promise(() => firestore.instance.doc("loose/one").get());
+      expect(raw.exists).toBe(false);
+    }).pipe(Effect.provide(layer)),
+  );
+});
+
 class Member extends FirestoreModel.Class<Member>("Member")({ name: Schema.String }) {}
 const Members = Collection.make("members", Member);
 const ada = Members.doc(Members.id.make("ada"));

@@ -184,6 +184,9 @@ const step = (ast: SchemaAST.AST, recur: (ast: SchemaAST.AST) => SchemaAST.AST):
   switch (ast._tag) {
     case "Declaration":
       return declarationStep(ast, recur);
+    // Unlike `Schema.toCodecJson`, `Schema.Any` is no escape hatch: the SDK
+    // mappings take Firestore Values only, so nothing else may get past here.
+    case "Any":
     case "Unknown":
     case "ObjectKeyword":
       return schemaAST.replaceEncoding(ast, [unknownToFirestore]);
@@ -220,8 +223,7 @@ const step = (ast: SchemaAST.AST, recur: (ast: SchemaAST.AST) => SchemaAST.AST):
     case "Suspend":
       return schemaAST.recur(ast, recur);
   }
-  // `null`, `boolean`, `number` and `string` are already Firestore Values, and
-  // `Schema.Any` is an escape hatch.
+  // `null`, `boolean`, `number` and `string` are already Firestore Values.
   return ast;
 };
 

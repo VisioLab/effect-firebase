@@ -38,6 +38,22 @@ const mapValues = (
   return out;
 };
 
+const describe = (u: object): string => u.constructor?.name ?? "an object with no prototype";
+
+const formatPath = (path: ReadonlyArray<string | number>): string =>
+  path.length === 0
+    ? "the document"
+    : `"${path
+        .map((key, i) => (typeof key === "number" ? `[${key}]` : i === 0 ? key : `.${key}`))
+        .join("")}"`;
+
+/** A value handed to the mapping that is not a Firestore Value: a defect. */
+const outside = (kind: string, path: ReadonlyArray<string | number>): never => {
+  throw new globalThis.Error(
+    `Cannot write ${kind} at ${formatPath(path)}, which is not a Firestore Value`,
+  );
+};
+
 /**
  * Turns a Firestore Value into the value the Admin SDK writes into
  * `firestore`.
@@ -47,28 +63,52 @@ const mapValues = (
  * of a map are kept as they are, so the dotted field paths of an update stay
  * field paths.
  *
- * A value that is already the Admin SDK's own is left as it is.
+ * It is total over Firestore Values and takes nothing else: a value outside
+ * the union, such as the Admin SDK's own or a class instance cast past the type,
+ * throws rather than reaching the SDK. A value `toCodecFirestore` encoded is
+ * always a Firestore Value.
  *
  * @stability unstable
  * @category conversions
  * @since 0.2.0
  */
 export const toAdmin = (value: FirestoreValue, firestore: Admin.Firestore): unknown => {
+  const path: Array<string | number> = [];
+  const within = <A>(key: string | number, f: () => A): A => {
+    path.push(key);
+    try {
+      return f();
+    } finally {
+      path.pop();
+    }
+  };
   const go = (u: unknown): unknown => {
-    if (typeof u !== "object" || u === null || u instanceof Uint8Array) return u;
+    switch (typeof u) {
+      case "boolean":
+      case "number":
+      case "string":
+        return u;
+      case "object":
+        break;
+      default:
+        return outside(`a value of type ${typeof u}`, path);
+    }
+    if (u === null || u instanceof Uint8Array) return u;
     if (Timestamp.isTimestamp(u)) return new Admin.Timestamp(u.seconds, u.nanoseconds);
     if (GeoPoint.isGeoPoint(u)) return new Admin.GeoPoint(u.latitude, u.longitude);
     if (Collection.isDocumentReference(u)) return firestore.doc(u.path);
     if (FieldValue.isServerTimestamp(u)) return Admin.FieldValue.serverTimestamp();
     if (FieldValue.isIncrement(u)) return Admin.FieldValue.increment(u.by);
     if (FieldValue.isDeleteField(u)) return Admin.FieldValue.delete();
-    if (FieldValue.isArrayUnion(u)) return Admin.FieldValue.arrayUnion(...u.elements.map(go));
-    if (FieldValue.isArrayRemove(u)) return Admin.FieldValue.arrayRemove(...u.elements.map(go));
-    if (Array.isArray(u)) return u.map(go);
-    if (isPlainObject(u)) return mapValues(u, go);
-    // Not a Firestore Value, so nothing the library encodes reaches here. What
-    // does - an SDK value handed through `Schema.Any` - is the SDK's to judge.
-    return u;
+    if (FieldValue.isArrayUnion(u))
+      return Admin.FieldValue.arrayUnion(...u.elements.map((e, i) => within(i, () => go(e))));
+    if (FieldValue.isArrayRemove(u))
+      return Admin.FieldValue.arrayRemove(...u.elements.map((e, i) => within(i, () => go(e))));
+    if (Array.isArray(u)) return u.map((e, i) => within(i, () => go(e)));
+    if (isPlainObject(u)) return mapValues(u, (v, key) => within(key, () => go(v)));
+    // Unreachable for a Firestore Value: the derived codec refuses anything
+    // else, so this only catches a value cast past the type.
+    return outside(`a ${describe(u)}`, path);
   };
   return go(value);
 };
@@ -79,15 +119,6 @@ interface AdminSentinel {
   readonly operand?: number;
   readonly elements?: ReadonlyArray<unknown>;
 }
-
-const describe = (u: object): string => u.constructor?.name ?? "an object with no prototype";
-
-const formatPath = (path: ReadonlyArray<string | number>): string =>
-  path.length === 0
-    ? "the document"
-    : `"${path
-        .map((key, i) => (typeof key === "number" ? `[${key}]` : i === 0 ? key : `.${key}`))
-        .join("")}"`;
 
 /**
  * Turns a value the Admin SDK read into a Firestore Value.

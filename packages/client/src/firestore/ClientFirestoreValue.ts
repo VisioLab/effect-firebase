@@ -31,7 +31,10 @@ import * as internal from "./internal/firestoreValue.ts";
  * map are kept as they are, so the dotted field paths of an update stay field
  * paths.
  *
- * A value that is already the client SDK's own is left as it is.
+ * It is total over Firestore Values and takes nothing else: a value outside
+ * the union, such as the client SDK's own or a class instance cast past the type,
+ * throws rather than reaching the SDK. A value `toCodecFirestore` encoded is
+ * always a Firestore Value.
  *
  * @stability unstable
  * @category conversions

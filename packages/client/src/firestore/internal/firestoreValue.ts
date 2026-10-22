@@ -21,29 +21,6 @@ const mapValues = (
   return out;
 };
 
-/** @internal */
-export const toClient = (value: FirestoreValue, firestore: Client.Firestore): unknown => {
-  const go = (u: unknown): unknown => {
-    if (typeof u !== "object" || u === null) return u;
-    // The client SDK refuses a raw `Uint8Array`, as a custom object.
-    if (u instanceof Uint8Array) return Client.Bytes.fromUint8Array(u);
-    if (Timestamp.isTimestamp(u)) return new Client.Timestamp(u.seconds, u.nanoseconds);
-    if (GeoPoint.isGeoPoint(u)) return new Client.GeoPoint(u.latitude, u.longitude);
-    if (Collection.isDocumentReference(u)) return Client.doc(firestore, u.path);
-    if (FieldValue.isServerTimestamp(u)) return Client.serverTimestamp();
-    if (FieldValue.isIncrement(u)) return Client.increment(u.by);
-    if (FieldValue.isDeleteField(u)) return Client.deleteField();
-    if (FieldValue.isArrayUnion(u)) return Client.arrayUnion(...u.elements.map(go));
-    if (FieldValue.isArrayRemove(u)) return Client.arrayRemove(...u.elements.map(go));
-    if (Array.isArray(u)) return u.map(go);
-    if (isPlainObject(u)) return mapValues(u, go);
-    // Not a Firestore Value, so nothing the library encodes reaches here. What
-    // does - an SDK value handed through `Schema.Any` - is the SDK's to judge.
-    return u;
-  };
-  return go(value);
-};
-
 const describe = (u: object): string => u.constructor?.name ?? "an object with no prototype";
 
 const formatPath = (path: ReadonlyArray<string | number>): string =>
@@ -52,6 +29,57 @@ const formatPath = (path: ReadonlyArray<string | number>): string =>
     : `"${path
         .map((key, i) => (typeof key === "number" ? `[${key}]` : i === 0 ? key : `.${key}`))
         .join("")}"`;
+
+/** A value handed to the mapping that is not a Firestore Value: a defect. */
+const outside = (kind: string, path: ReadonlyArray<string | number>): never => {
+  throw new globalThis.Error(
+    `Cannot write ${kind} at ${formatPath(path)}, which is not a Firestore Value`,
+  );
+};
+
+/** @internal */
+export const toClient = (value: FirestoreValue, firestore: Client.Firestore): unknown => {
+  const path: Array<string | number> = [];
+  const within = <A>(key: string | number, f: () => A): A => {
+    path.push(key);
+    try {
+      return f();
+    } finally {
+      path.pop();
+    }
+  };
+  const go = (u: unknown): unknown => {
+    switch (typeof u) {
+      case "boolean":
+      case "number":
+      case "string":
+        return u;
+      case "object":
+        break;
+      default:
+        return outside(`a value of type ${typeof u}`, path);
+    }
+    if (u === null) return u;
+    // The client SDK refuses a raw `Uint8Array`, as a custom object.
+    if (u instanceof Uint8Array) return Client.Bytes.fromUint8Array(u);
+    if (Timestamp.isTimestamp(u)) return new Client.Timestamp(u.seconds, u.nanoseconds);
+    if (GeoPoint.isGeoPoint(u)) return new Client.GeoPoint(u.latitude, u.longitude);
+    if (Collection.isDocumentReference(u)) return Client.doc(firestore, u.path);
+    if (FieldValue.isServerTimestamp(u)) return Client.serverTimestamp();
+    if (FieldValue.isIncrement(u)) return Client.increment(u.by);
+    if (FieldValue.isDeleteField(u)) return Client.deleteField();
+    if (FieldValue.isArrayUnion(u))
+      return Client.arrayUnion(...u.elements.map((e, i) => within(i, () => go(e))));
+    if (FieldValue.isArrayRemove(u))
+      return Client.arrayRemove(...u.elements.map((e, i) => within(i, () => go(e))));
+    if (Array.isArray(u)) return u.map((e, i) => within(i, () => go(e)));
+    if (isPlainObject(u)) return mapValues(u, (v, key) => within(key, () => go(v)));
+    // Unreachable for a Firestore Value: the derived codec refuses anything
+    // else, so this only catches a value cast past the type.
+    return outside(`a ${describe(u)}`, path);
+  };
+  return go(value);
+};
 
 /** @internal */
 export const fromClient = (value: unknown): Result.Result<FirestoreValue, FirestoreError> => {

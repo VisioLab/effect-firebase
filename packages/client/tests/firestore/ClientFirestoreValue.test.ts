@@ -50,6 +50,20 @@ describe("ClientFirestoreValue", () => {
     ).toBe(true);
   });
 
+  it("refuses a value outside the Firestore Value union rather than handing it to the SDK", () => {
+    class Widget {
+      readonly name = "x";
+    }
+    const outside = (u: unknown) => () =>
+      ClientFirestoreValue.toClient({ deep: [u] } as never, firestore);
+
+    expect(outside(new Client.Timestamp(1, 2))).toThrow(
+      /a Timestamp at "deep\[0\]", which is not a Firestore Value/,
+    );
+    expect(outside(new Widget())).toThrow(/a Widget at "deep\[0\]"/);
+    expect(outside(undefined)).toThrow(/a value of type undefined at "deep\[0\]"/);
+  });
+
   it("turns the client SDK's values into Firestore Values", () => {
     const value = Result.getOrThrow(
       ClientFirestoreValue.fromClient({
