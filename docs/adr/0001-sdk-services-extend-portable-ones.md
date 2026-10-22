@@ -4,7 +4,7 @@ The core package's `Firestore` is the strict intersection of the Admin and clien
 
 An SDK service only ever widens the portable one. It may add methods for capabilities the portable one lacks, add optional options to existing methods, return richer types (a `ClientDocumentSnapshot` with metadata), and exclude more requirements. It never adds required parameters, errors or requirements to an existing method, and it never adds a parallel variant of one (no `streamDocWithMetadata`). That keeps every SDK service assignable to its portable one. An SDK service's key must be nominal (`AdminFirestore.Id`), not identified by its shape interface, since that shape extends the portable one and excluding or providing the portable tag would erase the SDK requirement too.
 
-A type takes an SDK prefix (`AdminFirestore`, `AdminTransaction`, `ClientDocumentSnapshot`) exactly when it extends a portable type, because that is when both live side by side in one program and plain names would be ambiguous. Types with no portable counterpart (`App`, `Auth`) and modules that only implement a portable type (`FirestoreEncoder`) keep their plain name.
+A type takes an SDK prefix (`AdminFirestore`, `AdminTransaction`, `ClientDocumentSnapshot`) exactly when it extends a portable type, because that is when both live side by side in one program and plain names would be ambiguous. The prefix may come from the module rather than each type: `ClientDocumentSnapshot.Existing` and `.Missing` extend the portable variants but keep plain names, because the module already carries the prefix wherever they're used. Types with no portable counterpart (`App`, `Auth`) and modules that only implement a portable type (`FirestoreEncoder`) keep their plain name.
 
 ## Considered Options
 
