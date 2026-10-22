@@ -41,7 +41,7 @@ describe("Firestore.streamDoc", () => {
       const firestore = yield* fresh;
       const snapshots = yield* listening(firestore.streamDoc(hello));
 
-      expect((yield* Queue.take(snapshots))._tag).toBe("Missing");
+      expect(DocumentSnapshot.isMissing(yield* Queue.take(snapshots))).toBe(true);
 
       yield* firestore.setDoc(hello, { title: "Hello", views: 1 });
       expect(yield* read(yield* Queue.take(snapshots))).toMatchObject({ title: "Hello", views: 1 });
@@ -66,7 +66,7 @@ describe("Firestore.streamDoc", () => {
 
       const first = yield* firestore.streamDoc(hello).pipe(Stream.take(1), Stream.runCollect);
 
-      expect(first.map((snapshot) => snapshot._tag)).toEqual(["Missing"]);
+      expect(first.map(DocumentSnapshot.isMissing)).toEqual([true]);
       expect(unsubscribed).toHaveBeenCalledOnce();
     }).pipe(Effect.scoped, Effect.provide(layer)),
   );
