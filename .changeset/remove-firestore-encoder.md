@@ -27,8 +27,9 @@ around it. Encoding a model no longer asks for any service: derive a codec with
 
   ```ts
   // Before: encoded through the FirestoreEncoder from layerWithEncoder
-  const data = yield * Schema.encodeEffect(Post)(post);
-  yield * Effect.promise(() => firestore.doc("posts/hello").set(data));
+  const write = Schema.encodeEffect(Post)(post).pipe(
+    Effect.flatMap((data) => Effect.promise(() => firestore.doc("posts/hello").set(data))),
+  );
 
   // After: no layer; map the Firestore Values to the SDK's own
   const encoded = Schema.encodeSync(FirestoreValue.toCodecFirestore(Post))(post);
