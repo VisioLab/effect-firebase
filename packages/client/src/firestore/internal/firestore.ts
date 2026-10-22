@@ -153,7 +153,10 @@ const thrownFor = (cause: Cause.Cause<unknown>): unknown => {
  */
 interface Target {
   readonly name: string;
-  readonly getDoc: (ref: Client.DocumentReference) => Promise<Client.DocumentSnapshot>;
+  readonly getDoc: (
+    ref: Client.DocumentReference,
+    source: ClientFirestore.ReadSource | undefined,
+  ) => Promise<Client.DocumentSnapshot>;
   readonly setDoc: (ref: Client.DocumentReference, data: Client.DocumentData) => unknown;
   readonly updateDoc: (
     ref: Client.DocumentReference,
@@ -161,15 +164,38 @@ interface Target {
   ) => unknown;
 }
 
+/** Reads one document from where `source` names. */
+const getDocFrom = (
+  ref: Client.DocumentReference,
+  source: ClientFirestore.ReadSource | undefined,
+): Promise<Client.DocumentSnapshot> =>
+  source === "server"
+    ? Client.getDocFromServer(ref)
+    : source === "cache"
+      ? Client.getDocFromCache(ref)
+      : Client.getDoc(ref);
+
+/** Reads the documents `query` matches from where `source` names. */
+const getDocsFrom = (
+  query: Client.Query,
+  source: ClientFirestore.ReadSource | undefined,
+): Promise<Client.QuerySnapshot> =>
+  source === "server"
+    ? Client.getDocsFromServer(query)
+    : source === "cache"
+      ? Client.getDocsFromCache(query)
+      : Client.getDocs(query);
+
 const databaseTarget: Target = {
   name: "Firestore",
-  getDoc: (ref) => Client.getDoc(ref),
+  getDoc: getDocFrom,
   setDoc: (ref, data) => Client.setDoc(ref, data),
   updateDoc: (ref, data) => Client.updateDoc(ref, data),
 };
 
 const transactionTarget = (tx: Client.Transaction): Target => ({
   name: "Firestore.Transaction",
+  // A transaction reads from the server alone, so it is never handed a source.
   getDoc: (ref) => tx.get(ref),
   // Writes into a transaction are queued rather than sent, so these return
   // straight away - or throw, where the transaction refuses them.
@@ -243,9 +269,12 @@ const operations = (firestore: Client.Firestore, encoder: FirestoreEncoder, targ
      * to turn into the one it hands on: a database read keeps its metadata, a
      * transaction's read does not.
      */
-    readDoc: <C extends Collection.Any>(ref: Collection.DocumentReference<C>) =>
+    readDoc: <C extends Collection.Any>(
+      ref: Collection.DocumentReference<C>,
+      source?: ClientFirestore.ReadSource,
+    ) =>
       call("getDoc", `Failed to read the document "${ref.path}"`, () =>
-        target.getDoc(Client.doc(firestore, ref.path)),
+        target.getDoc(Client.doc(firestore, ref.path), source),
       ),
 
     setDoc: <C extends Collection.Any>(ref: Collection.DocumentReference<C>, data: Create<C>) =>
@@ -335,13 +364,18 @@ export const fromDatabase = (
     instance: firestore,
     ...database,
 
-    getDoc: <C extends Collection.Any>(ref: Collection.DocumentReference<C>) =>
-      Effect.map(readDoc(ref), (snapshot) => documentSnapshotOf(ref, snapshot)),
+    getDoc: <C extends Collection.Any>(
+      ref: Collection.DocumentReference<C>,
+      options?: ClientFirestore.ReadOptions,
+    ) => Effect.map(readDoc(ref, options?.source), (snapshot) => documentSnapshotOf(ref, snapshot)),
 
-    getDocs: <C extends Collection.Any>(ref: Collection.CollectionReference<C>) =>
+    getDocs: <C extends Collection.Any>(
+      ref: Collection.CollectionReference<C>,
+      options?: ClientFirestore.ReadOptions,
+    ) =>
       Effect.gen(function* () {
         const query = yield* call("getDocs", `Failed to read the collection "${ref.path}"`, () =>
-          Client.getDocs(Client.collection(firestore, ref.path)),
+          getDocsFrom(Client.collection(firestore, ref.path), options?.source),
         );
 
         return querySnapshotOf(ref, query);
