@@ -7,7 +7,7 @@ import * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapsho
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import { DocumentReference } from "firebase-admin/firestore";
 import * as App from "../../src/App.ts";
-import * as AdminFirestore from "../../src/firestore/Firestore.ts";
+import * as AdminFirestore from "../../src/firestore/AdminFirestore.ts";
 import { clear } from "./emulator.ts";
 
 const projectId = "demo-streams";

@@ -1,10 +1,6 @@
 import { Cause, Context, Effect, Exit, Option, Queue, Schema, Stream } from "effect";
 import { constVoid } from "effect/Function";
-import {
-  Firestore,
-  FirestoreError,
-  Transaction,
-} from "@visiolab/effect-firebase/firestore/Firestore";
+import { FirestoreError, Transaction } from "@visiolab/effect-firebase/firestore/Firestore";
 import type {
   Create,
   Update,
@@ -22,7 +18,7 @@ import type * as FirestoreModel from "@visiolab/effect-firebase/firestore/Firest
 import { FirebaseError } from "firebase-admin/app";
 import * as Admin from "firebase-admin/firestore";
 import * as App from "../../App.ts";
-import type * as AdminFirestore from "../Firestore.ts";
+import type * as AdminFirestore from "../AdminFirestore.ts";
 import * as Encoder from "../FirestoreEncoder.ts";
 
 /**
@@ -284,7 +280,10 @@ const listen = <S, A>(
  *
  * @internal
  */
-export const fromDatabase = (firestore: Admin.Firestore, encoder: FirestoreEncoder): Firestore => {
+export const fromDatabase = (
+  firestore: Admin.Firestore,
+  encoder: FirestoreEncoder,
+): AdminFirestore.AdminFirestore => {
   const { call, encodeCreate, ...database } = operations(firestore, encoder, databaseTarget);
 
   const makeTransaction = (tx: Admin.Transaction): Transaction => {
@@ -292,7 +291,9 @@ export const fromDatabase = (firestore: Admin.Firestore, encoder: FirestoreEncod
     return Transaction.of({ getDoc, setDoc, updateDoc });
   };
 
-  return Firestore.of({
+  return {
+    instance: firestore,
+
     ...database,
 
     getDocs: <C extends Collection.Any>(ref: Collection.CollectionReference<C>) =>
@@ -380,5 +381,5 @@ export const fromDatabase = (firestore: Admin.Firestore, encoder: FirestoreEncod
         );
       });
     }),
-  });
+  };
 };

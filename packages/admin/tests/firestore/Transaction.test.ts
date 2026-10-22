@@ -9,7 +9,7 @@ import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as App from "../../src/App.ts";
-import * as AdminFirestore from "../../src/firestore/Firestore.ts";
+import * as AdminFirestore from "../../src/firestore/AdminFirestore.ts";
 import { clear } from "./emulator.ts";
 
 const projectId = "demo-transactions";
