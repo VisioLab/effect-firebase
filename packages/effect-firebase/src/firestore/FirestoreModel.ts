@@ -139,6 +139,8 @@ export type Any = Schema.Top & {
 
 const RecordTypeId = firestoreModel.RecordTypeId;
 
+const UnionTypeId = firestoreModel.UnionTypeId;
+
 /**
  * Anything a field is declared as: a schema, a field, a struct or a
  * {@link Record}.
@@ -232,15 +234,22 @@ type RecordParts<F> = F extends {
 
 /** Whether `V` is something an update reaches into: a struct or a Record. */
 type IsNode<V> =
-  Unwrap<V> extends VariantSchema.Struct<any> | { readonly [RecordTypeId]: any } ? true : false;
+  Unwrap<V> extends
+    | VariantSchema.Struct<any>
+    | { readonly [RecordTypeId]: any }
+    | { readonly [UnionTypeId]: any }
+    ? true
+    : false;
 
 /** Whether an update writes anything into a Record of `V`, at any depth. */
 type IsWritable<V extends Value> = [RecordOf<V>] extends [never]
-  ? IsNode<V> extends true
-    ? true
-    : [UpdateSchema<V>] extends [never]
-      ? false
-      : true
+  ? [UnionOf<V>] extends [never]
+    ? IsNode<V> extends true
+      ? true
+      : [UpdateSchema<V>] extends [never]
+        ? false
+        : true
+    : IsUnionWritable<UnionOf<V>, IsOptional<V>>
   : IsWritable<RecordOf<V>["value"]>;
 
 /**
@@ -255,9 +264,14 @@ type KnownFields<Keys, V extends Value> = {
 type EntryUpdate<V extends Value, Mode extends UpdateMode> =
   Unwrap<V> extends VariantSchema.Struct<infer G>
     ? StructTakes<G, true, Mode>
-    : [RecordOf<V>] extends [never]
-      ? FirestoreSchema.DeleteFieldOr<WithoutOptionalKey<UpdateSchema<V>>>
-      : RecordTakes<RecordOf<V>["key"], RecordOf<V>["value"], true, Mode>;
+    : [UnionOf<V>] extends [never]
+      ? EntryValueUpdate<V, Mode>
+      : UnionTakes<UnionOf<V>, true>;
+
+/** What a key of a Record only the data names takes, where it is no struct or union. */
+type EntryValueUpdate<V extends Value, Mode extends UpdateMode> = [RecordOf<V>] extends [never]
+  ? FirestoreSchema.DeleteFieldOr<WithoutOptionalKey<UpdateSchema<V>>>
+  : RecordTakes<RecordOf<V>["key"], RecordOf<V>["value"], true, Mode>;
 
 /** The patch of a Record: key by key. */
 type RecordPatch<K extends Schema.Record.Key, V extends Value, Mode extends UpdateMode> =
@@ -386,20 +400,25 @@ type StructOf<F> = Unwrap<F> extends VariantSchema.Struct<infer G> ? G : never;
  * takes, and by an update.
  */
 type IsReplaceable<Fields extends VariantSchema.Struct.Fields> = false extends {
-  [K in keyof Fields]: [RecordOf<Fields[K]>] extends [never]
-    ? [StructOf<Fields[K]>] extends [never]
-      ? [UpdateSchema<Fields[K]>] extends [never]
-        ? false
-        : [VariantSchemaOf<Fields[K], "create">] extends [never]
-          ? false
-          : true
-      : IsReplaceable<StructOf<Fields[K]>>
-    : IsWritable<RecordOf<Fields[K]>["value"]> extends true
-      ? IsReplaceable<{ readonly _: RecordOf<Fields[K]>["value"] }>
-      : false;
+  [K in keyof Fields]: [UnionOf<Fields[K]>] extends [never]
+    ? FieldIsReplaceable<Fields[K]>
+    : AreReplaceable<UnionOf<Fields[K]>>;
 }[keyof Fields]
   ? false
   : true;
+
+/** Whether a field that is no union may be written whole by an update. */
+type FieldIsReplaceable<F> = [RecordOf<F>] extends [never]
+  ? [StructOf<F>] extends [never]
+    ? [UpdateSchema<F>] extends [never]
+      ? false
+      : [VariantSchemaOf<F, "create">] extends [never]
+        ? false
+        : true
+    : IsReplaceable<StructOf<F>>
+  : IsWritable<RecordOf<F>["value"]> extends true
+    ? IsReplaceable<{ readonly _: RecordOf<F>["value"] }>
+    : false;
 
 /** The shape a struct is written whole in, as `set` would write it. */
 type WholeStruct<Fields extends VariantSchema.Struct.Fields> = VariantSchema.Extract<
@@ -472,11 +491,16 @@ export type UpdateFields<
 type FieldUpdate<F, Mode extends UpdateMode> =
   Unwrap<F> extends VariantSchema.Struct<infer G>
     ? StructUpdate<G, IsOptional<F>, Mode>
-    : [RecordOf<F>] extends [never]
-      ? [UpdateSchema<F>] extends [never]
-        ? never
-        : Schema.optionalKey<UpdateSchema<F>>
-      : RecordUpdate<RecordOf<F>, IsOptional<F>, Mode>;
+    : [UnionOf<F>] extends [never]
+      ? ValueUpdate<F, Mode>
+      : UnionUpdate<UnionOf<F>, IsOptional<F>>;
+
+/** What a field that is no struct or union takes in an update in `Mode`. */
+type ValueUpdate<F, Mode extends UpdateMode> = [RecordOf<F>] extends [never]
+  ? [UpdateSchema<F>] extends [never]
+    ? never
+    : Schema.optionalKey<UpdateSchema<F>>
+  : RecordUpdate<RecordOf<F>, IsOptional<F>, Mode>;
 
 /**
  * The services the key of each Record an update writes into takes to encode,
@@ -531,20 +555,19 @@ export type UpdatePaths<
     {
       [K in keyof Fields & string]: Unwrap<Fields[K]> extends VariantSchema.Struct<infer G>
         ? StructPaths<G, IsOptional<Fields[K]>, Mode, `${Prefix}${K}`>
-        : [RecordOf<Fields[K]>] extends [never]
-          ? [UpdateSchema<Fields[K]>] extends [never]
-            ? {}
-            : { readonly [_ in `${Prefix}${K}`]: Schema.optionalKey<UpdateSchema<Fields[K]>> }
-          : RecordPaths<
-              RecordOf<Fields[K]>["key"],
-              RecordOf<Fields[K]>["value"],
-              IsOptional<Fields[K]>,
-              Mode,
-              `${Prefix}${K}`
-            >;
+        : [UnionOf<Fields[K]>] extends [never]
+          ? ValuePaths<Fields[K], Mode, `${Prefix}${K}`>
+          : UnionPaths<UnionOf<Fields[K]>, IsOptional<Fields[K]>, `${Prefix}${K}`>;
     }[keyof Fields & string]
   > & {}
 >;
+
+/** The paths a field that is no struct or union is written at. */
+type ValuePaths<F, Mode extends UpdateMode, Path extends string> = [RecordOf<F>] extends [never]
+  ? [UpdateSchema<F>] extends [never]
+    ? {}
+    : { readonly [_ in Path]: Schema.optionalKey<UpdateSchema<F>> }
+  : RecordPaths<RecordOf<F>["key"], RecordOf<F>["value"], IsOptional<F>, Mode, Path>;
 
 /**
  * The `update` variant of a set of fields, taking the patches `Mode` allows.
@@ -562,7 +585,9 @@ export type UpdatePaths<
  * {@link Patch.replace} instead, it is written whole, at its path, as `set`
  * would write it, and one made {@link Optional} may be removed whole besides.
  * Any other schema, a plain `Schema.Struct` included, is a value, written
- * whole. The patch says which it is, not the key - see the `Patch` module.
+ * whole. The patch says which it is, not the key - see the `Patch` module. A
+ * {@link Union} is written whole as well, replaced with one of its members or
+ * removed where it is {@link Optional}.
  *
  * Firestore applies an update to whatever the document holds, without checking
  * it against anything, so a patch that is right for one document may leave
@@ -661,14 +686,166 @@ export const Class: <Self = never>(
   >,
 ) => [Self] extends [never] ? MissingSelfGeneric : Class<Self, Fields> = firestoreModel.Class;
 
+/** What a union is replaced with: the `create` shape of each member it may be replaced with. */
+type ReplaceableCreates<Members extends ReadonlyArray<VariantSchema.Struct<any>>> =
+  Members extends readonly [
+    infer Head extends VariantSchema.Struct<any>,
+    ...infer Tail extends ReadonlyArray<VariantSchema.Struct<any>>,
+  ]
+    ? IsReplaceable<Head[typeof VariantSchema.TypeId]> extends true
+      ? [VariantSchema.Extract<"create", Head>, ...ReplaceableCreates<Tail>]
+      : ReplaceableCreates<Tail>
+    : [];
+
+/** Whether every member of a union may be written whole by an update. */
+type AreReplaceable<Members extends ReadonlyArray<VariantSchema.Struct<any>>> = false extends {
+  [K in keyof Members]: IsReplaceable<Members[K][typeof VariantSchema.TypeId]>;
+}[number]
+  ? false
+  : true;
+
+/** The union of the `create` shapes of `Members`. */
+type UnionCreate<Members extends ReadonlyArray<VariantSchema.Struct<any>>> = Schema.Union<{
+  readonly [K in keyof Members]: VariantSchema.Extract<"create", Members[K]>;
+}>;
+
 /**
- * A union of document schemas, in every variant.
+ * What a union takes in an update: a replacement with any member it may be
+ * replaced with, and the removal where it is {@link Optional}. It is the same
+ * in either {@link UpdateMode}.
+ */
+type UnionTakes<
+  Members extends ReadonlyArray<VariantSchema.Struct<any>>,
+  Optional extends boolean,
+> = Schema.Union<
+  readonly [
+    ...(ReplaceableCreates<Members> extends readonly [] | readonly [never]
+      ? []
+      : [ReplaceSchema<Schema.Union<ReplaceableCreates<Members>>>]),
+    ...(Optional extends true ? [FirestoreSchema.DeleteField] : []),
+  ]
+>;
+
+/** Whether an update writes anything at all into a union. */
+type IsUnionWritable<
+  Members extends ReadonlyArray<VariantSchema.Struct<any>>,
+  Optional extends boolean,
+> = Optional extends true ? true : ReplaceableCreates<Members> extends readonly [] ? false : true;
+
+/** What a union takes as a field of the struct it sits in, or `never` where it takes nothing. */
+type UnionUpdate<
+  Members extends ReadonlyArray<VariantSchema.Struct<any>>,
+  Optional extends boolean,
+> =
+  IsUnionWritable<Members, Optional> extends true
+    ? Schema.optionalKey<UnionTakes<Members, Optional>>
+    : never;
+
+/** The path a union at `Path` is written at, whole. */
+type UnionPaths<
+  Members extends ReadonlyArray<VariantSchema.Struct<any>>,
+  Optional extends boolean,
+  Path extends string,
+> =
+  IsUnionWritable<Members, Optional> extends false
+    ? {}
+    : {
+        readonly [_ in Path]: Schema.optionalKey<
+          ReplaceableCreates<Members> extends readonly []
+            ? FirestoreSchema.DeleteField
+            : Optional extends true
+              ? FirestoreSchema.DeleteFieldOr<Schema.Union<ReplaceableCreates<Members>>>
+              : Schema.Union<ReplaceableCreates<Members>>
+        >;
+      };
+
+/** The members of the union a field is, or `never` where it is none. */
+type UnionOf<F> =
+  Unwrap<F> extends {
+    readonly [UnionTypeId]: infer Members extends ReadonlyArray<VariantSchema.Struct<any>>;
+  }
+    ? Members
+    : never;
+
+/** The schemas a union field is, variant by variant. */
+type UnionSchemas<Members extends ReadonlyArray<VariantSchema.Struct<any>>> =
+  IsUnionWritable<Members, false> extends true
+    ? {
+        readonly read: VariantSchema.Union<Members, "read">;
+        readonly create: UnionCreate<Members>;
+        readonly update: UnionUpdate<Members, false>;
+      }
+    : {
+        readonly read: VariantSchema.Union<Members, "read">;
+        readonly create: UnionCreate<Members>;
+      };
+
+/**
+ * Type-level representation of {@link Union}.
+ *
+ * It is the union of its members as they are read, and carries the members it
+ * was made of, which is what a field holding it is written through.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface Union<in out Members extends ReadonlyArray<VariantSchema.Struct<any>>>
+  extends VariantSchema.Union<Members, "read">, VariantSchema.Field<UnionSchemas<Members>> {
+  /** Each member as it is read. */
+  readonly read: Schema.Union<{
+    readonly [K in keyof Members]: VariantSchema.Extract<"read", Members[K]>;
+  }>;
+  /** What `set` writes: any member, as `set` writes it. */
+  readonly create: UnionCreate<Members>;
+  readonly [UnionTypeId]: Members;
+}
+
+/**
+ * A field holding one of several structs or classes, its members.
+ *
+ * It stays Effect's own union: there is no tag or discriminator of this
+ * library's. A snapshot decodes into whichever member matches, so a literal
+ * field the members tell apart by narrows it, and data matching no member
+ * fails with a schema issue. A `create` takes any member in the shape `set`
+ * writes it, with the sentinels and constructor defaults its fields take.
+ *
+ * A value that fits several members, on `create` or in a replacement, is taken
+ * as the first of them in the order they were declared, as `Schema.Union` does.
+ *
+ * An update writes it whole: {@link Patch.replace} with any member, in the
+ * shape `set` writes it, and {@link FieldValue.deleteField} where it is
+ * {@link Optional}. Both {@link UpdateMode}s take the same. A member holding a
+ * field that `set` or an update leaves out - {@link Immutable}, or a field only
+ * ever read - is never replaced, the same as a struct is not, since that would
+ * change or drop the field.
+ *
+ * ```ts
+ * import { Schema } from "effect";
+ * import { FieldValue, FirestoreModel, FirestoreSchema, Patch } from "@visiolab/effect-firebase/firestore";
+ *
+ * const Pending = FirestoreModel.Struct({ status: Schema.Literal("pending") });
+ * const Done = FirestoreModel.Struct({
+ *   status: Schema.Literal("done"),
+ *   completedAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
+ * });
+ *
+ * class Job extends FirestoreModel.Class<Job>("Job")({
+ *   state: FirestoreModel.Union([Pending, Done]),
+ * }) {}
+ *
+ * Job.update.make({
+ *   state: Patch.replace({ status: "done", completedAt: FieldValue.serverTimestamp }),
+ * });
+ * ```
  *
  * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
-export const Union = firestoreModel.Union;
+export const Union: <const Members extends ReadonlyArray<VariantSchema.Struct<any>>>(
+  members: Members,
+) => Union<Members> = firestoreModel.Union;
 
 /**
  * Type-level representation of {@link Immutable}.
@@ -946,34 +1123,40 @@ type OptionalSchemas<F extends Value> =
         readonly create: Schema.optionalKey<VariantSchema.Extract<"create", F>>;
         readonly update: StructUpdate<F[typeof VariantSchema.TypeId], true, "unchecked">;
       }
-    : F extends AnyRecord
-      ? IsWritable<RecordOf<F>["value"]> extends true
-        ? {
-            readonly read: Schema.optionalKey<F["schemas"]["read"]>;
-            readonly create: Schema.optionalKey<F["schemas"]["create"]>;
-            readonly update: Schema.optionalKey<
-              RecordTakes<RecordOf<F>["key"], RecordOf<F>["value"], true, "unchecked">
-            >;
-          }
-        : {
-            readonly read: Schema.optionalKey<F["schemas"]["read"]>;
-            readonly create: Schema.optionalKey<F["schemas"]["create"]>;
-          }
-      : F extends Schema.Top
-        ? {
-            readonly read: Schema.optionalKey<F>;
-            readonly create: Schema.optionalKey<F>;
-            readonly update: Schema.optionalKey<FirestoreSchema.DeleteFieldOr<F>>;
-          }
-        : F extends VariantSchema.Field<infer S>
+    : F extends Union<infer Members>
+      ? {
+          readonly read: Schema.optionalKey<VariantSchema.Union<Members, "read">>;
+          readonly create: Schema.optionalKey<UnionCreate<Members>>;
+          readonly update: UnionUpdate<Members, true>;
+        }
+      : F extends AnyRecord
+        ? IsWritable<RecordOf<F>["value"]> extends true
           ? {
-              readonly [K in keyof S]: S[K] extends Schema.Top
-                ? K extends "update"
-                  ? Schema.optionalKey<FirestoreSchema.DeleteFieldOr<S[K]>>
-                  : Schema.optionalKey<S[K]>
-                : never;
+              readonly read: Schema.optionalKey<F["schemas"]["read"]>;
+              readonly create: Schema.optionalKey<F["schemas"]["create"]>;
+              readonly update: Schema.optionalKey<
+                RecordTakes<RecordOf<F>["key"], RecordOf<F>["value"], true, "unchecked">
+              >;
             }
-          : never;
+          : {
+              readonly read: Schema.optionalKey<F["schemas"]["read"]>;
+              readonly create: Schema.optionalKey<F["schemas"]["create"]>;
+            }
+        : F extends Schema.Top
+          ? {
+              readonly read: Schema.optionalKey<F>;
+              readonly create: Schema.optionalKey<F>;
+              readonly update: Schema.optionalKey<FirestoreSchema.DeleteFieldOr<F>>;
+            }
+          : F extends VariantSchema.Field<infer S>
+            ? {
+                readonly [K in keyof S]: S[K] extends Schema.Top
+                  ? K extends "update"
+                    ? Schema.optionalKey<FirestoreSchema.DeleteFieldOr<S[K]>>
+                    : Schema.optionalKey<S[K]>
+                  : never;
+              }
+            : never;
 
 /**
  * Type-level representation of {@link Optional}.

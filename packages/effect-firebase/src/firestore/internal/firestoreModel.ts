@@ -38,7 +38,13 @@ export const fieldEvolve = Variants.fieldEvolve;
 export const extract = Variants.extract;
 
 /** @internal */
-export const Union = Variants.Union;
+export const UnionTypeId = "~@visiolab/effect-firebase/firestore/FirestoreModel/Union";
+
+// What `VariantSchema` tells a field by, which a union carries to be extracted
+// variant by variant inside a struct, as a field is.
+const FieldTypeId = "~effect/schema/VariantSchema/Field";
+
+type Members = ReadonlyArray<VariantSchema.Struct<any>>;
 
 /** @internal */
 export const fields = <A extends VariantSchema.Struct<any>>(
@@ -254,6 +260,11 @@ const recordKeys = (key: Schema.Top): { readonly known: Array<string>; readonly 
 interface Node {
   readonly fields: VariantSchema.Struct.Fields;
   /**
+   * The members of a union, which has no fields of its own to reach into: it
+   * is written whole.
+   */
+  readonly members?: Members | undefined;
+  /**
    * The key schema of a Record keyed by literals, which a path names each of
    * its fields by, to encode it as part of the update.
    */
@@ -294,6 +305,9 @@ const nodeOf = (field: unknown, optional = false): Node | undefined => {
   if (isOptional(field)) {
     return nodeOf(field.field, true);
   }
+  if (Predicate.hasProperty(field, UnionTypeId)) {
+    return unionNode(field[UnionTypeId] as Members, optional);
+  }
   if (Predicate.hasProperty(field, RecordTypeId)) {
     const { key, value } = field[RecordTypeId] as Rest<unknown>;
     return recordNode(key, value, () => variantSchema(field, "create")!, optional);
@@ -326,8 +340,28 @@ const isReplaceable = (fields: VariantSchema.Struct.Fields): boolean =>
   });
 
 const isNodeReplaceable = (node: Node): boolean =>
-  isReplaceable(node.fields) &&
-  (node.rest === undefined || isReplaceable({ _: node.rest.value } as VariantSchema.Struct.Fields));
+  node.members !== undefined
+    ? node.members.every(isMemberReplaceable)
+    : isReplaceable(node.fields) &&
+      (node.rest === undefined ||
+        isReplaceable({ _: node.rest.value } as VariantSchema.Struct.Fields));
+
+const isMemberReplaceable = (member: VariantSchema.Struct<any>): boolean =>
+  isReplaceable(fields(member));
+
+/** The union of what `set` writes each of `members` as. */
+const unionCreate = (members: Members): Schema.Top =>
+  Schema.Union(members.map((member) => extract(member, "create") as Schema.Top));
+
+const unionNode = (members: Members, optional: boolean): Node => ({
+  fields: {},
+  members,
+  key: undefined,
+  rest: undefined,
+  create: () => unionCreate(members),
+  optional,
+  writable: optional || members.some(isMemberReplaceable),
+});
 
 /**
  * The replacement of a struct, holding the struct as `create` makes it - with
@@ -432,6 +466,9 @@ const buildNode = (
   paths: Paths,
   mode: FirestoreModel.UpdateMode,
 ): { readonly schema: Schema.Top; readonly shape: Shape } => {
+  if (node.members !== undefined) {
+    return buildUnion(node, node.members, path, paths);
+  }
   const inner =
     node.rest === undefined
       ? build(node.fields, path, paths, mode, node.key)
@@ -458,6 +495,41 @@ const buildNode = (
   return {
     schema: takes.length === 1 ? takes[0] : Schema.Union(takes),
     shape: inner.shape,
+  };
+};
+
+/**
+ * Builds what a union at `path` takes, gathering the path it writes at into
+ * `paths`. A union is written whole: replaced with any member it may be
+ * replaced with, and removed where it may be missing. It is never patched into,
+ * in either mode.
+ */
+const buildUnion = (
+  node: Node,
+  members: Members,
+  path: Path,
+  paths: Paths,
+): { readonly schema: Schema.Top; readonly shape: Shape } => {
+  const replaceable = members.filter(isMemberReplaceable);
+  const create = replaceable.length === 0 ? undefined : unionCreate(replaceable);
+  const takes: Array<Schema.Top> = [];
+  if (create !== undefined) {
+    takes.push(ReplaceSchema(create));
+  }
+  if (node.optional) {
+    takes.push(firestoreSchema.DeleteField);
+  }
+  const written = node.optional
+    ? create === undefined
+      ? firestoreSchema.DeleteField
+      : firestoreSchema.DeleteFieldOr(create)
+    : create;
+  if (written !== undefined) {
+    addPath(paths, path, written);
+  }
+  return {
+    schema: takes.length === 1 ? takes[0] : Schema.Union(takes),
+    shape: { fields: {}, rest: undefined },
   };
 };
 
@@ -652,6 +724,27 @@ export const Record = <K extends Schema.Record.Key, V extends FirestoreModel.Val
     }),
     { [RecordTypeId]: { key, value } },
   ) as any;
+};
+
+/** @internal */
+export const Union = (members: Members): any => {
+  // Each member as the default variant is read, which keeps a class a class.
+  // Effect builds the same for its own union, though only it can extract
+  // that, and its union defines the variants for good, so it is rebuilt here.
+  const read = Schema.Union((Variants.Union(members) as Schema.Union<any>).members);
+  const node = unionNode(members, false);
+  const schemas = {
+    read,
+    create: node.create(),
+    ...(node.writable && { update: nodeUpdate(node) }),
+  };
+  return Object.defineProperties(read, {
+    [FieldTypeId]: { value: FieldTypeId },
+    schemas: { value: schemas },
+    read: { value: Schema.Union(members.map((member) => extract(member, "read") as Schema.Top)) },
+    create: { value: schemas.create },
+    [UnionTypeId]: { value: members },
+  });
 };
 
 const optionalNode = (self: unknown, node: Node): unknown =>
