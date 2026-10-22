@@ -110,20 +110,11 @@ describe("ClientFirestore", () => {
     expectTypeOf<ClientFirestore.ClientFirestore["instance"]>().toEqualTypeOf<SdkFirestore>();
     expectTypeOf<Firestore>().not.toHaveProperty("instance");
     expectTypeOf(ClientFirestore.layer()).toEqualTypeOf<
-      Layer.Layer<ClientFirestore.ClientFirestore.Id | Firestore, never, App.App>
+      Layer.Layer<ClientFirestore.ClientFirestore | Firestore, never, App.App>
     >();
     expectTypeOf(ClientFirestore.layerWithEncoder()).toEqualTypeOf<
-      Layer.Layer<ClientFirestore.ClientFirestore.Id | Firestore | FirestoreEncoder, never, App.App>
+      Layer.Layer<ClientFirestore.ClientFirestore | Firestore | FirestoreEncoder, never, App.App>
     >();
-  });
-
-  it("is still asked for once only the portable Firestore is provided", () => {
-    const program = Effect.asVoid(ClientFirestore.ClientFirestore);
-    const provided = (firestore: Firestore) => Effect.provideService(program, Firestore, firestore);
-
-    expectTypeOf<
-      Effect.Services<ReturnType<typeof provided>>
-    >().toEqualTypeOf<ClientFirestore.ClientFirestore.Id>();
   });
 
   // The SDK memoizes a database on the app and refuses to reopen one under

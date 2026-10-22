@@ -127,30 +127,9 @@ export interface ListenOptions {
  * @category services
  * @since 0.1.0
  */
-export const ClientFirestore = Context.Service<ClientFirestore.Id, ClientFirestore>(
+export const ClientFirestore = Context.Service<ClientFirestore>(
   "@visiolab/effect-firebase-client/firestore/ClientFirestore",
 );
-
-/**
- * @stability unstable
- * @since 0.1.0
- */
-export declare namespace ClientFirestore {
-  /**
-   * What an effect that asks for {@link ClientFirestore} needs.
-   *
-   * Its own type rather than {@link ClientFirestore} itself: that one is a
-   * {@link Firestore}, so providing only the portable {@link Firestore} would
-   * drop the need for it as well.
-   *
-   * @stability unstable
-   * @category services
-   * @since 0.1.0
-   */
-  export interface Id {
-    readonly "~@visiolab/effect-firebase-client/firestore/ClientFirestore": unique symbol;
-  }
-}
 
 /**
  * Where a one-off read is served from.
@@ -293,7 +272,7 @@ const both = (service: ClientFirestore) =>
  */
 export const layer = (
   options?: Options,
-): Layer.Layer<ClientFirestore.Id | Firestore, never, App.App> =>
+): Layer.Layer<ClientFirestore | Firestore, never, App.App> =>
   Layer.effectContext(Effect.map(make(options), both));
 
 /**
@@ -310,7 +289,7 @@ export const layer = (
  */
 export const layerWithEncoder = (
   options?: Options,
-): Layer.Layer<ClientFirestore.Id | Firestore | FirestoreEncoder, never, App.App> =>
+): Layer.Layer<ClientFirestore | Firestore | FirestoreEncoder, never, App.App> =>
   Layer.effectContext(
     Effect.map(internalFirestore.openWithEncoder(options), ({ firestore, encoder }) =>
       both(internalFirestore.fromDatabase(firestore, encoder)).pipe(

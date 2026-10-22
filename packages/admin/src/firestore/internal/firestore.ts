@@ -350,9 +350,7 @@ export const fromDatabase = (
     ) {
       // Captured inside the span, so the body's own spans hang off it.
       const context =
-        yield* Effect.context<
-          Exclude<Exclude<R, Transaction>, AdminFirestore.AdminTransaction.Id>
-        >();
+        yield* Effect.context<Exclude<R, AdminFirestore.AdminTransaction | Transaction>>();
 
       return yield* Effect.uninterruptibleMask((restore) => {
         const controller = new AbortController();

@@ -51,15 +51,11 @@ export interface AdminFirestore extends Firestore {
    * Both are the same transaction, so portable transaction helpers and ones
    * that need the Admin SDK can run in the same body, and neither is left for
    * the caller to provide.
-   *
-   * The two are excluded one after the other rather than as one union so that
-   * the result stays provably narrower than {@link Firestore.runTransaction}'s,
-   * which keeps an {@link AdminFirestore} assignable to a {@link Firestore}.
    */
   readonly runTransaction: <A, E, R>(
     effect: Effect.Effect<A, E, R>,
     options?: TransactionOptions,
-  ) => Effect.Effect<A, E | FirestoreError, Exclude<Exclude<R, Transaction>, AdminTransaction.Id>>;
+  ) => Effect.Effect<A, E | FirestoreError, Exclude<R, AdminTransaction | Transaction>>;
 }
 
 /**
@@ -94,30 +90,9 @@ export interface AdminTransaction extends Transaction {
  * @category services
  * @since 0.2.0
  */
-export const AdminTransaction = Context.Service<AdminTransaction.Id, AdminTransaction>(
+export const AdminTransaction = Context.Service<AdminTransaction>(
   "@visiolab/effect-firebase-admin/firestore/AdminFirestore/AdminTransaction",
 );
-
-/**
- * @stability unstable
- * @since 0.2.0
- */
-export declare namespace AdminTransaction {
-  /**
-   * What an effect that asks for {@link AdminTransaction} needs.
-   *
-   * Its own type rather than {@link AdminTransaction} itself: that one is a
-   * {@link Transaction}, so excluding or providing the portable
-   * {@link Transaction} would drop the need for it as well.
-   *
-   * @stability unstable
-   * @category services
-   * @since 0.2.0
-   */
-  export interface Id {
-    readonly "~@visiolab/effect-firebase-admin/firestore/AdminFirestore/AdminTransaction": unique symbol;
-  }
-}
 
 /**
  * Service key for {@link AdminFirestore}.
@@ -126,30 +101,9 @@ export declare namespace AdminTransaction {
  * @category services
  * @since 0.2.0
  */
-export const AdminFirestore = Context.Service<AdminFirestore.Id, AdminFirestore>(
+export const AdminFirestore = Context.Service<AdminFirestore>(
   "@visiolab/effect-firebase-admin/firestore/AdminFirestore",
 );
-
-/**
- * @stability unstable
- * @since 0.2.0
- */
-export declare namespace AdminFirestore {
-  /**
-   * What an effect that asks for {@link AdminFirestore} needs.
-   *
-   * Its own type rather than {@link AdminFirestore} itself: that one is a
-   * {@link Firestore}, so providing only the portable {@link Firestore} would
-   * drop the need for it as well.
-   *
-   * @stability unstable
-   * @category services
-   * @since 0.2.0
-   */
-  export interface Id {
-    readonly "~@visiolab/effect-firebase-admin/firestore/AdminFirestore": unique symbol;
-  }
-}
 
 /**
  * How to open a database.
@@ -228,9 +182,7 @@ const both = (service: AdminFirestore) =>
  * @category layers
  * @since 0.2.0
  */
-export const layer = (
-  options?: Options,
-): Layer.Layer<AdminFirestore.Id | Firestore, never, App.App> =>
+export const layer = (options?: Options): Layer.Layer<AdminFirestore | Firestore, never, App.App> =>
   Layer.effectContext(Effect.map(make(options), both));
 
 /**
@@ -247,7 +199,7 @@ export const layer = (
  */
 export const layerWithEncoder = (
   options?: Options,
-): Layer.Layer<AdminFirestore.Id | Firestore | FirestoreEncoder, never, App.App> =>
+): Layer.Layer<AdminFirestore | Firestore | FirestoreEncoder, never, App.App> =>
   Layer.effectContext(
     Effect.map(internalFirestore.openWithEncoder(options), ({ firestore, encoder }) =>
       both(internalFirestore.fromDatabase(firestore, encoder, AdminTransaction)).pipe(
