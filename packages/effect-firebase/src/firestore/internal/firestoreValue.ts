@@ -28,20 +28,10 @@ const FirestoreValueSchema = Schema.declare<FirestoreValue.FirestoreValue>(isFir
   toCodecFirestore: () => undefined,
 });
 
-/**
- * A typed reference is no Firestore Value, but where no schema says how to
- * write one it is still written as its path, the way
- * `FirestoreSchema.DocumentReference` writes it. It reads back as that path.
- *
- * @internal
- */
+/** @internal */
 export const unknownToFirestore = new SchemaAST.Link(
   FirestoreValueSchema.ast,
-  SchemaTransformation.transform({
-    decode: (value: FirestoreValue.FirestoreValue): unknown => value,
-    encode: (u: unknown) =>
-      firestoreValueWalk.withReferencesAsPaths(u) as FirestoreValue.FirestoreValue,
-  }),
+  SchemaTransformation.passthrough(),
 );
 
 const timestampFromMillis = (millis: number, options: SchemaAST.ParseOptions) => {

@@ -35,8 +35,8 @@ union holds the new `DocumentPath` (built with `DocumentPath.make(path)`, equal
 by path) rather than a typed `Collection.DocumentReference`.
 `FirestoreSchema.DocumentReference(collection)` writes a typed reference as its
 `DocumentPath` and reads one back into `collection`, failing on a path outside
-it. A typed reference held under `Schema.Unknown` is written as its path too,
-and read back as a `DocumentPath`. `FirestoreSchema.DocumentPath` is the schema
+it. Under `Schema.Unknown` a typed reference is refused like any other value
+that isn't a Firestore Value. `FirestoreSchema.DocumentPath` is the schema
 for a field that holds the path itself.
 
 The `effect` peer range is pinned to `4.0.4`, since the derivation builds on

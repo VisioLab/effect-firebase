@@ -195,17 +195,13 @@ describe("DocumentReference", () => {
     }),
   );
 
-  it.effect(
-    "is stored as the document's path through Schema.Unknown too, and read back as one",
-    () =>
-      Effect.gen(function* () {
-        const Loose = Schema.Struct({ post: Schema.Unknown });
-        const encoded = yield* toFirestore(Loose)({ post: [{ at: hello }] });
-        const path = DocumentPath.makeUnsafe("users/alice/posts/hello");
-        expect(encoded).toStrictEqual({ post: [{ at: path }] });
-        const decoded = yield* fromFirestore(Loose)(encoded);
-        expect(decoded).toStrictEqual({ post: [{ at: path }] });
-      }),
+  it.effect("is refused under Schema.Unknown, which accepts only Firestore Values", () =>
+    Effect.gen(function* () {
+      const Loose = Schema.Struct({ post: Schema.Unknown });
+      const failure = yield* Effect.flip(toFirestore(Loose)({ post: [{ at: hello }] }));
+      expect(failure).toBeInstanceOf(Schema.SchemaError);
+      expect(failure.message).toContain('at ["post"]');
+    }),
   );
 
   it("compares by where it points", () => {

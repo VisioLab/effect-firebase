@@ -7,7 +7,6 @@
 import { Result } from "effect";
 import { FirestoreError } from "../Firestore.ts";
 import type * as FirestoreValue from "../FirestoreValue.ts";
-import * as collection from "./collection.ts";
 import * as documentPath from "./documentPath.ts";
 import * as fieldValue from "./fieldValue.ts";
 import * as geoPoint from "./geoPoint.ts";
@@ -199,29 +198,6 @@ export const isFirestoreValue = (u: unknown): u is FirestoreValue.FirestoreValue
     return true;
   } catch (e) {
     if (e instanceof Outside) return false;
-    throw e;
-  }
-};
-
-/**
- * Writes each typed reference within `u` as the path Firestore stores, so a
- * reference held where no schema says how to write it - under
- * `Schema.Unknown` - is still a Firestore Value. Anything else is left for
- * {@link isFirestoreValue} to judge.
- *
- * @internal
- */
-export const withReferencesAsPaths = (u: unknown): unknown => {
-  if (isFirestoreValue(u)) return u;
-  try {
-    return walk(u, (v, within) => {
-      if (collection.isDocumentReference(v)) return documentPath.makeUnchecked(v.path);
-      if (fieldValue.isArrayUnion(v)) return fieldValue.arrayUnion(...v.elements.map(within));
-      if (fieldValue.isArrayRemove(v)) return fieldValue.arrayRemove(...v.elements.map(within));
-      return kindOf(v) === undefined ? unhandled : v;
-    });
-  } catch (e) {
-    if (e instanceof Outside) return u;
     throw e;
   }
 };
