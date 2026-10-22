@@ -125,7 +125,6 @@ const existingIn = <C extends Collection.Any>(
 interface Target {
   readonly name: string;
   readonly getDoc: (ref: Admin.DocumentReference) => Promise<Admin.DocumentSnapshot>;
-  readonly getDocs: (ref: Admin.CollectionReference) => Promise<Admin.QuerySnapshot>;
   readonly setDoc: (ref: Admin.DocumentReference, data: Admin.DocumentData) => unknown;
   readonly updateDoc: (
     ref: Admin.DocumentReference,
@@ -136,7 +135,6 @@ interface Target {
 const databaseTarget: Target = {
   name: "Firestore",
   getDoc: (ref) => ref.get(),
-  getDocs: (ref) => ref.get(),
   setDoc: (ref, data) => ref.set(data),
   updateDoc: (ref, data) => ref.update(data),
 };
@@ -144,7 +142,6 @@ const databaseTarget: Target = {
 const transactionTarget = (tx: Admin.Transaction): Target => ({
   name: "Firestore.Transaction",
   getDoc: (ref) => tx.get(ref),
-  getDocs: (ref) => tx.get(ref),
   // Writes into a transaction are queued rather than sent, so these return
   // straight away - or throw, where the transaction refuses them.
   setDoc: (ref, data) => tx.set(ref, data),
@@ -223,15 +220,6 @@ const operations = (firestore: Admin.Firestore, encoder: FirestoreEncoder, targe
         return DocumentSnapshot.make(ref, snapshot.data());
       }),
 
-    getDocs: <C extends Collection.Any>(ref: Collection.CollectionReference<C>) =>
-      Effect.gen(function* () {
-        const query = yield* call("getDocs", `Failed to read the collection "${ref.path}"`, () =>
-          target.getDocs(firestore.collection(ref.path)),
-        );
-
-        return existingIn(ref, query);
-      }),
-
     setDoc: <C extends Collection.Any>(ref: Collection.DocumentReference<C>, data: Create<C>) =>
       Effect.gen(function* () {
         const encoded = yield* encodeCreate(ref.collection, data);
@@ -297,16 +285,21 @@ export const fromDatabase = (firestore: Admin.Firestore, encoder: FirestoreEncod
   const { call, encodeCreate, ...database } = operations(firestore, encoder, databaseTarget);
 
   const makeTransaction = (tx: Admin.Transaction): Transaction => {
-    const { getDoc, getDocs, setDoc, updateDoc } = operations(
-      firestore,
-      encoder,
-      transactionTarget(tx),
-    );
-    return Transaction.of({ getDoc, getDocs, setDoc, updateDoc });
+    const { getDoc, setDoc, updateDoc } = operations(firestore, encoder, transactionTarget(tx));
+    return Transaction.of({ getDoc, setDoc, updateDoc });
   };
 
   return Firestore.of({
     ...database,
+
+    getDocs: <C extends Collection.Any>(ref: Collection.CollectionReference<C>) =>
+      Effect.gen(function* () {
+        const query = yield* call("getDocs", `Failed to read the collection "${ref.path}"`, () =>
+          firestore.collection(ref.path).get(),
+        );
+
+        return existingIn(ref, query);
+      }),
 
     addDoc: <C extends Collection.Any>(ref: Collection.CollectionReference<C>, data: Create<C>) =>
       Effect.gen(function* () {

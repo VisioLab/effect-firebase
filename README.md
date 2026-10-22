@@ -10,7 +10,7 @@ A starter for creating a Vite+ monorepo.
 vp run ready
 ```
 
-- Run the tests. The Admin SDK's tests talk to the Firestore emulator, which
+- Run the tests. The Admin and client SDKs' tests talk to the Firestore emulator, which
   needs Java 21 or later and has to be running first, in a terminal of its own:
 
 ```bash
