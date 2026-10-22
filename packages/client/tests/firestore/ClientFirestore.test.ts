@@ -16,6 +16,7 @@ import {
   disableNetwork,
   DocumentReference,
   enableNetwork,
+  Firestore as SdkFirestore,
   getDoc,
   doc,
   getFirestore,
@@ -24,7 +25,7 @@ import {
   persistentLocalCache,
 } from "firebase/firestore";
 import * as App from "../../src/App.ts";
-import * as ClientFirestore from "../../src/firestore/Firestore.ts";
+import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
 import { clear, emulator } from "./emulator.ts";
 
 const projectId = "demo-client-firestore";
@@ -57,7 +58,7 @@ class Note extends FirestoreModel.Class<Note>("Note")({
 const Notes = Collection.make("notes", Note);
 const hello = Posts.id.make("hello");
 
-describe("Firestore", () => {
+describe("ClientFirestore", () => {
   it.effect("builds on top of the app in context", () =>
     Effect.gen(function* () {
       const firestore = yield* Firestore;
@@ -65,6 +66,53 @@ describe("Firestore", () => {
       expect(typeof firestore.getDocs).toBe("function");
     }).pipe(Effect.provide(layer)),
   );
+
+  it.effect("provides one Client Firestore under its own tag and the portable one", () =>
+    Effect.gen(function* () {
+      const client = yield* ClientFirestore.ClientFirestore;
+      const portable = yield* Firestore;
+
+      expect(client).toBe(portable);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("layerWithEncoder provides both tags and the encoder", () =>
+    Effect.gen(function* () {
+      const client = yield* ClientFirestore.ClientFirestore;
+      const portable = yield* Firestore;
+      const encoder = yield* FirestoreEncoder;
+
+      expect(client).toBe(portable);
+      expect(typeof encoder.documentReference).toBe("function");
+    }).pipe(
+      Effect.provide(
+        ClientFirestore.layerWithEncoder({ emulator }).pipe(
+          Layer.provideMerge(App.layer({ projectId }, "firestore-encoder")),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("exposes the client SDK's own Firestore object as instance", () =>
+    Effect.gen(function* () {
+      const client = yield* ClientFirestore.ClientFirestore;
+
+      expect(client.instance).toBeInstanceOf(SdkFirestore);
+      expect(client.instance).toBe(getFirestore(yield* App.App));
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it("is a Firestore that also holds the SDK's own object", () => {
+    expectTypeOf<ClientFirestore.ClientFirestore>().toExtend<Firestore>();
+    expectTypeOf<ClientFirestore.ClientFirestore["instance"]>().toEqualTypeOf<SdkFirestore>();
+    expectTypeOf<Firestore>().not.toHaveProperty("instance");
+    expectTypeOf(ClientFirestore.layer()).toEqualTypeOf<
+      Layer.Layer<ClientFirestore.ClientFirestore | Firestore, never, App.App>
+    >();
+    expectTypeOf(ClientFirestore.layerWithEncoder()).toEqualTypeOf<
+      Layer.Layer<ClientFirestore.ClientFirestore | Firestore | FirestoreEncoder, never, App.App>
+    >();
+  });
 
   // The SDK memoizes a database on the app and refuses to reopen one under
   // settings that disagree, which is what makes it observable from here whether
@@ -193,7 +241,7 @@ describe("Firestore", () => {
   );
 });
 
-describe("Firestore, against the emulator", () => {
+describe("ClientFirestore, against the emulator", () => {
   // Cleared before each test rather than after, so a failed test leaves its
   // documents behind to look at.
   const fresh = clear(projectId).pipe(Effect.andThen(Firestore));
@@ -265,10 +313,12 @@ describe("Firestore, against the emulator", () => {
 
   // Live, because the write waits on the SDK's own connection rather than on
   // the test clock.
+  // The network is toggled through `instance`, the SDK's own object, since this
+  // library does not wrap that.
   it.live("waits offline for the server, and reads a pending server timestamp as an estimate", () =>
     Effect.gen(function* () {
       const firestore = yield* fresh;
-      const sdk = getFirestore(yield* App.App);
+      const sdk = (yield* ClientFirestore.ClientFirestore).instance;
       const note = Notes.doc(Notes.id.make("note"));
 
       yield* Effect.promise(() => disableNetwork(sdk));

@@ -20,14 +20,16 @@ is left alone when the scope closes rather than deleted.
 
 ## Firestore
 
-`firestore/Firestore.layer` provides the shared `Firestore` service for the app
-in context:
+`firestore/ClientFirestore.layer` provides `ClientFirestore` for the app in
+context. It is the portable `Firestore` plus what only the client SDK can do,
+and the layer provides the same object under both tags, so portable code asks
+for `Firestore` and client-specific code for `ClientFirestore`:
 
 ```ts
-import { Firestore } from "@visiolab/effect-firebase-client/firestore";
+import { ClientFirestore } from "@visiolab/effect-firebase-client/firestore";
 import { persistentLocalCache } from "firebase/firestore";
 
-Firestore.layer({
+ClientFirestore.layer({
   localCache: persistentLocalCache(),
   emulator: import.meta.env.DEV ? { host: "127.0.0.1", port: 8080 } : undefined,
 });
@@ -45,3 +47,6 @@ Where it behaves differently from the Admin SDK's:
   has settled a `serverTimestamp` it was written with reads that field as the
   local clock's estimate rather than `null`, so it decodes as a timestamp.
 - **Error codes are always named**, such as `permission-denied`.
+
+`ClientFirestore.instance` is the client SDK's own `Firestore` object, for what
+this library does not wrap, such as `disableNetwork` and `enableNetwork`.
