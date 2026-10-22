@@ -29,7 +29,8 @@ await setDoc(doc(firestore, "events/e"), ClientFirestoreValue.toClient(encoded, 
 ```
 
 `ClientFirestoreValue.fromClient` goes the other way, from what the client SDK
-read to Firestore Values. A document reference read back is the portable
-reference at its path, built by `Collection.fromPathUntyped`.
+read to Firestore Values. A document reference read back is the
+`DocumentPath` it points at, and `toClient` writes a `DocumentPath` as
+`doc(firestore, path)`.
 
 The `effect` peer dependency is pinned to `4.0.4`, as the core package's is.

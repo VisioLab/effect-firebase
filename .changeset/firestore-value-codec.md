@@ -30,10 +30,14 @@ Values only.
 also gains a `toCodecJson` form, `{ seconds, nanoseconds }`, so the same model
 can be sent over HTTP.
 
-`Collection.fromPathUntyped(path)` builds the portable reference to a document
-from its path alone, which is how both SDK packages read a reference back.
-`FirestoreSchema.DocumentReference(collection)` decodes such a reference into
-one built from `collection`.
+Firestore stores a document reference as the document's path alone, so the
+union holds the new `DocumentPath` (built with `DocumentPath.make(path)`, equal
+by path) rather than a typed `Collection.DocumentReference`.
+`FirestoreSchema.DocumentReference(collection)` writes a typed reference as its
+`DocumentPath` and reads one back into `collection`, failing on a path outside
+it. A typed reference held under `Schema.Unknown` is written as its path too,
+and read back as a `DocumentPath`. `FirestoreSchema.DocumentPath` is the schema
+for a field that holds the path itself.
 
 The `effect` peer range is pinned to `4.0.4`, since the derivation builds on
 Effect internals a patch release may change.

@@ -16,8 +16,8 @@ values. A model's `create`, `update` and `updateUnchecked` schemas have
 `EncodingServices` of `never`, and encoding one of these schemas gives the
 portable value rather than the SDK's. Decoding one accepts the portable value
 and refuses an SDK's own. `Schema.is(FirestoreSchema.DocumentReference(collection))`
-accepts only references built from `collection`; decoding re-homes a reference
-read back by its path.
+accepts only references built from `collection`. Through `toCodecFirestore`, a
+reference is written as its `DocumentPath` and read back into `collection`.
 
 Breaking changes, and how to migrate:
 
@@ -77,7 +77,7 @@ Breaking changes, and how to migrate:
   accepts SDK values structurally any more. `Timestamp.Order` orders
   `Timestamp`s.
 - `DocumentSnapshot.raw` holds Firestore Values - the portable `Timestamp`,
-  `GeoPoint`, document reference and `Uint8Array` - rather than the SDK's own
+  `GeoPoint`, `DocumentPath` and `Uint8Array` - rather than the SDK's own
   values, and `data` decodes it through `toCodecFirestore` of the collection's
   model.
 - A `Schema.Any` field takes Firestore Values only, like `Schema.Unknown`.
