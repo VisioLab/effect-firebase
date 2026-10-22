@@ -7,10 +7,10 @@ import * as App from "../../src/App.ts";
 import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
 import { emulator, fresh, listening, otherClient } from "./emulator.ts";
 
-const projectId = "demo-client-listener-options";
+const projectId = "demo-client-listen-options";
 
 const layer = ClientFirestore.layer({ emulator }).pipe(
-  Layer.provideMerge(App.layer({ projectId }, "listener-options")),
+  Layer.provideMerge(App.layer({ projectId }, "listen-options")),
 );
 
 class Post extends FirestoreModel.Class<Post>("Post")({
@@ -21,7 +21,7 @@ class Post extends FirestoreModel.Class<Post>("Post")({
 const Posts = Collection.make("posts", Post);
 const hello = Posts.doc(Posts.id.make("hello"));
 
-describe("ClientFirestore listener options", () => {
+describe("ClientFirestore.ListenOptions", () => {
   it("are taken by the client streams alone", () => {
     expectTypeOf<ClientFirestore.ListenOptions>().toEqualTypeOf<{
       readonly includeMetadataChanges?: boolean | undefined;
@@ -110,7 +110,7 @@ describe("ClientFirestore listener options", () => {
       const other = Posts.doc(Posts.id.make("other"));
       yield* ClientFirestore.ClientFirestore.use((elsewhere) =>
         elsewhere.setDoc(other, { title: "Other", views: 2 }),
-      ).pipe(Effect.provide(otherClient(projectId, "listener-options-other")));
+      ).pipe(Effect.provide(otherClient(projectId, "listen-options-other")));
 
       // The server has it, but a listener on the cache alone never asks.
       const unseen = yield* Queue.take(

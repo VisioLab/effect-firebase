@@ -68,7 +68,7 @@ const fresh = Effect.gen(function* () {
 const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnapshot<C>) =>
   DocumentSnapshot.isExisting(snapshot) ? snapshot.data : Effect.die("missing");
 
-describe("Firestore.streamDoc", () => {
+describe("ClientFirestore.streamDoc", () => {
   it.effect("starts with the document as it is, and follows each change to it", () =>
     Effect.gen(function* () {
       const firestore = yield* fresh;
@@ -113,7 +113,7 @@ describe("Firestore.streamDoc", () => {
   );
 });
 
-describe("Firestore.streamDocs", () => {
+describe("ClientFirestore.streamDocs", () => {
   it.effect("starts with the collection as it is, and follows each change to it", () =>
     Effect.gen(function* () {
       const firestore = yield* fresh;
