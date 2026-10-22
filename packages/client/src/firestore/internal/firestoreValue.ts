@@ -1,8 +1,7 @@
-import { Result } from "effect";
+import { Option, Result } from "effect";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
 import { FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
-import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import type { FirestoreValue } from "@visiolab/effect-firebase/firestore/FirestoreValue";
 import * as GeoPoint from "@visiolab/effect-firebase/firestore/GeoPoint";
 import * as Timestamp from "@visiolab/effect-firebase/firestore/Timestamp";
@@ -44,45 +43,6 @@ export const toClient = (value: FirestoreValue, firestore: Client.Firestore): un
     return u;
   };
   return go(value);
-};
-
-/**
- * The model behind the collections a reference read back is placed in. A
- * reference Firestore hands back names its path but not the collection it was
- * defined through, so it is placed in one that holds anything, and
- * `FirestoreSchema.DocumentReference(collection)` resolves it by its path.
- */
-class Untyped extends FirestoreModel.Class<Untyped>("Untyped")({}) {}
-
-/**
- * The collections references are read back into, one per path of collection
- * ids, so two references read to the same document are equal.
- */
-const collections = new Map<string, Collection.Any>();
-
-const collectionOf = (segments: ReadonlyArray<string>): Collection.Any => {
-  const key = segments.join("/");
-  let collection = collections.get(key);
-  if (collection === undefined) {
-    collection =
-      segments.length === 1
-        ? Collection.make(segments[0], Untyped)
-        : collectionOf(segments.slice(0, -1)).subcollection(segments[segments.length - 1], Untyped);
-    collections.set(key, collection);
-  }
-  return collection;
-};
-
-const referenceOf = (
-  ref: Client.DocumentReference,
-): Collection.DocumentReference<Collection.Any> => {
-  const parts = ref.path.split("/");
-  const segments = parts.filter((_, i) => i % 2 === 0);
-  const ids = parts.filter((_, i) => i % 2 === 1);
-  // The ids are typed per collection, which a collection built at runtime has
-  // no types for.
-  const collection: { doc(...ids: ReadonlyArray<string>): unknown } = collectionOf(segments);
-  return collection.doc(...ids) as Collection.DocumentReference<Collection.Any>;
 };
 
 const describe = (u: object): string => u.constructor?.name ?? "an object with no prototype";
@@ -129,7 +89,10 @@ export const fromClient = (value: unknown): Result.Result<FirestoreValue, Firest
     if (u === null) return u;
     if (u instanceof Client.Timestamp) return Timestamp.makeUnsafe(u.seconds, u.nanoseconds);
     if (u instanceof Client.GeoPoint) return GeoPoint.makeUnsafe(u.latitude, u.longitude);
-    if (u instanceof Client.DocumentReference) return referenceOf(u);
+    if (u instanceof Client.DocumentReference) {
+      const ref = Collection.fromPathUntyped(u.path);
+      return Option.isSome(ref) ? ref.value : fail(u, `a reference to "${u.path}"`);
+    }
     if (u instanceof Client.Bytes) return u.toUint8Array();
     if (Array.isArray(u)) return u.map((e, i) => within(i, () => go(e)));
     if (isPlainObject(u)) return mapValues(u, (v, key) => within(key, () => go(v)));

@@ -15,7 +15,7 @@
  * @stability unstable
  * @since 0.2.0
  */
-import { Predicate, Result } from "effect";
+import { Option, Predicate, Result } from "effect";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
 import { FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
@@ -97,8 +97,10 @@ const formatPath = (path: ReadonlyArray<string | number>): string =>
  * sentinels the portable sentinels. It fails on a value outside the Firestore
  * Value union, such as a vector, naming the field that holds it.
  *
- * A `DocumentReference` is left as the Admin SDK's own for now: a portable
- * reference belongs to a collection, which a raw reference does not name.
+ * A `DocumentReference` becomes the portable reference at its path, built
+ * with `Collection.fromPathUntyped`, since what was read does not name the
+ * collection it was defined through. `FirestoreSchema.DocumentReference`
+ * turns it into a reference into the collection it names.
  *
  * @stability unstable
  * @category conversions
@@ -142,8 +144,10 @@ export const fromAdmin = (value: unknown): Result.Result<FirestoreValue, Firesto
     }
     if (u instanceof Admin.Timestamp) return Timestamp.makeUnsafe(u.seconds, u.nanoseconds);
     if (u instanceof Admin.GeoPoint) return GeoPoint.makeUnsafe(u.latitude, u.longitude);
-    // Temporary: see above.
-    if (u instanceof Admin.DocumentReference) return u;
+    if (u instanceof Admin.DocumentReference) {
+      const ref = Collection.fromPathUntyped(u.path);
+      return Option.isSome(ref) ? ref.value : fail(u, `a reference to "${u.path}"`);
+    }
     if (u instanceof Admin.FieldValue) {
       const sentinel = u as AdminSentinel;
       switch (sentinel.methodName) {

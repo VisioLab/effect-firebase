@@ -20,6 +20,8 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import type { Firestore } from "firebase/firestore";
+import type { FirestoreValue } from "@visiolab/effect-firebase/firestore/FirestoreValue";
+import { toClient } from "./internal/firestoreValue.ts";
 
 /**
  * Builds the values the client SDK writes into `firestore`.
@@ -39,6 +41,8 @@ export const make = (firestore: Firestore): FirestoreEncoder =>
     serverTimestamp: () => serverTimestamp(),
     increment: (by) => increment(by),
     deleteField: () => deleteField(),
-    arrayUnion: (elements) => arrayUnion(...elements),
-    arrayRemove: (elements) => arrayRemove(...elements),
+    arrayUnion: (elements) =>
+      arrayUnion(...elements.map((e) => toClient(e as FirestoreValue, firestore))),
+    arrayRemove: (elements) =>
+      arrayRemove(...elements.map((e) => toClient(e as FirestoreValue, firestore))),
   });

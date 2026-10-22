@@ -1,5 +1,5 @@
 import { assert, describe, expect, it } from "@effect/vitest";
-import { Result, Schema } from "effect";
+import { Equal, Option, Result, Schema } from "effect";
 import {
   Collection,
   FieldValue,
@@ -64,9 +64,9 @@ describe("ClientFirestoreValue", () => {
     expect(value["at"]).toEqual(Timestamp.makeUnsafe(1, 2000));
     expect(value["where"]).toEqual(GeoPoint.makeUnsafe(1, 2));
     expect(Collection.isDocumentReference(value["who"])).toBe(true);
-    expect(Collection.fromPath(Users, (value["who"] as { path: string }).path)).toEqual(
-      Collection.fromPath(Users, "users/ada"),
-    );
+    expect(
+      Equal.equals(value["who"], Option.getOrThrow(Collection.fromPathUntyped("users/ada"))),
+    ).toBe(true);
     expect(value["bytes"]).toEqual(new Uint8Array([1, 2]));
     expect(value["nested"]).toEqual([{ n: 1, s: "s", b: true, z: null }]);
   });

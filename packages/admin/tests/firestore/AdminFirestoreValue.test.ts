@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Result } from "effect";
+import { Equal, Option, Result } from "effect";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
@@ -67,6 +67,21 @@ describe("fromAdmin", () => {
     expect([...out.bytes]).toEqual([1, 2]);
     expect(FieldValue.isIncrement(out.views) && out.views.by).toBe(2);
     expect(out.text).toBe("hello");
+  });
+
+  it("reads a reference back as the portable one at its path", () => {
+    const result = AdminFirestoreValue.fromAdmin({
+      ref: firestore.doc("posts/hello"),
+      nested: [firestore.doc("posts/hello/comments/first")],
+    });
+
+    assertSuccess(result);
+    const out = result.success as Record<string, any>;
+    expect(Collection.isDocumentReference(out.ref)).toBe(true);
+    expect(
+      Equal.equals(out.ref, Collection.fromPathUntyped("posts/hello").pipe(Option.getOrThrow)),
+    ).toBe(true);
+    expect(out.nested[0].path).toBe("posts/hello/comments/first");
   });
 
   it("fails on a value outside Firestore Values, naming where it is", () => {

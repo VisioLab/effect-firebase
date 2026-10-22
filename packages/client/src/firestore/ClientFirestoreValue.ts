@@ -43,10 +43,11 @@ export const toClient: (value: FirestoreValue, firestore: Firestore) => unknown 
  * Turns a value the client SDK read into a Firestore Value.
  *
  * Its `Timestamp`, `GeoPoint` and `Bytes` become the portable `Timestamp`,
- * `GeoPoint` and `Uint8Array`. A `DocumentReference` becomes a portable one
- * that keeps its path: what was read does not name the collection definition
- * it belongs to, so `FirestoreSchema.DocumentReference(collection)` resolves it
- * by that path. It fails on a value outside the Firestore Value union, such as
+ * `GeoPoint` and `Uint8Array`. A `DocumentReference` becomes the portable
+ * reference at its path, built with `Collection.fromPathUntyped`, since what
+ * was read does not name the collection it was defined through.
+ * `FirestoreSchema.DocumentReference(collection)` turns it into a reference
+ * into `collection`. It fails on a value outside the Firestore Value union, such as
  * a vector, naming the field that holds it.
  *
  * @stability unstable

@@ -1,5 +1,5 @@
 import { assert, describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { DateTime, Effect, Fiber, Layer, Option, Schema, Stream } from "effect";
+import { DateTime, Effect, Equal, Fiber, Layer, Option, Schema, Stream } from "effect";
 import { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
 import {
   Collection,
@@ -7,6 +7,7 @@ import {
   FieldValue,
   FirestoreModel,
   FirestoreSchema,
+  GeoPoint,
   QuerySnapshot,
   Timestamp,
 } from "@visiolab/effect-firebase/firestore";
@@ -19,6 +20,7 @@ import {
   DocumentReference,
   enableNetwork,
   Firestore as SdkFirestore,
+  GeoPoint as SdkGeoPoint,
   getDoc,
   doc,
   getFirestore,
@@ -415,6 +417,95 @@ describe("ClientFirestore, Firestore Values", () => {
 
       const listed = yield* Effect.flip(firestore.getDocs(Posts.collection()));
       expect(listed.message).toContain("VectorValue");
+    }).pipe(Effect.provide(layer)),
+  );
+});
+
+class Member extends FirestoreModel.Class<Member>("Member")({ name: Schema.String }) {}
+const Members = Collection.make("members", Member);
+const ada = Members.doc(Members.id.make("ada"));
+
+// The portable types Effect has no schema for, plus timestamps held either way.
+class Venue extends FirestoreModel.Class<Venue>("Venue")({
+  openedAt: FirestoreSchema.Timestamp,
+  where: FirestoreSchema.GeoPoint,
+  owner: FirestoreSchema.DocumentReference(Members),
+  createdAt: FirestoreModel.Timestamp(Schema.DateTimeUtc),
+  checkedAt: FirestoreModel.Timestamp(Schema.Date),
+}) {}
+
+const Venues = Collection.make("venues", Venue);
+
+describe("ClientFirestore, FirestoreSchema values", () => {
+  const freshFirestore = clear(projectId).pipe(Effect.andThen(Firestore));
+  const hall = Venues.doc(Venues.id.make("hall"));
+
+  const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnapshot<C>) =>
+    DocumentSnapshot.isExisting(snapshot) ? snapshot.data : Effect.die("missing");
+
+  const venue = {
+    // Firestore keeps a timestamp to the microsecond.
+    openedAt: Timestamp.makeUnsafe(1_700_000_000, 123_456_000),
+    where: GeoPoint.makeUnsafe(52.52, 13.405),
+    owner: ada,
+    createdAt: DateTime.makeUnsafe("2024-05-06T07:08:09.123Z"),
+    checkedAt: new Date("2001-02-03T04:05:06.789Z"),
+  };
+
+  it.effect("are stored as the client SDK's own timestamp, geopoint and reference", () =>
+    Effect.gen(function* () {
+      const firestore = yield* freshFirestore;
+      const { instance } = yield* ClientFirestore.ClientFirestore;
+
+      yield* firestore.setDoc(hall, venue);
+      const raw = (yield* Effect.promise(() => getDoc(doc(instance, "venues/hall")))).data();
+
+      assert(raw !== undefined);
+      expect(raw["openedAt"]).toBeInstanceOf(SdkTimestamp);
+      expect(
+        (raw["openedAt"] as SdkTimestamp).isEqual(new SdkTimestamp(1_700_000_000, 123_456_000)),
+      ).toBe(true);
+      expect(raw["where"]).toBeInstanceOf(SdkGeoPoint);
+      expect((raw["where"] as SdkGeoPoint).isEqual(new SdkGeoPoint(52.52, 13.405))).toBe(true);
+      expect(raw["owner"]).toBeInstanceOf(DocumentReference);
+      expect((raw["owner"] as DocumentReference).path).toBe("members/ada");
+      expect(raw["createdAt"]).toBeInstanceOf(SdkTimestamp);
+      expect(raw["checkedAt"]).toBeInstanceOf(SdkTimestamp);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("read back equal to what was written", () =>
+    Effect.gen(function* () {
+      const firestore = yield* freshFirestore;
+
+      yield* firestore.setDoc(hall, venue);
+      const data = yield* read(yield* firestore.getDoc(hall));
+
+      expect(Equal.equals(data.openedAt, venue.openedAt)).toBe(true);
+      expect(Equal.equals(data.where, venue.where)).toBe(true);
+      expect(Equal.equals(data.owner, ada)).toBe(true);
+      expect(data.owner.collection).toBe(Members);
+      expect(DateTime.toEpochMillis(data.createdAt)).toBe(DateTime.toEpochMillis(venue.createdAt));
+      expect(data.checkedAt.getTime()).toBe(venue.checkedAt.getTime());
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("take a server timestamp on create, read back as the schema holds it", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh(projectId);
+
+      const before = Date.now();
+      yield* firestore.setDoc(hall, {
+        ...venue,
+        createdAt: FieldValue.serverTimestamp,
+        checkedAt: FieldValue.serverTimestamp,
+      });
+      const data = yield* read(yield* firestore.getDoc(hall, { source: "server" }));
+
+      expect(DateTime.isDateTime(data.createdAt)).toBe(true);
+      expect(DateTime.toEpochMillis(data.createdAt)).toBeGreaterThan(before - 60_000);
+      expect(data.checkedAt).toBeInstanceOf(Date);
+      expect(data.checkedAt.getTime()).toBeGreaterThan(before - 60_000);
     }).pipe(Effect.provide(layer)),
   );
 });
