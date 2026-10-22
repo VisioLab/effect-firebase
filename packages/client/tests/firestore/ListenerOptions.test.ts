@@ -1,21 +1,16 @@
 import { assert, describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { Effect, Layer, Queue, Schema, Stream } from "effect";
+import { Effect, Layer, Queue, Schema } from "effect";
 import { disableNetwork, enableNetwork } from "firebase/firestore";
 import { Collection, DocumentSnapshot, FirestoreModel } from "@visiolab/effect-firebase/firestore";
 import type { Firestore } from "@visiolab/effect-firebase/firestore/Firestore";
 import * as App from "../../src/App.ts";
 import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
-import { clear, emulator } from "./emulator.ts";
+import { emulator, fresh, listening, otherClient } from "./emulator.ts";
 
 const projectId = "demo-client-listener-options";
 
 const layer = ClientFirestore.layer({ emulator }).pipe(
   Layer.provideMerge(App.layer({ projectId }, "listener-options")),
-);
-
-/** A second client of the same project, with a cache of its own. */
-const otherClient = ClientFirestore.layer({ emulator }).pipe(
-  Layer.provide(App.layer({ projectId }, "listener-options-other")),
 );
 
 class Post extends FirestoreModel.Class<Post>("Post")({
@@ -25,12 +20,6 @@ class Post extends FirestoreModel.Class<Post>("Post")({
 
 const Posts = Collection.make("posts", Post);
 const hello = Posts.doc(Posts.id.make("hello"));
-
-const fresh = clear(projectId).pipe(Effect.andThen(ClientFirestore.ClientFirestore));
-
-/** Runs `stream` into a queue for the rest of the test. */
-const listening = <A, E>(stream: Stream.Stream<A, E>) =>
-  Stream.toQueue(stream, { capacity: "unbounded" });
 
 describe("ClientFirestore listener options", () => {
   it("are taken by the client streams alone", () => {
@@ -55,7 +44,7 @@ describe("ClientFirestore listener options", () => {
   // rather than on the test clock.
   it.live("with includeMetadataChanges, emits again once a write is acknowledged", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* fresh(projectId);
       const snapshots = yield* listening(
         firestore.streamDoc(hello, { includeMetadataChanges: true }),
       );
@@ -80,7 +69,7 @@ describe("ClientFirestore listener options", () => {
 
   it.live("without options, emits nothing when only the metadata changes", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* fresh(projectId);
       const plain = yield* listening(firestore.streamDocs(Posts.collection()));
       // Listens to the same query, and so hears of the acknowledgement in the
       // same pass as the plain listener would.
@@ -110,7 +99,7 @@ describe("ClientFirestore listener options", () => {
 
   it.live("with source cache, emits from the local cache without reaching the server", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* fresh(projectId);
       yield* firestore.setDoc(hello, { title: "Hello", views: 1 });
       // Keeps the document in the memory cache, which drops what no listener
       // holds on to.
@@ -121,7 +110,7 @@ describe("ClientFirestore listener options", () => {
       const other = Posts.doc(Posts.id.make("other"));
       yield* ClientFirestore.ClientFirestore.use((elsewhere) =>
         elsewhere.setDoc(other, { title: "Other", views: 2 }),
-      ).pipe(Effect.provide(otherClient));
+      ).pipe(Effect.provide(otherClient(projectId, "listener-options-other")));
 
       // The server has it, but a listener on the cache alone never asks.
       const unseen = yield* Queue.take(

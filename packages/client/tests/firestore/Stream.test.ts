@@ -8,7 +8,7 @@ import * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapsho
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as App from "../../src/App.ts";
 import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
-import { clear, emulator } from "./emulator.ts";
+import { clear, emulator, listening } from "./emulator.ts";
 
 /**
  * What the wrapped `onSnapshot` below does besides attaching the listener: it
@@ -67,15 +67,6 @@ const fresh = Effect.gen(function* () {
 
 const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnapshot<C>) =>
   DocumentSnapshot.isExisting(snapshot) ? snapshot.data : Effect.die("missing");
-
-/**
- * Runs `stream` into a queue for the rest of the test.
- *
- * Each snapshot is taken before the next write, so none is dropped for
- * arriving while another was still waiting to be read.
- */
-const listening = <A, E>(stream: Stream.Stream<A, E>) =>
-  Stream.toQueue(stream, { capacity: "unbounded" });
 
 describe("Firestore.streamDoc", () => {
   it.effect("starts with the document as it is, and follows each change to it", () =>

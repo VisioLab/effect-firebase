@@ -1,22 +1,17 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { Effect, Layer, Queue, Schema, Stream } from "effect";
+import { Effect, Layer, Schema } from "effect";
 import type { Firestore } from "@visiolab/effect-firebase/firestore/Firestore";
-import { deleteDoc, disableNetwork, doc, enableNetwork } from "firebase/firestore";
+import { deleteDoc, doc } from "firebase/firestore";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as App from "../../src/App.ts";
 import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
-import { clear, emulator } from "./emulator.ts";
+import { emulator, fresh, holding, offline, otherClient } from "./emulator.ts";
 
 const projectId = "demo-client-read-source";
 
 const layer = ClientFirestore.layer({ emulator }).pipe(
   Layer.provideMerge(App.layer({ projectId }, "read-source")),
-);
-
-/** A second client of the same project, with a cache of its own. */
-const otherClient = ClientFirestore.layer({ emulator }).pipe(
-  Layer.provide(App.layer({ projectId }, "read-source-other")),
 );
 
 class Place extends FirestoreModel.Class<Place>("Place")({
@@ -32,24 +27,6 @@ class Post extends FirestoreModel.Class<Post>("Post")({
 
 const Posts = Collection.make("posts", Post);
 const hello = Posts.id.make("hello");
-
-const fresh = clear(projectId).pipe(Effect.andThen(ClientFirestore.ClientFirestore));
-
-/**
- * Keeps a listener on what `stream` follows for the rest of the test, once it
- * has heard from the server, so the SDK's cache keeps hold of it: without one,
- * what a read has seen is dropped from the memory cache again.
- */
-const holding = <A, E>(stream: Stream.Stream<A, E>) =>
-  Stream.toQueue(stream, { capacity: "unbounded" }).pipe(Effect.flatMap(Queue.take));
-
-/** Runs `effect` with the network off, toggled through `instance`. */
-const offline = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  Effect.gen(function* () {
-    const { instance } = yield* ClientFirestore.ClientFirestore;
-    yield* Effect.promise(() => disableNetwork(instance));
-    return yield* effect.pipe(Effect.ensuring(Effect.promise(() => enableNetwork(instance))));
-  });
 
 describe("ClientFirestore, read source", () => {
   it("takes read options on Client Firestore alone", () => {
@@ -73,7 +50,7 @@ describe("ClientFirestore, read source", () => {
 
   it.live("reads a document it has seen from the cache", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* fresh(projectId);
 
       yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
       yield* holding(firestore.streamDoc(Posts.doc(hello)));
@@ -87,7 +64,7 @@ describe("ClientFirestore, read source", () => {
   // Not being cached is not the same as not existing.
   it.effect("fails a document the cache has never seen as unavailable", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* fresh(projectId);
 
       const error = yield* Effect.flip(firestore.getDoc(Posts.doc(hello), { source: "cache" }));
 
@@ -97,7 +74,7 @@ describe("ClientFirestore, read source", () => {
 
   it.live("reads a document the cache knows was deleted as missing", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* fresh(projectId);
 
       yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
       yield* holding(firestore.streamDoc(Posts.doc(hello)));
@@ -113,13 +90,13 @@ describe("ClientFirestore, read source", () => {
   // the cache lacks.
   it.effect("reads a collection with nothing cached as empty, from the cache", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* fresh(projectId);
 
       // Written by another client, so that the server holds a document this
       // one's cache has never seen.
       yield* Effect.flatMap(ClientFirestore.ClientFirestore, (other) =>
         other.setDoc(Places.doc(Places.id.make("home")), { name: "Home" }),
-      ).pipe(Effect.provide(otherClient));
+      ).pipe(Effect.provide(otherClient(projectId, "read-source-other")));
       const snapshot = yield* firestore.getDocs(Places.collection(), { source: "cache" });
 
       expect(snapshot.docs).toEqual([]);
@@ -129,7 +106,7 @@ describe("ClientFirestore, read source", () => {
 
   it.live("fails a read from the server while offline, rather than read the cache", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* fresh(projectId);
 
       yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
       yield* holding(firestore.streamDocs(Posts.collection()));
