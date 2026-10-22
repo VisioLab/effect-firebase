@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { DateTime, Effect, Option, Schema, SchemaGetter } from "effect";
+import { BigDecimal, DateTime, Duration, Effect, Option, Schema, SchemaGetter } from "effect";
 import * as Collection from "../../src/firestore/Collection.ts";
 import * as FieldValue from "../../src/firestore/FieldValue.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
@@ -134,6 +134,38 @@ describe("toCodecFirestore", () => {
 
         expect(yield* decode(Model)(some)).toEqual({ nickname: Option.some("al") });
         expect(yield* decode(Model)(none)).toEqual({ nickname: Option.none() });
+      }),
+    );
+
+    it.effect("stores a Duration, a URL and a BigDecimal through their JSON forms", () =>
+      Effect.gen(function* () {
+        const Model = Schema.Struct({
+          timeout: Schema.Duration,
+          precise: Schema.Duration,
+          site: Schema.URL,
+          price: Schema.BigDecimal,
+        });
+        const value = {
+          timeout: Duration.millis(1500),
+          precise: Duration.nanos(1_500n),
+          site: new URL("https://example.com/a?b=c"),
+          price: BigDecimal.fromStringUnsafe("12.50"),
+        };
+
+        const encoded = yield* encode(Model)(value);
+        expect(encoded).toEqual({
+          timeout: { _tag: "Millis", value: 1500 },
+          precise: { _tag: "Nanos", value: "1500" },
+          site: "https://example.com/a?b=c",
+          price: "12.5",
+        });
+        expect(FirestoreValue.isFirestoreValue(encoded)).toBe(true);
+
+        const decoded = yield* decode(Model)(encoded);
+        expect(Duration.equals(decoded.timeout, value.timeout)).toBe(true);
+        expect(Duration.equals(decoded.precise, value.precise)).toBe(true);
+        expect(decoded.site.href).toBe("https://example.com/a?b=c");
+        expect(BigDecimal.equals(decoded.price, value.price)).toBe(true);
       }),
     );
 
