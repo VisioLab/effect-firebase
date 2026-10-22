@@ -1,4 +1,4 @@
-import { Cause, Context, Effect, Exit, Option, Schema } from "effect";
+import { Cause, Context, Effect, Exit, Option, Queue, Schema, Stream } from "effect";
 import { constVoid } from "effect/Function";
 import {
   Firestore,
@@ -110,6 +110,15 @@ const thrownFor = (cause: Cause.Cause<unknown>): unknown => {
     : new BodyFailed(cause);
 };
 
+/** The documents `query` read from the collection at `ref`. */
+const existingIn = <C extends Collection.Any>(
+  ref: Collection.CollectionReference<C>,
+  query: Admin.QuerySnapshot,
+): ReadonlyArray<DocumentSnapshot.Existing<C>> =>
+  query.docs.map((snapshot) =>
+    DocumentSnapshot.existing(ref.doc(ref.collection.id.make(snapshot.id)), snapshot.data()),
+  );
+
 /**
  * Where reads and writes go: straight to the database, or into a transaction.
  */
@@ -220,9 +229,7 @@ const operations = (firestore: Admin.Firestore, encoder: FirestoreEncoder, targe
           target.getDocs(firestore.collection(ref.path)),
         );
 
-        return query.docs.map((snapshot) =>
-          DocumentSnapshot.existing(ref.doc(ref.collection.id.make(snapshot.id)), snapshot.data()),
-        );
+        return existingIn(ref, query);
       }),
 
     setDoc: <C extends Collection.Any>(ref: Collection.DocumentReference<C>, data: Create<C>) =>
@@ -248,6 +255,35 @@ const operations = (firestore: Admin.Firestore, encoder: FirestoreEncoder, targe
       }),
   };
 };
+
+/**
+ * A stream of what `subscribe` hands its listener, each turned into an element
+ * by `toElement`.
+ *
+ * The listener is attached once the stream runs and detached when it stops,
+ * so every run listens on its own. Only the latest element is kept for a
+ * reader that falls behind, which is sound because each one is a whole
+ * snapshot rather than a change to the last.
+ */
+const listen = <S, A>(
+  span: string,
+  message: string,
+  subscribe: (onNext: (snapshot: S) => void, onError: (error: Error) => void) => () => void,
+  toElement: (snapshot: S) => A,
+): Stream.Stream<A, FirestoreError> =>
+  Stream.callback<A, FirestoreError>(
+    (queue) =>
+      Effect.acquireRelease(
+        Effect.sync(() =>
+          subscribe(
+            (snapshot) => Queue.offerUnsafe(queue, toElement(snapshot)),
+            (cause) => Queue.failCauseUnsafe(queue, Cause.fail(firestoreError(message)(cause))),
+          ),
+        ),
+        (unsubscribe) => Effect.sync(unsubscribe),
+      ),
+    { bufferSize: 1, strategy: "sliding" },
+  ).pipe(Stream.withSpan(`Firestore.${span}`));
 
 /**
  * The service over a database already opened, writing through `encoder`.
@@ -282,6 +318,22 @@ export const fromDatabase = (firestore: Admin.Firestore, encoder: FirestoreEncod
 
         return ref.doc(ref.collection.id.make(added.id));
       }),
+
+    streamDoc: <C extends Collection.Any>(ref: Collection.DocumentReference<C>) =>
+      listen(
+        "streamDoc",
+        `Failed to listen to the document "${ref.path}"`,
+        (onNext, onError) => firestore.doc(ref.path).onSnapshot(onNext, onError),
+        (snapshot: Admin.DocumentSnapshot) => DocumentSnapshot.make(ref, snapshot.data()),
+      ),
+
+    streamDocs: <C extends Collection.Any>(ref: Collection.CollectionReference<C>) =>
+      listen(
+        "streamDocs",
+        `Failed to listen to the collection "${ref.path}"`,
+        (onNext, onError) => firestore.collection(ref.path).onSnapshot(onNext, onError),
+        (query: Admin.QuerySnapshot) => existingIn(ref, query),
+      ),
 
     runTransaction: Effect.fn("Firestore.runTransaction")(function* <A, E, R>(
       effect: Effect.Effect<A, E, R>,
