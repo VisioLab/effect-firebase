@@ -43,18 +43,33 @@ export interface ClientFirestore extends Firestore {
   /**
    * Reads one document, as {@link Firestore.getDoc} does, with the
    * {@link ClientDocumentSnapshot.SnapshotMetadata} of the read.
+   *
+   * With `source: "cache"`, a document the cache has never seen fails with a
+   * `FirestoreError` whose code is `unavailable`: not being cached is not the
+   * same as not existing. One the cache knows was deleted reads as `Missing`.
+   *
+   * @see {@link ReadOptions} for where a read can be served from.
    */
   readonly getDoc: <C extends Collection.Any>(
     ref: Collection.DocumentReference<C>,
+    options?: ReadOptions,
   ) => Effect.Effect<ClientDocumentSnapshot.ClientDocumentSnapshot<C>, FirestoreError>;
 
   /**
    * Reads every document in one collection, as {@link Firestore.getDocs}
    * does, with the {@link ClientDocumentSnapshot.SnapshotMetadata} of the read
    * as a whole and of each document.
+   *
+   * With `source: "cache"`, it never fails for what the cache lacks: it hands
+   * back whatever the cache holds, which may be nothing, with `fromCache:
+   * true`. Unlike {@link getDoc}, an empty result cannot tell "nothing cached"
+   * from "nothing there".
+   *
+   * @see {@link ReadOptions} for where a read can be served from.
    */
   readonly getDocs: <C extends Collection.Any>(
     ref: Collection.CollectionReference<C>,
+    options?: ReadOptions,
   ) => Effect.Effect<ClientQuerySnapshot.ClientQuerySnapshot<C>, FirestoreError>;
 
   /**
@@ -86,6 +101,33 @@ export interface ClientFirestore extends Firestore {
 export const ClientFirestore = Context.Service<ClientFirestore>(
   "@visiolab/effect-firebase-client/firestore/ClientFirestore",
 );
+
+/**
+ * Where a one-off read is served from.
+ *
+ * - `"default"`: the server when it can be reached, the local cache when it
+ *   cannot - what a read does when no source is given.
+ * - `"server"`: the server alone. Fails when it cannot be reached, with the
+ *   SDK's code, rather than fall back to the cache.
+ * - `"cache"`: the local cache alone, without asking the server.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export type ReadSource = "default" | "server" | "cache";
+
+/**
+ * How {@link ClientFirestore.getDoc} and {@link ClientFirestore.getDocs} read.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface ReadOptions {
+  /** Where the read is served from. Left out, it is `"default"`. */
+  readonly source?: ReadSource | undefined;
+}
 
 /**
  * Where an emulator listens.
