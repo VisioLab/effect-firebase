@@ -5,7 +5,7 @@
  * @since 0.2.0
  */
 import { Context, Schema } from "effect";
-import type { Effect } from "effect";
+import type { Effect, Stream } from "effect";
 import type * as Collection from "./Collection.ts";
 import type * as DocumentSnapshot from "./DocumentSnapshot.ts";
 import type { FirestoreEncoder } from "./FirestoreEncoder.ts";
@@ -232,6 +232,38 @@ export interface Firestore {
   readonly getDocs: <C extends Collection.Any>(
     ref: Collection.CollectionReference<C>,
   ) => Effect.Effect<ReadonlyArray<DocumentSnapshot.Existing<C>>, FirestoreError>;
+
+  /**
+   * Listens to one document, emitting a snapshot of it each time it changes.
+   *
+   * The first snapshot is the document as it is when the listener attaches,
+   * and one that is not there - or is deleted later - comes through as
+   * {@link DocumentSnapshot.Missing}, as {@link getDoc} hands it back.
+   *
+   * Each snapshot is the whole document rather than what changed, so one that
+   * is not pulled before the next arrives is dropped: whoever reads the stream
+   * slower than the document changes sees its latest state, not every state it
+   * passed through.
+   *
+   * The stream never ends on its own. Running it attaches a listener of its
+   * own, which stays until the stream is interrupted, and fails the stream
+   * when Firestore drops it.
+   */
+  readonly streamDoc: <C extends Collection.Any>(
+    ref: Collection.DocumentReference<C>,
+  ) => Stream.Stream<DocumentSnapshot.DocumentSnapshot<C>, FirestoreError>;
+
+  /**
+   * Listens to every document in one collection, emitting all of them each
+   * time any of them changes.
+   *
+   * Each element is what {@link getDocs} would have handed back at that
+   * moment, and as with {@link streamDoc}, one that is not pulled before the
+   * next arrives is dropped.
+   */
+  readonly streamDocs: <C extends Collection.Any>(
+    ref: Collection.CollectionReference<C>,
+  ) => Stream.Stream<ReadonlyArray<DocumentSnapshot.Existing<C>>, FirestoreError>;
 
   /**
    * Writes one document, replacing whatever was there.
