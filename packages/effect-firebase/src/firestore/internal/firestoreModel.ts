@@ -5,6 +5,7 @@ import {
   SchemaAST,
   SchemaGetter,
   SchemaIssue,
+  Result,
   SchemaParser,
 } from "effect";
 import { VariantSchema } from "effect/schema";
@@ -12,6 +13,8 @@ import type * as FirestoreModel from "../FirestoreModel.ts";
 import type * as FirestoreSchema from "../FirestoreSchema.ts";
 import * as fieldValue from "./fieldValue.ts";
 import * as firestoreSchema from "./firestoreSchema.ts";
+import * as firestoreValue from "./firestoreValue.ts";
+import * as firestoreValueWalk from "./firestoreValueWalk.ts";
 import * as patch from "./patch.ts";
 
 const Variants = VariantSchema.make({
@@ -360,7 +363,10 @@ const unionNode = (members: Members, optional: boolean): Node => ({
   rest: undefined,
   create: () => unionCreate(members),
   optional,
-  writable: optional || members.some(isMemberReplaceable),
+  writable:
+    optional ||
+    members.some(isMemberReplaceable) ||
+    buildShared(members.map(fields), [], { known: {}, patterns: new Map() }).keys.length > 0,
 });
 
 /**
@@ -467,7 +473,7 @@ const buildNode = (
   mode: FirestoreModel.UpdateMode,
 ): { readonly schema: Schema.Top; readonly shape: Shape } => {
   if (node.members !== undefined) {
-    return buildUnion(node, node.members, path, paths);
+    return buildUnion(node, node.members, path, paths, mode);
   }
   const inner =
     node.rest === undefined
@@ -499,20 +505,26 @@ const buildNode = (
 };
 
 /**
- * Builds what a union at `path` takes, gathering the path it writes at into
- * `paths`. A union is written whole: replaced with any member it may be
- * replaced with, and removed where it may be missing. It is never patched into,
- * in either mode.
+ * Builds what a union at `path` takes in `mode`, gathering the paths it writes
+ * at into `paths`. A union is replaced with any member it may be replaced
+ * with, removed where it may be missing, and patched at its Shared Fields -
+ * see {@link buildShared}. The patch is refused where it may be missing and
+ * the patch is checked, as it is for a struct.
  */
 const buildUnion = (
   node: Node,
   members: Members,
   path: Path,
   paths: Paths,
+  mode: FirestoreModel.UpdateMode,
 ): { readonly schema: Schema.Top; readonly shape: Shape } => {
   const replaceable = members.filter(isMemberReplaceable);
   const create = replaceable.length === 0 ? undefined : unionCreate(replaceable);
+  const shared = buildShared(members.map(fields), path, paths);
   const takes: Array<Schema.Top> = [];
+  if (shared.keys.length > 0 && (!node.optional || mode === "unchecked")) {
+    takes.push(shared.patch);
+  }
   if (create !== undefined) {
     takes.push(ReplaceSchema(create));
   }
@@ -529,7 +541,170 @@ const buildUnion = (
   }
   return {
     schema: takes.length === 1 ? takes[0] : Schema.Union(takes),
-    shape: { fields: {}, rest: undefined },
+    shape: shared.shape,
+  };
+};
+
+/** What a field was made {@link FirestoreModel.Optional} of, or the field itself. */
+const unwrap = (field: unknown): unknown => (isOptional(field) ? field.field : field);
+
+/** The literals a schema is made of, where it is made of nothing else. */
+const literalsOf = (ast: SchemaAST.AST): ReadonlyArray<unknown> | undefined => {
+  if (SchemaAST.isLiteral(ast)) {
+    return [ast.literal];
+  }
+  if (SchemaAST.isUnion(ast)) {
+    const out: Array<unknown> = [];
+    for (const type of ast.types) {
+      const literals = literalsOf(type);
+      if (literals === undefined) {
+        return undefined;
+      }
+      out.push(...literals);
+    }
+    return out;
+  }
+  return undefined;
+};
+
+/**
+ * Whether no value is taken by every one of `schemas`, as far as the literals
+ * they are made of tell - which is what tells the members of a union apart.
+ */
+const areDisjoint = (schemas: ReadonlyArray<Schema.Top>): boolean => {
+  const sets = schemas.map((schema) => literalsOf(schema.ast));
+  if (sets.some((set) => set === undefined)) {
+    return false;
+  }
+  const [first, ...rest] = sets as ReadonlyArray<ReadonlyArray<unknown>>;
+  return !first.some((literal) => rest.every((set) => set.includes(literal)));
+};
+
+/**
+ * What a Shared Field is patched through: the value is encoded through the
+ * field of every member, each of which must take it, and all of which must
+ * store it as the same Firestore Value. Each member decides by the canonical
+ * codec, not by the encoding the caller asks for, since that is what Firestore
+ * ends up holding. It is written as the first member writes it, which is then
+ * what every member would write.
+ */
+const SharedValueSchema = (schemas: ReadonlyArray<Schema.Top>): Schema.Top => {
+  if (schemas.length === 1) {
+    return schemas[0];
+  }
+  // Encoding runs synchronously, as a check does, so a member's encoding may
+  // ask for no service.
+  const codecs = schemas.map((schema) =>
+    firestoreValue.toCodecFirestore(schema as Schema.Codec<unknown, unknown>),
+  );
+  return schemas[0].check(
+    Schema.makeFilter(
+      (value: unknown, _, options) => {
+        let stored: unknown;
+        for (const [i, codec] of codecs.entries()) {
+          const result = SchemaParser.encodeUnknownResult(codec)(value, options);
+          if (Result.isFailure(result)) {
+            return result.failure;
+          }
+          if (i === 0) {
+            stored = result.success;
+          } else if (!firestoreValueWalk.equals(stored, result.success)) {
+            return "Expected a value every member of the union stores the same way";
+          }
+        }
+        return undefined;
+      },
+      { expected: "a value every member of the union takes and stores the same way" },
+    ),
+  );
+};
+
+/**
+ * The patch of the Shared Fields of a union, refusing a key it does not know,
+ * since a `Schema.Struct` would otherwise drop it and write nothing. That is a
+ * key some member goes without, or one the members cannot agree on, such as
+ * the literal they are told apart by.
+ */
+const SharedPatchSchema = (fields: Schema.Top, keys: ReadonlyArray<string>): Schema.Top =>
+  Schema.declareConstructor<any, any>()(
+    [fields],
+    ([fields]) =>
+      (input, ast, options) => {
+        if (patch.isReplace(input) || fieldValue.isDeleteField(input)) {
+          return Effect.fail(new SchemaIssue.InvalidType(ast, input, options));
+        }
+        if (Predicate.isObject(input)) {
+          const unknown = Object.keys(input).find((key) => !keys.includes(key));
+          if (unknown !== undefined) {
+            return Effect.fail(
+              new SchemaIssue.Pointer(
+                [unknown],
+                new SchemaIssue.UnexpectedKey(ast, (input as Record<string, unknown>)[unknown]),
+              ),
+            );
+          }
+        }
+        return SchemaParser.decodeUnknownEffect(fields)(input, options);
+      },
+    { expected: "a patch of the Shared Fields of a union" },
+  );
+
+/**
+ * Builds the patch of the Shared Fields of a union, given the fields of each
+ * of its members, along with where the structs among them sit, and gathers the
+ * schema of each path it can write at into `paths`.
+ *
+ * A Shared Field is a key every member holds, at which every member takes an
+ * update: a value, patched through {@link SharedValueSchema}, or a struct,
+ * patched at its own Shared Fields by the same rule one level down. A struct
+ * every member may go without takes the removal alone, and one only some
+ * members may go without takes nothing. A Record or a union is not shared.
+ */
+const buildShared = (
+  memberFields: ReadonlyArray<VariantSchema.Struct.Fields>,
+  path: Path,
+  paths: Paths,
+): { readonly patch: Schema.Top; readonly shape: Shape; readonly keys: ReadonlyArray<string> } => {
+  const schemas: Record<string, Schema.Top> = {};
+  const shapes: Record<string, Shape> = {};
+  for (const key of Object.keys(memberFields[0] ?? {})) {
+    if (!memberFields.every((f) => Object.hasOwn(f, key))) {
+      continue;
+    }
+    if (key.includes(".")) {
+      throw new Error(`Invalid Firestore field name "${key}": it must not contain "."`);
+    }
+    const at = [...path, key];
+    const held = memberFields.map((f) => f[key]);
+    if (held.every((field) => VariantSchema.isStruct(unwrap(field)))) {
+      if (held.every((field) => !isOptional(field))) {
+        const inner = buildShared(
+          held.map((field) => fields(field as VariantSchema.Struct<any>)),
+          at,
+          paths,
+        );
+        if (inner.keys.length > 0) {
+          schemas[key] = Schema.optionalKey(inner.patch);
+          shapes[key] = inner.shape;
+        }
+      } else if (held.every(isOptional)) {
+        schemas[key] = Schema.optionalKey(firestoreSchema.DeleteField);
+        addPath(paths, at, firestoreSchema.DeleteField);
+      }
+    } else if (held.every((field) => nodeOf(field) === undefined)) {
+      const updates = held.map(updateSchema);
+      if (updates.every((u) => u !== undefined) && !areDisjoint(updates)) {
+        const schema = SharedValueSchema(updates.map(withoutConstructorDefault));
+        schemas[key] = Schema.optionalKey(schema);
+        addPath(paths, at, schema);
+      }
+    }
+  }
+  const keys = Object.keys(schemas);
+  return {
+    patch: SharedPatchSchema(Schema.Struct(schemas), keys),
+    shape: { fields: shapes, rest: undefined },
+    keys,
   };
 };
 

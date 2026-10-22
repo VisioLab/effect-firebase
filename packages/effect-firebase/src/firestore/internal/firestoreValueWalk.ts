@@ -4,7 +4,7 @@
  * value outside the union is reported. What differs per SDK is only how each
  * kind of value in {@link kinds} becomes the SDK's own, and back.
  */
-import { Result } from "effect";
+import { Equal, Result } from "effect";
 import { FirestoreError } from "../Firestore.ts";
 import type * as FirestoreValue from "../FirestoreValue.ts";
 import * as documentPath from "./documentPath.ts";
@@ -199,6 +199,53 @@ export const isFirestoreValue = (u: unknown): u is FirestoreValue.FirestoreValue
   } catch (e) {
     if (e instanceof Outside) return false;
     throw e;
+  }
+};
+
+/**
+ * Whether two Firestore Values are the same, as Firestore would store them:
+ * scalars by value, arrays and maps element by element and key by key, bytes
+ * byte by byte, and every other kind as that kind tells its values apart.
+ *
+ * @internal
+ */
+export const equals = (self: unknown, that: unknown): boolean => {
+  if (Object.is(self, that)) {
+    return true;
+  }
+  if (typeof self !== "object" || typeof that !== "object" || self === null || that === null) {
+    return false;
+  }
+  if (Array.isArray(self) || Array.isArray(that)) {
+    return (
+      Array.isArray(self) &&
+      Array.isArray(that) &&
+      self.length === that.length &&
+      self.every((element, i) => equals(element, that[i]))
+    );
+  }
+  const kind = kindOf(self);
+  if (kind !== kindOf(that)) {
+    return false;
+  }
+  switch (kind) {
+    case undefined:
+      return (
+        isMap(self) &&
+        isMap(that) &&
+        Object.keys(self).length === Object.keys(that).length &&
+        Object.keys(self).every((key) => Object.hasOwn(that, key) && equals(self[key], that[key]))
+      );
+    case "bytes": {
+      const a = self as Uint8Array;
+      const b = that as Uint8Array;
+      return a.length === b.length && a.every((byte, i) => byte === b[i]);
+    }
+    case "arrayUnion":
+    case "arrayRemove":
+      return equals((self as Kinds["arrayUnion"]).elements, (that as Kinds["arrayUnion"]).elements);
+    default:
+      return Equal.equals(self, that);
   }
 };
 
