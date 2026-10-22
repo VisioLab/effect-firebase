@@ -331,6 +331,19 @@ const listen = <S, A>(
   ).pipe(Stream.withSpan(`Firestore.${span}`));
 
 /**
+ * The SDK's listen options for `options`, leaving out what is not given rather
+ * than handing the SDK an `undefined` in its place.
+ */
+const snapshotListenOptions = (
+  options: ClientFirestore.ListenOptions | undefined,
+): Client.SnapshotListenOptions => ({
+  ...(options?.includeMetadataChanges === undefined
+    ? {}
+    : { includeMetadataChanges: options.includeMetadataChanges }),
+  ...(options?.source === undefined ? {} : { source: options.source }),
+});
+
+/**
  * The service over a database already opened, writing through `encoder`.
  *
  * The encoder is handed in rather than built here so that `layerWithEncoder`
@@ -395,20 +408,37 @@ export const fromDatabase = (
     // The client SDK hands a listener the documents as this client last wrote
     // them, before the database has taken the writes, so each write is seen
     // straight away rather than once it is acknowledged.
-    streamDoc: <C extends Collection.Any>(ref: Collection.DocumentReference<C>) =>
+    streamDoc: <C extends Collection.Any>(
+      ref: Collection.DocumentReference<C>,
+      options?: ClientFirestore.ListenOptions,
+    ) =>
       listen(
         "streamDoc",
         `Failed to listen to the document "${ref.path}"`,
-        (onNext, onError) => Client.onSnapshot(Client.doc(firestore, ref.path), onNext, onError),
+        (onNext, onError) =>
+          Client.onSnapshot(
+            Client.doc(firestore, ref.path),
+            snapshotListenOptions(options),
+            onNext,
+            onError,
+          ),
         (snapshot: Client.DocumentSnapshot) => documentSnapshotOf(ref, snapshot),
       ),
 
-    streamDocs: <C extends Collection.Any>(ref: Collection.CollectionReference<C>) =>
+    streamDocs: <C extends Collection.Any>(
+      ref: Collection.CollectionReference<C>,
+      options?: ClientFirestore.ListenOptions,
+    ) =>
       listen(
         "streamDocs",
         `Failed to listen to the collection "${ref.path}"`,
         (onNext, onError) =>
-          Client.onSnapshot(Client.collection(firestore, ref.path), onNext, onError),
+          Client.onSnapshot(
+            Client.collection(firestore, ref.path),
+            snapshotListenOptions(options),
+            onNext,
+            onError,
+          ),
         (query: Client.QuerySnapshot) => querySnapshotOf(ref, query),
       ),
 

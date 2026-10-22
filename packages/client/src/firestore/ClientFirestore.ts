@@ -75,20 +75,49 @@ export interface ClientFirestore extends Firestore {
   /**
    * Listens to one document, as {@link Firestore.streamDoc} does, each
    * snapshot with the {@link ClientDocumentSnapshot.SnapshotMetadata} it
-   * arrived with.
+   * arrived with, listening as `options` says.
    */
   readonly streamDoc: <C extends Collection.Any>(
     ref: Collection.DocumentReference<C>,
+    options?: ListenOptions,
   ) => Stream.Stream<ClientDocumentSnapshot.ClientDocumentSnapshot<C>, FirestoreError>;
 
   /**
    * Listens to one collection, as {@link Firestore.streamDocs} does, each
    * snapshot with the {@link ClientDocumentSnapshot.SnapshotMetadata} it
-   * arrived with.
+   * arrived with, listening as `options` says.
    */
   readonly streamDocs: <C extends Collection.Any>(
     ref: Collection.CollectionReference<C>,
+    options?: ListenOptions,
   ) => Stream.Stream<ClientQuerySnapshot.ClientQuerySnapshot<C>, FirestoreError>;
+}
+
+/**
+ * How {@link ClientFirestore.streamDoc} and {@link ClientFirestore.streamDocs}
+ * listen, named as in the client SDK's own listen options.
+ *
+ * Leaving them out listens as the SDK does by default. The Admin SDK's
+ * listeners take no options, which is why the portable streams do not either.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface ListenOptions {
+  /**
+   * Whether to emit as well when only the
+   * {@link ClientDocumentSnapshot.SnapshotMetadata} changes, such as when the
+   * server acknowledges a pending write or the cache catches up with the
+   * server. Without it, a snapshot is only emitted when what was read changes.
+   */
+  readonly includeMetadataChanges?: boolean | undefined;
+  /**
+   * Where to listen: `"default"` listens to the server and the local cache,
+   * `"cache"` to the local cache alone, never reaching the server and so only
+   * seeing what this client has written or already read.
+   */
+  readonly source?: "default" | "cache" | undefined;
 }
 
 /**

@@ -28,7 +28,9 @@ vi.mock("firebase/firestore", async (importOriginal) => {
     ...actual,
     onSnapshot: (...args: ReadonlyArray<unknown>) => {
       if (listeners.failWith !== undefined) {
-        (args[2] as (error: Error) => void)(listeners.failWith);
+        // The error callback is the second one, wherever listen options put it.
+        const [, onError] = args.filter((arg) => typeof arg === "function");
+        (onError as (error: Error) => void)(listeners.failWith);
         return () => {};
       }
       const unsubscribe = (actual.onSnapshot as (...args: ReadonlyArray<unknown>) => () => void)(
