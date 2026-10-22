@@ -31,6 +31,7 @@
     "./firestore/FirestoreSchema": "./src/firestore/FirestoreSchema.ts",
     "./firestore/GeoPoint": "./src/firestore/GeoPoint.ts",
     "./firestore/Patch": "./src/firestore/Patch.ts",
+    "./firestore/QuerySnapshot": "./src/firestore/QuerySnapshot.ts",
     "./firestore/Timestamp": "./src/firestore/Timestamp.ts",
     "./package.json": "./package.json"
   },
@@ -48,6 +49,7 @@
       "./firestore/FirestoreSchema": "./dist/firestore/FirestoreSchema.mjs",
       "./firestore/GeoPoint": "./dist/firestore/GeoPoint.mjs",
       "./firestore/Patch": "./dist/firestore/Patch.mjs",
+      "./firestore/QuerySnapshot": "./dist/firestore/QuerySnapshot.mjs",
       "./firestore/Timestamp": "./dist/firestore/Timestamp.mjs",
       "./package.json": "./package.json"
     },

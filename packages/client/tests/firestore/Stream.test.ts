@@ -1,13 +1,14 @@
-import { describe, expect, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import { Effect, Layer, Queue, Schema, Stream } from "effect";
 import { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
+import * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as App from "../../src/App.ts";
-import * as ClientFirestore from "../../src/firestore/Firestore.ts";
-import { clear, emulator } from "./emulator.ts";
+import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
+import { clear, emulator, listening } from "./emulator.ts";
 
 /**
  * What the wrapped `onSnapshot` below does besides attaching the listener: it
@@ -27,7 +28,9 @@ vi.mock("firebase/firestore", async (importOriginal) => {
     ...actual,
     onSnapshot: (...args: ReadonlyArray<unknown>) => {
       if (listeners.failWith !== undefined) {
-        (args[2] as (error: Error) => void)(listeners.failWith);
+        // The error callback is the second one, wherever listen options put it.
+        const [, onError] = args.filter((arg) => typeof arg === "function");
+        (onError as (error: Error) => void)(listeners.failWith);
         return () => {};
       }
       const unsubscribe = (actual.onSnapshot as (...args: ReadonlyArray<unknown>) => () => void)(
@@ -65,16 +68,7 @@ const fresh = Effect.gen(function* () {
 const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnapshot<C>) =>
   DocumentSnapshot.isExisting(snapshot) ? snapshot.data : Effect.die("missing");
 
-/**
- * Runs `stream` into a queue for the rest of the test.
- *
- * Each snapshot is taken before the next write, so none is dropped for
- * arriving while another was still waiting to be read.
- */
-const listening = <A, E>(stream: Stream.Stream<A, E>) =>
-  Stream.toQueue(stream, { capacity: "unbounded" });
-
-describe("Firestore.streamDoc", () => {
+describe("ClientFirestore.streamDoc", () => {
   it.effect("starts with the document as it is, and follows each change to it", () =>
     Effect.gen(function* () {
       const firestore = yield* fresh;
@@ -119,21 +113,63 @@ describe("Firestore.streamDoc", () => {
   );
 });
 
-describe("Firestore.streamDocs", () => {
+describe("ClientFirestore.streamDocs", () => {
   it.effect("starts with the collection as it is, and follows each change to it", () =>
     Effect.gen(function* () {
       const firestore = yield* fresh;
-      const lists = yield* listening(firestore.streamDocs(Posts.collection()));
+      const snapshots = yield* listening(firestore.streamDocs(Posts.collection()));
 
-      expect(yield* Queue.take(lists)).toEqual([]);
+      const empty = yield* Queue.take(snapshots);
+      assert(QuerySnapshot.isQuerySnapshot(empty));
+      expect(empty.docs).toEqual([]);
 
       yield* firestore.setDoc(hello, { title: "Hello", views: 1 });
-      expect((yield* Queue.take(lists)).map((snapshot) => snapshot.id)).toEqual([hello.id]);
+      expect((yield* Queue.take(snapshots)).docs.map((doc) => doc.id)).toEqual([hello.id]);
 
       const added = yield* firestore.addDoc(Posts.collection(), { title: "Added", views: 2 });
-      expect((yield* Queue.take(lists)).map((snapshot) => snapshot.id).toSorted()).toEqual(
+      expect((yield* Queue.take(snapshots)).docs.map((doc) => doc.id).toSorted()).toEqual(
         [hello.id, added.id].toSorted(),
       );
+    }).pipe(Effect.scoped, Effect.provide(layer)),
+  );
+});
+
+describe("ClientFirestore streams, Snapshot Metadata", () => {
+  // A listener hears of this client's own write before the server has
+  // acknowledged it, which is what its metadata says.
+  it.effect("streamDoc emits each snapshot with the metadata it arrived with", () =>
+    Effect.gen(function* () {
+      yield* fresh;
+      const firestore = yield* ClientFirestore.ClientFirestore;
+      const snapshots = yield* listening(firestore.streamDoc(hello));
+
+      const missing = yield* Queue.take(snapshots);
+      expect(missing._tag).toBe("Missing");
+      expect(missing.metadata).toEqual({ fromCache: false, hasPendingWrites: false });
+
+      yield* firestore.setDoc(hello, { title: "Hello", views: 1 });
+      const written = yield* Queue.take(snapshots);
+      expect(written._tag).toBe("Existing");
+      expect(written.metadata).toEqual({ fromCache: false, hasPendingWrites: true });
+    }).pipe(Effect.scoped, Effect.provide(layer)),
+  );
+
+  it.effect("streamDocs emits each snapshot with the metadata of the read and its documents", () =>
+    Effect.gen(function* () {
+      yield* fresh;
+      const firestore = yield* ClientFirestore.ClientFirestore;
+      const snapshots = yield* listening(firestore.streamDocs(Posts.collection()));
+
+      const empty = yield* Queue.take(snapshots);
+      expect(empty.docs).toEqual([]);
+      expect(empty.metadata).toEqual({ fromCache: false, hasPendingWrites: false });
+
+      yield* firestore.setDoc(hello, { title: "Hello", views: 1 });
+      const written = yield* Queue.take(snapshots);
+      expect(written.metadata).toEqual({ fromCache: false, hasPendingWrites: true });
+      expect(written.docs.map((doc) => doc.metadata)).toEqual([
+        { fromCache: false, hasPendingWrites: true },
+      ]);
     }).pipe(Effect.scoped, Effect.provide(layer)),
   );
 });

@@ -1,5 +1,5 @@
-import { describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { Effect, Fiber, Layer, Schema } from "effect";
+import { assert, describe, expect, expectTypeOf, it } from "@effect/vitest";
+import { Effect, Fiber, Layer, Schema, Stream } from "effect";
 import { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
 import {
   Collection,
@@ -7,6 +7,7 @@ import {
   FieldValue,
   FirestoreModel,
   FirestoreSchema,
+  QuerySnapshot,
   Timestamp,
 } from "@visiolab/effect-firebase/firestore";
 import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
@@ -16,6 +17,7 @@ import {
   disableNetwork,
   DocumentReference,
   enableNetwork,
+  Firestore as SdkFirestore,
   getDoc,
   doc,
   getFirestore,
@@ -24,8 +26,10 @@ import {
   persistentLocalCache,
 } from "firebase/firestore";
 import * as App from "../../src/App.ts";
-import * as ClientFirestore from "../../src/firestore/Firestore.ts";
-import { clear, emulator } from "./emulator.ts";
+import * as ClientDocumentSnapshot from "../../src/firestore/ClientDocumentSnapshot.ts";
+import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
+import * as ClientQuerySnapshot from "../../src/firestore/ClientQuerySnapshot.ts";
+import { clear, emulator, fresh, holding, offline } from "./emulator.ts";
 
 const projectId = "demo-client-firestore";
 
@@ -57,7 +61,7 @@ class Note extends FirestoreModel.Class<Note>("Note")({
 const Notes = Collection.make("notes", Note);
 const hello = Posts.id.make("hello");
 
-describe("Firestore", () => {
+describe("ClientFirestore", () => {
   it.effect("builds on top of the app in context", () =>
     Effect.gen(function* () {
       const firestore = yield* Firestore;
@@ -65,6 +69,53 @@ describe("Firestore", () => {
       expect(typeof firestore.getDocs).toBe("function");
     }).pipe(Effect.provide(layer)),
   );
+
+  it.effect("provides one Client Firestore under its own tag and the portable one", () =>
+    Effect.gen(function* () {
+      const client = yield* ClientFirestore.ClientFirestore;
+      const portable = yield* Firestore;
+
+      expect(client).toBe(portable);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("layerWithEncoder provides both tags and the encoder", () =>
+    Effect.gen(function* () {
+      const client = yield* ClientFirestore.ClientFirestore;
+      const portable = yield* Firestore;
+      const encoder = yield* FirestoreEncoder;
+
+      expect(client).toBe(portable);
+      expect(typeof encoder.documentReference).toBe("function");
+    }).pipe(
+      Effect.provide(
+        ClientFirestore.layerWithEncoder({ emulator }).pipe(
+          Layer.provideMerge(App.layer({ projectId }, "firestore-encoder")),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("exposes the client SDK's own Firestore object as instance", () =>
+    Effect.gen(function* () {
+      const client = yield* ClientFirestore.ClientFirestore;
+
+      expect(client.instance).toBeInstanceOf(SdkFirestore);
+      expect(client.instance).toBe(getFirestore(yield* App.App));
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it("is a Firestore that also holds the SDK's own object", () => {
+    expectTypeOf<ClientFirestore.ClientFirestore>().toExtend<Firestore>();
+    expectTypeOf<ClientFirestore.ClientFirestore["instance"]>().toEqualTypeOf<SdkFirestore>();
+    expectTypeOf<Firestore>().not.toHaveProperty("instance");
+    expectTypeOf(ClientFirestore.layer()).toEqualTypeOf<
+      Layer.Layer<ClientFirestore.ClientFirestore | Firestore, never, App.App>
+    >();
+    expectTypeOf(ClientFirestore.layerWithEncoder()).toEqualTypeOf<
+      Layer.Layer<ClientFirestore.ClientFirestore | Firestore | FirestoreEncoder, never, App.App>
+    >();
+  });
 
   // The SDK memoizes a database on the app and refuses to reopen one under
   // settings that disagree, which is what makes it observable from here whether
@@ -193,17 +244,17 @@ describe("Firestore", () => {
   );
 });
 
-describe("Firestore, against the emulator", () => {
+describe("ClientFirestore, against the emulator", () => {
   // Cleared before each test rather than after, so a failed test leaves its
   // documents behind to look at.
-  const fresh = clear(projectId).pipe(Effect.andThen(Firestore));
+  const freshFirestore = clear(projectId).pipe(Effect.andThen(Firestore));
 
   const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnapshot<C>) =>
     DocumentSnapshot.isExisting(snapshot) ? snapshot.data : Effect.die("missing");
 
   it.effect("reads back what it wrote", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* freshFirestore;
 
       yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
       const snapshot = yield* firestore.getDoc(Posts.doc(hello));
@@ -215,7 +266,7 @@ describe("Firestore, against the emulator", () => {
 
   it.effect("hands back a missing snapshot for a document that is not there", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* freshFirestore;
 
       const snapshot = yield* firestore.getDoc(Posts.doc(hello));
 
@@ -226,22 +277,21 @@ describe("Firestore, against the emulator", () => {
 
   it.effect("adds a document under an id Firestore picks, and reads it among the others", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* freshFirestore;
 
       yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
       const added = yield* firestore.addDoc(Posts.collection(), { title: "Added", views: 2 });
-      const snapshots = yield* firestore.getDocs(Posts.collection());
+      const snapshot = yield* firestore.getDocs(Posts.collection());
 
       expect(added.id).not.toBe(hello);
-      expect(snapshots.map((snapshot) => snapshot.id).toSorted()).toEqual(
-        [hello, added.id].toSorted(),
-      );
+      assert(QuerySnapshot.isQuerySnapshot(snapshot));
+      expect(snapshot.docs.map((doc) => doc.id).toSorted()).toEqual([hello, added.id].toSorted());
     }).pipe(Effect.provide(layer)),
   );
 
   it.effect("updates the fields it is given, and leaves the others alone", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* freshFirestore;
 
       yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
       yield* firestore.updateDoc(Posts.doc(hello), { views: 2 });
@@ -255,7 +305,7 @@ describe("Firestore, against the emulator", () => {
 
   it.effect("refuses to update a document that is not there, with the SDK's code", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* freshFirestore;
 
       const error = yield* Effect.flip(firestore.updateDoc(Posts.doc(hello), { views: 2 }));
 
@@ -265,10 +315,12 @@ describe("Firestore, against the emulator", () => {
 
   // Live, because the write waits on the SDK's own connection rather than on
   // the test clock.
+  // The network is toggled through `instance`, the SDK's own object, since this
+  // library does not wrap that.
   it.live("waits offline for the server, and reads a pending server timestamp as an estimate", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
-      const sdk = getFirestore(yield* App.App);
+      const firestore = yield* freshFirestore;
+      const sdk = (yield* ClientFirestore.ClientFirestore).instance;
       const note = Notes.doc(Notes.id.make("note"));
 
       yield* Effect.promise(() => disableNetwork(sdk));
@@ -290,5 +342,129 @@ describe("Firestore, against the emulator", () => {
       const settled = yield* read(yield* firestore.getDoc(note));
       expect(settled.body).toBe("offline");
     }).pipe(Effect.provide(layer)),
+  );
+});
+
+describe("ClientFirestore, Snapshot Metadata", () => {
+  it("hands back client snapshots that are portable ones as well", () => {
+    type Metadata = { readonly fromCache: boolean; readonly hasPendingWrites: boolean };
+    expectTypeOf<ClientDocumentSnapshot.SnapshotMetadata>().toEqualTypeOf<Metadata>();
+    expectTypeOf<ClientDocumentSnapshot.Existing<typeof Posts>>().toExtend<
+      DocumentSnapshot.Existing<typeof Posts>
+    >();
+    expectTypeOf<ClientDocumentSnapshot.Missing<typeof Posts>>().toExtend<
+      DocumentSnapshot.Missing<typeof Posts>
+    >();
+    expectTypeOf<ClientDocumentSnapshot.ClientDocumentSnapshot<typeof Posts>>().toExtend<
+      DocumentSnapshot.DocumentSnapshot<typeof Posts>
+    >();
+    expectTypeOf<ClientQuerySnapshot.ClientQuerySnapshot<typeof Posts>>().toExtend<
+      QuerySnapshot.QuerySnapshot<typeof Posts>
+    >();
+
+    type Service = ClientFirestore.ClientFirestore;
+    expectTypeOf<Service>().toExtend<Firestore>();
+    expectTypeOf<ReturnType<Service["getDoc"]>>().toEqualTypeOf<
+      Effect.Effect<ClientDocumentSnapshot.ClientDocumentSnapshot<Collection.Any>, FirestoreError>
+    >();
+    expectTypeOf<ReturnType<Service["getDocs"]>>().toEqualTypeOf<
+      Effect.Effect<ClientQuerySnapshot.ClientQuerySnapshot<Collection.Any>, FirestoreError>
+    >();
+    expectTypeOf<ReturnType<Service["streamDoc"]>>().toEqualTypeOf<
+      Stream.Stream<ClientDocumentSnapshot.ClientDocumentSnapshot<Collection.Any>, FirestoreError>
+    >();
+    expectTypeOf<ReturnType<Service["streamDocs"]>>().toEqualTypeOf<
+      Stream.Stream<ClientQuerySnapshot.ClientQuerySnapshot<Collection.Any>, FirestoreError>
+    >();
+    // The portable service is left as it was.
+    expectTypeOf<ReturnType<Firestore["getDoc"]>>().toEqualTypeOf<
+      Effect.Effect<DocumentSnapshot.DocumentSnapshot<Collection.Any>, FirestoreError>
+    >();
+  });
+
+  it.effect("reads a document the server acknowledged as from the server, nothing pending", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh(projectId);
+
+      yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
+      const snapshot = yield* firestore.getDoc(Posts.doc(hello));
+
+      expect(snapshot.metadata).toEqual({ fromCache: false, hasPendingWrites: false });
+    }).pipe(Effect.provide(layer)),
+  );
+
+  // Live, because the write waits on the SDK's own connection rather than on
+  // the test clock. The network is toggled through `instance`.
+  it.live("reads a write the server has not acknowledged as pending, from the cache", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh(projectId);
+
+      yield* Effect.promise(() => disableNetwork(firestore.instance));
+      const write = yield* Effect.forkChild(
+        firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 }),
+      );
+      yield* Effect.yieldNow;
+
+      const pending = yield* firestore.getDoc(Posts.doc(hello));
+      expect(pending._tag).toBe("Existing");
+      expect(pending.metadata).toEqual({ fromCache: true, hasPendingWrites: true });
+
+      yield* Effect.promise(() => enableNetwork(firestore.instance));
+      yield* Fiber.join(write);
+
+      const settled = yield* firestore.getDoc(Posts.doc(hello));
+      expect(settled.metadata).toEqual({ fromCache: false, hasPendingWrites: false });
+    }).pipe(Effect.provide(layer)),
+  );
+
+  // A default read never hands back a missing document from the cache: offline,
+  // the SDK fails it as unavailable rather than say it is gone.
+  it.effect("reads a missing document with the metadata of the read", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh(projectId);
+
+      const snapshot = yield* firestore.getDoc(Posts.doc(hello));
+
+      expect(snapshot._tag).toBe("Missing");
+      expect(snapshot.metadata).toEqual({ fromCache: false, hasPendingWrites: false });
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.live("reads a document while offline from the cache", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh(projectId);
+
+      yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
+      yield* holding(firestore.streamDoc(Posts.doc(hello)));
+      const snapshot = yield* offline(firestore.getDoc(Posts.doc(hello)));
+
+      expect(snapshot._tag).toBe("Existing");
+      expect(snapshot.metadata).toEqual({ fromCache: true, hasPendingWrites: false });
+    }).pipe(Effect.scoped, Effect.provide(layer)),
+  );
+
+  it.live("reads a collection while offline from the cache, even where it finds nothing", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh(projectId);
+
+      yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
+      const online = yield* firestore.getDocs(Posts.collection());
+      expect(online.metadata).toEqual({ fromCache: false, hasPendingWrites: false });
+      expect(online.docs.map((doc) => doc.metadata)).toEqual([
+        { fromCache: false, hasPendingWrites: false },
+      ]);
+
+      yield* holding(firestore.streamDocs(Posts.collection()));
+      const [cached, empty] = yield* offline(
+        Effect.all([firestore.getDocs(Posts.collection()), firestore.getDocs(Places.collection())]),
+      );
+
+      expect(cached.metadata).toEqual({ fromCache: true, hasPendingWrites: false });
+      expect(cached.docs.map((doc) => [doc.id, doc.metadata])).toEqual([
+        [hello, { fromCache: true, hasPendingWrites: false }],
+      ]);
+      expect(empty.docs).toEqual([]);
+      expect(empty.metadata).toEqual({ fromCache: true, hasPendingWrites: false });
+    }).pipe(Effect.scoped, Effect.provide(layer)),
   );
 });

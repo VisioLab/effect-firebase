@@ -1,7 +1,7 @@
 /**
  * The Admin SDK's implementation of {@link FirestoreEncoder.FirestoreEncoder}.
  *
- * `firestore/Firestore.layerWithEncoder` provides one for the database it
+ * `firestore/AdminFirestore.layerWithEncoder` provides one for the database it
  * opens, so this is only needed to encode against a database built some other
  * way.
  *

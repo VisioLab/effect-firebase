@@ -1,10 +1,6 @@
 import { Cause, Context, Effect, Exit, Option, Queue, Schema, Stream } from "effect";
 import { constVoid } from "effect/Function";
-import {
-  Firestore,
-  FirestoreError,
-  Transaction,
-} from "@visiolab/effect-firebase/firestore/Firestore";
+import { FirestoreError, Transaction } from "@visiolab/effect-firebase/firestore/Firestore";
 import type {
   Create,
   Update,
@@ -16,12 +12,14 @@ import type {
 } from "@visiolab/effect-firebase/firestore/Firestore";
 import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
+import * as ClientQuerySnapshot from "../ClientQuerySnapshot.ts";
 import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
 import type * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import { FirebaseError } from "firebase/app";
 import * as Client from "firebase/firestore";
 import * as App from "../../App.ts";
-import type * as ClientFirestore from "../Firestore.ts";
+import * as ClientDocumentSnapshot from "../ClientDocumentSnapshot.ts";
+import type * as ClientFirestore from "../ClientFirestore.ts";
 import * as Encoder from "../FirestoreEncoder.ts";
 
 /**
@@ -65,13 +63,41 @@ const firestoreError = (message: string) => (cause: unknown) =>
 const dataOf = (snapshot: Client.DocumentSnapshot) =>
   snapshot.data({ serverTimestamps: "estimate" });
 
-/** The documents `query` read from the collection at `ref`. */
-const existingIn = <C extends Collection.Any>(
+/**
+ * A portable snapshot of the document at `ref`, as `snapshot` read it.
+ *
+ * `data()` hands back `undefined` for a document that is not there, which is
+ * what tells the two apart.
+ */
+const portableSnapshotOf = <C extends Collection.Any>(
+  ref: Collection.DocumentReference<C>,
+  snapshot: Client.DocumentSnapshot,
+): DocumentSnapshot.DocumentSnapshot<C> => DocumentSnapshot.make(ref, dataOf(snapshot));
+
+/**
+ * A snapshot of the document at `ref`, as `snapshot` read it, with the
+ * metadata the SDK reported for it.
+ */
+const documentSnapshotOf = <C extends Collection.Any>(
+  ref: Collection.DocumentReference<C>,
+  snapshot: Client.DocumentSnapshot,
+): ClientDocumentSnapshot.ClientDocumentSnapshot<C> =>
+  ClientDocumentSnapshot.make(ref, dataOf(snapshot), snapshot.metadata);
+
+/** A snapshot of the documents `query` read from the collection at `ref`. */
+const querySnapshotOf = <C extends Collection.Any>(
   ref: Collection.CollectionReference<C>,
   query: Client.QuerySnapshot,
-): ReadonlyArray<DocumentSnapshot.Existing<C>> =>
-  query.docs.map((snapshot) =>
-    DocumentSnapshot.existing(ref.doc(ref.collection.id.make(snapshot.id)), dataOf(snapshot)),
+): ClientQuerySnapshot.ClientQuerySnapshot<C> =>
+  ClientQuerySnapshot.make(
+    query.docs.map((snapshot) =>
+      ClientDocumentSnapshot.existing(
+        ref.doc(ref.collection.id.make(snapshot.id)),
+        dataOf(snapshot),
+        snapshot.metadata,
+      ),
+    ),
+    query.metadata,
   );
 
 /**
@@ -127,7 +153,10 @@ const thrownFor = (cause: Cause.Cause<unknown>): unknown => {
  */
 interface Target {
   readonly name: string;
-  readonly getDoc: (ref: Client.DocumentReference) => Promise<Client.DocumentSnapshot>;
+  readonly getDoc: (
+    ref: Client.DocumentReference,
+    source: ClientFirestore.ReadSource | undefined,
+  ) => Promise<Client.DocumentSnapshot>;
   readonly setDoc: (ref: Client.DocumentReference, data: Client.DocumentData) => unknown;
   readonly updateDoc: (
     ref: Client.DocumentReference,
@@ -135,15 +164,32 @@ interface Target {
   ) => unknown;
 }
 
+/** The SDK's own reads, for one {@link ClientFirestore.ReadSource}. */
+interface Reads {
+  readonly getDoc: (ref: Client.DocumentReference) => Promise<Client.DocumentSnapshot>;
+  readonly getDocs: (query: Client.Query) => Promise<Client.QuerySnapshot>;
+}
+
+const reads: Record<ClientFirestore.ReadSource, Reads> = {
+  default: { getDoc: Client.getDoc, getDocs: Client.getDocs },
+  server: { getDoc: Client.getDocFromServer, getDocs: Client.getDocsFromServer },
+  cache: { getDoc: Client.getDocFromCache, getDocs: Client.getDocsFromCache },
+};
+
+/** The SDK's reads from where `source` names, `"default"` where it names none. */
+const readsFrom = (source: ClientFirestore.ReadSource | undefined): Reads =>
+  reads[source ?? "default"];
+
 const databaseTarget: Target = {
   name: "Firestore",
-  getDoc: (ref) => Client.getDoc(ref),
+  getDoc: (ref, source) => readsFrom(source).getDoc(ref),
   setDoc: (ref, data) => Client.setDoc(ref, data),
   updateDoc: (ref, data) => Client.updateDoc(ref, data),
 };
 
 const transactionTarget = (tx: Client.Transaction): Target => ({
   name: "Firestore.Transaction",
+  // A transaction reads from the server alone, so it is never handed a source.
   getDoc: (ref) => tx.get(ref),
   // Writes into a transaction are queued rather than sent, so these return
   // straight away - or throw, where the transaction refuses them.
@@ -212,16 +258,18 @@ const operations = (firestore: Client.Firestore, encoder: FirestoreEncoder, targ
   return {
     call,
     encodeCreate,
-    getDoc: <C extends Collection.Any>(ref: Collection.DocumentReference<C>) =>
-      Effect.gen(function* () {
-        const snapshot = yield* call("getDoc", `Failed to read the document "${ref.path}"`, () =>
-          target.getDoc(Client.doc(firestore, ref.path)),
-        );
-
-        // `data()` hands back `undefined` for a document that is not there,
-        // which is what tells the two apart.
-        return DocumentSnapshot.make(ref, dataOf(snapshot));
-      }),
+    /**
+     * Reads one document, handing back the SDK's own snapshot for the caller
+     * to turn into the one it hands on: a database read keeps its metadata, a
+     * transaction's read does not.
+     */
+    readDoc: <C extends Collection.Any>(
+      ref: Collection.DocumentReference<C>,
+      source?: ClientFirestore.ReadSource,
+    ) =>
+      call("getDoc", `Failed to read the document "${ref.path}"`, () =>
+        target.getDoc(Client.doc(firestore, ref.path), source),
+      ),
 
     setDoc: <C extends Collection.Any>(ref: Collection.DocumentReference<C>, data: Create<C>) =>
       Effect.gen(function* () {
@@ -277,6 +325,19 @@ const listen = <S, A>(
   ).pipe(Stream.withSpan(`Firestore.${span}`));
 
 /**
+ * The SDK's listen options for `options`, leaving out what is not given rather
+ * than handing the SDK an `undefined` in its place.
+ */
+const snapshotListenOptions = (
+  options: ClientFirestore.ListenOptions | undefined,
+): Client.SnapshotListenOptions => ({
+  ...(options?.includeMetadataChanges === undefined
+    ? {}
+    : { includeMetadataChanges: options.includeMetadataChanges }),
+  ...(options?.source === undefined ? {} : { source: options.source }),
+});
+
+/**
  * The service over a database already opened, writing through `encoder`.
  *
  * The encoder is handed in rather than built here so that `layerWithEncoder`
@@ -284,24 +345,47 @@ const listen = <S, A>(
  *
  * @internal
  */
-export const fromDatabase = (firestore: Client.Firestore, encoder: FirestoreEncoder): Firestore => {
-  const { call, encodeCreate, ...database } = operations(firestore, encoder, databaseTarget);
+export const fromDatabase = (
+  firestore: Client.Firestore,
+  encoder: FirestoreEncoder,
+): ClientFirestore.ClientFirestore => {
+  const { call, encodeCreate, readDoc, ...database } = operations(
+    firestore,
+    encoder,
+    databaseTarget,
+  );
 
   const makeTransaction = (tx: Client.Transaction): Transaction => {
-    const { getDoc, setDoc, updateDoc } = operations(firestore, encoder, transactionTarget(tx));
-    return Transaction.of({ getDoc, setDoc, updateDoc });
+    const { readDoc, setDoc, updateDoc } = operations(firestore, encoder, transactionTarget(tx));
+    return Transaction.of({
+      // A transaction reads from the server alone and never holds writes of
+      // its own that are pending, so its metadata says nothing and is left
+      // out: what it hands back is the portable snapshot.
+      getDoc: (ref) => Effect.map(readDoc(ref), (snapshot) => portableSnapshotOf(ref, snapshot)),
+      setDoc,
+      updateDoc,
+    });
   };
 
-  return Firestore.of({
+  return {
+    instance: firestore,
     ...database,
 
-    getDocs: <C extends Collection.Any>(ref: Collection.CollectionReference<C>) =>
+    getDoc: <C extends Collection.Any>(
+      ref: Collection.DocumentReference<C>,
+      options?: ClientFirestore.ReadOptions,
+    ) => Effect.map(readDoc(ref, options?.source), (snapshot) => documentSnapshotOf(ref, snapshot)),
+
+    getDocs: <C extends Collection.Any>(
+      ref: Collection.CollectionReference<C>,
+      options?: ClientFirestore.ReadOptions,
+    ) =>
       Effect.gen(function* () {
         const query = yield* call("getDocs", `Failed to read the collection "${ref.path}"`, () =>
-          Client.getDocs(Client.collection(firestore, ref.path)),
+          readsFrom(options?.source).getDocs(Client.collection(firestore, ref.path)),
         );
 
-        return existingIn(ref, query);
+        return querySnapshotOf(ref, query);
       }),
 
     addDoc: <C extends Collection.Any>(ref: Collection.CollectionReference<C>, data: Create<C>) =>
@@ -318,21 +402,38 @@ export const fromDatabase = (firestore: Client.Firestore, encoder: FirestoreEnco
     // The client SDK hands a listener the documents as this client last wrote
     // them, before the database has taken the writes, so each write is seen
     // straight away rather than once it is acknowledged.
-    streamDoc: <C extends Collection.Any>(ref: Collection.DocumentReference<C>) =>
+    streamDoc: <C extends Collection.Any>(
+      ref: Collection.DocumentReference<C>,
+      options?: ClientFirestore.ListenOptions,
+    ) =>
       listen(
         "streamDoc",
         `Failed to listen to the document "${ref.path}"`,
-        (onNext, onError) => Client.onSnapshot(Client.doc(firestore, ref.path), onNext, onError),
-        (snapshot: Client.DocumentSnapshot) => DocumentSnapshot.make(ref, dataOf(snapshot)),
+        (onNext, onError) =>
+          Client.onSnapshot(
+            Client.doc(firestore, ref.path),
+            snapshotListenOptions(options),
+            onNext,
+            onError,
+          ),
+        (snapshot: Client.DocumentSnapshot) => documentSnapshotOf(ref, snapshot),
       ),
 
-    streamDocs: <C extends Collection.Any>(ref: Collection.CollectionReference<C>) =>
+    streamDocs: <C extends Collection.Any>(
+      ref: Collection.CollectionReference<C>,
+      options?: ClientFirestore.ListenOptions,
+    ) =>
       listen(
         "streamDocs",
         `Failed to listen to the collection "${ref.path}"`,
         (onNext, onError) =>
-          Client.onSnapshot(Client.collection(firestore, ref.path), onNext, onError),
-        (query: Client.QuerySnapshot) => existingIn(ref, query),
+          Client.onSnapshot(
+            Client.collection(firestore, ref.path),
+            snapshotListenOptions(options),
+            onNext,
+            onError,
+          ),
+        (query: Client.QuerySnapshot) => querySnapshotOf(ref, query),
       ),
 
     runTransaction: Effect.fn("Firestore.runTransaction")(function* <A, E, R>(
@@ -388,5 +489,5 @@ export const fromDatabase = (firestore: Client.Firestore, encoder: FirestoreEnco
         );
       });
     }),
-  });
+  };
 };

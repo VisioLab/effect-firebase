@@ -16,7 +16,7 @@ import {
   Timestamp as Native,
 } from "firebase-admin/firestore";
 import * as App from "../../src/App.ts";
-import * as AdminFirestore from "../../src/firestore/Firestore.ts";
+import * as AdminFirestore from "../../src/firestore/AdminFirestore.ts";
 
 // A named app keeps each run independent of whatever the default app is, and of
 // the apps the other suites register.

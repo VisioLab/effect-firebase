@@ -10,6 +10,7 @@ import type * as Collection from "./Collection.ts";
 import type * as DocumentSnapshot from "./DocumentSnapshot.ts";
 import type { FirestoreEncoder } from "./FirestoreEncoder.ts";
 import type * as FirestoreModel from "./FirestoreModel.ts";
+import type * as QuerySnapshot from "./QuerySnapshot.ts";
 
 /**
  * Raised when a Firestore call fails.
@@ -225,13 +226,14 @@ export interface Firestore {
    * Reads every document in one collection.
    *
    * Named for what it hands back rather than for what it is given, since what
-   * comes back is a list of snapshots and not a collection. Every one of them
-   * is of a document that was there, which is why these are
-   * {@link DocumentSnapshot.Existing}.
+   * comes back is a {@link QuerySnapshot.QuerySnapshot} of documents and not a
+   * collection. Its `docs` are every document the read found, each of one that
+   * was there, which is why these are {@link DocumentSnapshot.Existing}. A
+   * collection with nothing in it reads as a snapshot with no `docs`.
    */
   readonly getDocs: <C extends Collection.Any>(
     ref: Collection.CollectionReference<C>,
-  ) => Effect.Effect<ReadonlyArray<DocumentSnapshot.Existing<C>>, FirestoreError>;
+  ) => Effect.Effect<QuerySnapshot.QuerySnapshot<C>, FirestoreError>;
 
   /**
    * Listens to one document, emitting a snapshot of it each time it changes.
@@ -257,13 +259,14 @@ export interface Firestore {
    * Listens to every document in one collection, emitting all of them each
    * time any of them changes.
    *
-   * Each element is what {@link getDocs} would have handed back at that
-   * moment, and as with {@link streamDoc}, one that is not pulled before the
-   * next arrives is dropped.
+   * Each element is a {@link QuerySnapshot.QuerySnapshot} of every document
+   * there at that moment, as {@link getDocs} would have handed it back, and as
+   * with {@link streamDoc}, one that is not pulled before the next arrives is
+   * dropped.
    */
   readonly streamDocs: <C extends Collection.Any>(
     ref: Collection.CollectionReference<C>,
-  ) => Stream.Stream<ReadonlyArray<DocumentSnapshot.Existing<C>>, FirestoreError>;
+  ) => Stream.Stream<QuerySnapshot.QuerySnapshot<C>, FirestoreError>;
 
   /**
    * Writes one document, replacing whatever was there.

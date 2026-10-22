@@ -30,7 +30,9 @@
     ".": "./src/index.ts",
     "./App": "./src/App.ts",
     "./firestore": "./src/firestore/index.ts",
-    "./firestore/Firestore": "./src/firestore/Firestore.ts",
+    "./firestore/ClientDocumentSnapshot": "./src/firestore/ClientDocumentSnapshot.ts",
+    "./firestore/ClientFirestore": "./src/firestore/ClientFirestore.ts",
+    "./firestore/ClientQuerySnapshot": "./src/firestore/ClientQuerySnapshot.ts",
     "./firestore/FirestoreEncoder": "./src/firestore/FirestoreEncoder.ts",
     "./package.json": "./package.json"
   },
@@ -39,7 +41,9 @@
       ".": "./dist/index.mjs",
       "./App": "./dist/App.mjs",
       "./firestore": "./dist/firestore/index.mjs",
-      "./firestore/Firestore": "./dist/firestore/Firestore.mjs",
+      "./firestore/ClientDocumentSnapshot": "./dist/firestore/ClientDocumentSnapshot.mjs",
+      "./firestore/ClientFirestore": "./dist/firestore/ClientFirestore.mjs",
+      "./firestore/ClientQuerySnapshot": "./dist/firestore/ClientQuerySnapshot.mjs",
       "./firestore/FirestoreEncoder": "./dist/firestore/FirestoreEncoder.mjs",
       "./package.json": "./package.json"
     },
