@@ -1,6 +1,7 @@
 import { Effect, Inspectable, Predicate, Schema } from "effect";
 import type * as Collection from "../Collection.ts";
 import type * as DocumentSnapshot from "../DocumentSnapshot.ts";
+import * as firestoreValue from "./firestoreValue.ts";
 
 /** @internal */
 export const TypeId = "~@visiolab/effect-firebase/firestore/DocumentSnapshot";
@@ -57,9 +58,16 @@ const ExistingProto = {
   // for. It suspends as well, because a schema that decodes synchronously
   // decodes when it is called rather than when it is run, which would decode
   // on reading `data` and replay that one result on every run.
+  // `raw` holds Firestore Values, which the SDK mapped its own values to, so it
+  // is decoded through the codec derived from the model rather than the model
+  // itself. Derivation is memoized, so this costs nothing after the first read.
   get data(): Effect.Effect<unknown, Schema.SchemaError> {
     const self = this as unknown as ExistingImpl;
-    return Effect.suspend(() => Schema.decodeUnknownEffect(self.ref.collection.schema)(self.raw));
+    return Effect.suspend(() =>
+      Schema.decodeUnknownEffect(firestoreValue.toCodecFirestore(self.ref.collection.schema))(
+        self.raw,
+      ),
+    );
   },
 };
 
@@ -75,12 +83,12 @@ const MissingProto = {
 /** @internal */
 export const existing = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
-  raw: unknown,
+  data: unknown,
 ): DocumentSnapshot.Existing<C> => {
   const self = Object.assign(Object.create(ExistingProto) as typeof ExistingProto, {
     ref,
     id: ref.id,
-    raw,
+    raw: data,
   });
   return self as unknown as DocumentSnapshot.Existing<C>;
 };
@@ -99,5 +107,6 @@ export const missing = <C extends Collection.Any>(
 /** @internal */
 export const make = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
-  raw: unknown,
-): DocumentSnapshot.DocumentSnapshot<C> => (raw === undefined ? missing(ref) : existing(ref, raw));
+  data: unknown,
+): DocumentSnapshot.DocumentSnapshot<C> =>
+  data === undefined ? missing(ref) : existing(ref, data);

@@ -15,7 +15,3 @@ another field.
 nickname: FirestoreModel.Optional(Schema.String);
 lastSeenAt: FirestoreModel.Optional(FirestoreModel.Timestamp(FirestoreSchema.Timestamp));
 ```
-
-`FirestoreEncoder` gains `deleteField`, which the Admin SDK's implementation
-answers with `FieldValue.delete()`. An encoder written against the previous
-interface has to answer it as well.

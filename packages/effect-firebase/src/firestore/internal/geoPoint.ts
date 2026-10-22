@@ -11,10 +11,8 @@ const inLongitudeRange = (n: number): boolean => Number.isFinite(n) && n >= -180
 
 /** @internal */
 export const isGeoPoint = (u: unknown): u is GeoPoint.GeoPoint =>
-  Predicate.hasProperty(u, TypeId) && u[TypeId] === TypeId && isGeoPointLike(u);
-
-/** @internal */
-export const isGeoPointLike = (u: unknown): u is GeoPoint.GeoPointLike =>
+  Predicate.hasProperty(u, TypeId) &&
+  u[TypeId] === TypeId &&
   Predicate.hasProperty(u, "latitude") &&
   Predicate.hasProperty(u, "longitude") &&
   Predicate.isNumber(u.latitude) &&
@@ -22,7 +20,7 @@ export const isGeoPointLike = (u: unknown): u is GeoPoint.GeoPointLike =>
   inLatitudeRange(u.latitude) &&
   inLongitudeRange(u.longitude);
 
-const Proto: Omit<GeoPoint.GeoPoint, keyof GeoPoint.GeoPointLike> = {
+const Proto: Omit<GeoPoint.GeoPoint, "latitude" | "longitude"> = {
   ...Inspectable.BaseProto,
   [TypeId]: TypeId,
   toJSON(this: GeoPoint.GeoPoint) {
@@ -59,7 +57,3 @@ export const make = (latitude: number, longitude: number): Option.Option<GeoPoin
   inLatitudeRange(latitude) && inLongitudeRange(longitude)
     ? Option.some(makeUnchecked(latitude, longitude))
     : Option.none();
-
-/** @internal */
-export const fromGeoPointLikeUnsafe = (like: GeoPoint.GeoPointLike): GeoPoint.GeoPoint =>
-  isGeoPoint(like) ? like : makeUnsafe(like.latitude, like.longitude);

@@ -4,5 +4,4 @@
 ---
 
 Add `FirestoreSchema.DocumentReference(collection)` for fields holding a
-document reference. `FirestoreEncoder` gains `documentReference`; the Admin
-SDK's encoder does not write references yet.
+document reference.

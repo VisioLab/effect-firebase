@@ -4,7 +4,7 @@
  *
  * Its layers provide one service under both the {@link ClientFirestore} tag and
  * the portable {@link Firestore} one, so portable code and client-specific code
- * share the same database, settings and encoder.
+ * share the same database and settings.
  *
  * @stability unstable
  * @since 0.1.0
@@ -14,7 +14,6 @@ import type { Stream } from "effect";
 import { Firestore } from "@visiolab/effect-firebase/firestore/Firestore";
 import type { FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
 import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
-import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
 import type { Firestore as SdkFirestore, FirestoreLocalCache } from "firebase/firestore";
 import type * as App from "../App.ts";
 import type * as ClientDocumentSnapshot from "./ClientDocumentSnapshot.ts";
@@ -243,8 +242,8 @@ export interface Options {
  */
 export const make: (options?: Options) => Effect.Effect<ClientFirestore, never, App.App> =
   Effect.fn("ClientFirestore.make")(function* (options?: Options) {
-    const { firestore, encoder } = yield* internalFirestore.openWithEncoder(options);
-    return internalFirestore.fromDatabase(firestore, encoder);
+    const firestore = yield* internalFirestore.openDatabase(options);
+    return internalFirestore.fromDatabase(firestore);
   });
 
 /** The one service, under both its own tag and the portable one. */
@@ -259,10 +258,9 @@ const both = (service: ClientFirestore) =>
  * Passing no options reads the project's default database, opened with the
  * SDK's own defaults.
  *
- * The encoder a document is written through is built in here rather than
- * asked of the caller, since it is the client SDK's own and has to point into
- * the database the options name. It stays inside the service:
- * {@link layerWithEncoder} provides it as well.
+ * A document written through the service is encoded with `toCodecFirestore`
+ * and mapped by `ClientFirestoreValue.toClient` into the database the options
+ * name. A write the service does not make itself takes those two directly.
  *
  * @see {@link make} for why building the service cannot fail.
  *
@@ -274,26 +272,3 @@ export const layer = (
   options?: Options,
 ): Layer.Layer<ClientFirestore | Firestore, never, App.App> =>
   Layer.effectContext(Effect.map(make(options), both));
-
-/**
- * {@link layer}, providing the {@link FirestoreEncoder} the service writes
- * through as well.
- *
- * For encoding a write the service does not make itself. The encoder is the
- * service's own rather than a second one, so a reference it writes points into
- * the same database the service reads and writes.
- *
- * @stability unstable
- * @category layers
- * @since 0.1.0
- */
-export const layerWithEncoder = (
-  options?: Options,
-): Layer.Layer<ClientFirestore | Firestore | FirestoreEncoder, never, App.App> =>
-  Layer.effectContext(
-    Effect.map(internalFirestore.openWithEncoder(options), ({ firestore, encoder }) =>
-      both(internalFirestore.fromDatabase(firestore, encoder)).pipe(
-        Context.add(FirestoreEncoder, encoder),
-      ),
-    ),
-  );

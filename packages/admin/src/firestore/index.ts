@@ -6,7 +6,10 @@
  */
 export * as AdminFirestore from "./AdminFirestore.ts";
 /**
+ * The Admin SDK's side of Firestore Values: the mapping between the values
+ * `toCodecFirestore` encodes to and the values the Admin SDK reads and writes.
+ *
  * @stability unstable
  * @since 0.2.0
  */
-export * as FirestoreEncoder from "./FirestoreEncoder.ts";
+export * as AdminFirestoreValue from "./AdminFirestoreValue.ts";

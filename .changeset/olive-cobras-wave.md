@@ -11,7 +11,7 @@ schema a field is read through and hands back the one it is written through, and
 
 ```ts
 createdAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp);
-seenAt: FirestoreModel.Timestamp(FirestoreSchema.DateTimeUtcFromTimestamp);
+seenAt: FirestoreModel.Timestamp(Schema.DateTimeUtc);
 ```
 
 A field held as a `DateTime.Utc` no longer has to be declared variant by variant

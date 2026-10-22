@@ -32,8 +32,8 @@
     "./firestore": "./src/firestore/index.ts",
     "./firestore/ClientDocumentSnapshot": "./src/firestore/ClientDocumentSnapshot.ts",
     "./firestore/ClientFirestore": "./src/firestore/ClientFirestore.ts",
+    "./firestore/ClientFirestoreValue": "./src/firestore/ClientFirestoreValue.ts",
     "./firestore/ClientQuerySnapshot": "./src/firestore/ClientQuerySnapshot.ts",
-    "./firestore/FirestoreEncoder": "./src/firestore/FirestoreEncoder.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -43,8 +43,8 @@
       "./firestore": "./dist/firestore/index.mjs",
       "./firestore/ClientDocumentSnapshot": "./dist/firestore/ClientDocumentSnapshot.mjs",
       "./firestore/ClientFirestore": "./dist/firestore/ClientFirestore.mjs",
+      "./firestore/ClientFirestoreValue": "./dist/firestore/ClientFirestoreValue.mjs",
       "./firestore/ClientQuerySnapshot": "./dist/firestore/ClientQuerySnapshot.mjs",
-      "./firestore/FirestoreEncoder": "./dist/firestore/FirestoreEncoder.mjs",
       "./package.json": "./package.json"
     },
     "registry": "https://npm.pkg.github.com"

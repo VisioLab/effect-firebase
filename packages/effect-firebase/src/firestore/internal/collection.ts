@@ -27,22 +27,6 @@ export const isDocumentReference = (
 ): u is Collection.DocumentReference<Collection.Any> =>
   Predicate.hasProperty(u, DocumentReferenceTypeId);
 
-/**
- * An SDK's reference is told apart from a map that happens to hold an `id` and
- * a `path` by the `parent` and `firestore` both SDKs hang off it, which a map
- * read back from Firestore never carries.
- *
- * @internal
- */
-export const isDocumentReferenceLike = (u: unknown): u is Collection.DocumentReferenceLike =>
-  isDocumentReference(u) ||
-  (Predicate.hasProperty(u, "id") &&
-    Predicate.hasProperty(u, "path") &&
-    Predicate.hasProperty(u, "parent") &&
-    Predicate.hasProperty(u, "firestore") &&
-    Predicate.isString(u.id) &&
-    Predicate.isString(u.path));
-
 const encoder = new TextEncoder();
 
 /** Rejects the segments Firestore cannot address, before they reach a path. */

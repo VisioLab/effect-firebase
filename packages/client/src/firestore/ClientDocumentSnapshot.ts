@@ -88,10 +88,10 @@ export type ClientDocumentSnapshot<C extends Collection.Any> = Existing<C> | Mis
  */
 export const make = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
-  raw: unknown,
+  data: unknown,
   metadata: SnapshotMetadata,
 ): ClientDocumentSnapshot<C> =>
-  withMetadata(DocumentSnapshot.make(ref, raw), metadata) as ClientDocumentSnapshot<C>;
+  withMetadata(DocumentSnapshot.make(ref, data), metadata) as ClientDocumentSnapshot<C>;
 
 /**
  * A snapshot of a document known to be there, such as one a query returned.
@@ -102,9 +102,9 @@ export const make = <C extends Collection.Any>(
  */
 export const existing = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
-  raw: unknown,
+  data: unknown,
   metadata: SnapshotMetadata,
-): Existing<C> => withMetadata(DocumentSnapshot.existing(ref, raw), metadata);
+): Existing<C> => withMetadata(DocumentSnapshot.existing(ref, data), metadata);
 
 /**
  * A snapshot of a document known not to be there.

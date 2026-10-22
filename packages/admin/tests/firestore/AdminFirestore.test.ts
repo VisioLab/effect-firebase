@@ -4,10 +4,9 @@ import { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/F
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
-import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as Admin from "firebase-admin/app";
-import { DocumentReference, initializeFirestore } from "firebase-admin/firestore";
+import { initializeFirestore } from "firebase-admin/firestore";
 import type * as AdminSdk from "firebase-admin/firestore";
 import * as App from "../../src/App.ts";
 import * as AdminFirestore from "../../src/firestore/AdminFirestore.ts";
@@ -89,8 +88,8 @@ describe("Firestore", () => {
 
       // `NaN` is not a number Firestore stores, so this never reaches the
       // database: encoding happens first and is where it stops. The type says
-      // as much - the encoder a document is written through is composed into
-      // the layer, so nothing is left for the caller to provide.
+      // as much - encoding to Firestore Values asks for no service, so
+      // nothing is left for the caller to provide.
       const write = firestore.setDoc(Posts.doc(hello), { title: "Hello", views: Number.NaN });
       expectTypeOf(write).toEqualTypeOf<Effect.Effect<void, FirestoreError | Schema.SchemaError>>();
 
@@ -160,29 +159,6 @@ describe("Firestore", () => {
 
       expect(String(defect)).toContain("deleted-fs");
     }),
-  );
-
-  it.effect(
-    "layerWithEncoder provides the encoder it writes through, pointing into the same database",
-    () =>
-      Effect.gen(function* () {
-        const app = Admin.initializeApp({ projectId: "demo-fs-encoder" }, "fs-encoder");
-
-        const encoder = yield* Effect.provide(
-          FirestoreEncoder,
-          AdminFirestore.layerWithEncoder({ databaseId: "other" }).pipe(
-            Layer.provide(Layer.succeed(App.App, app)),
-          ),
-        );
-
-        // A reference is the one value built against a database, so it is what
-        // tells which database the encoder was built from.
-        const ref = encoder.documentReference(Posts.doc(hello));
-        expect(ref).toBeInstanceOf(DocumentReference);
-        expect((ref as DocumentReference).firestore.databaseId).toBe("other");
-
-        yield* Effect.promise(() => Admin.deleteApp(app));
-      }),
   );
 });
 
@@ -276,25 +252,6 @@ describe("AdminFirestore, against the emulator", () => {
     }).pipe(Effect.provide(adminLayer)),
   );
 
-  it.effect("layerWithEncoder provides the encoder alongside both, as the same service", () =>
-    Effect.gen(function* () {
-      const admin = yield* AdminFirestore.AdminFirestore;
-      const firestore = yield* Firestore;
-      const encoder = yield* FirestoreEncoder;
-
-      expect(admin).toBe(firestore);
-      // The encoder writes references into the database the service reads.
-      const ref = encoder.documentReference(Posts.doc(hello));
-      expect((ref as DocumentReference).firestore).toBe(admin.instance);
-    }).pipe(
-      Effect.provide(
-        AdminFirestore.layerWithEncoder().pipe(
-          Layer.provide(App.layer({ projectId }, "admin-firestore-encoder")),
-        ),
-      ),
-    ),
-  );
-
   it.effect("hands out the Admin SDK's own Firestore, for what the service does not wrap", () =>
     Effect.gen(function* () {
       yield* clear(projectId);
@@ -334,12 +291,9 @@ describe("AdminFirestore, against the emulator", () => {
 });
 
 describe("AdminFirestore layers", () => {
-  it("provide AdminFirestore and Firestore, and the encoder with layerWithEncoder", () => {
+  it("provide AdminFirestore and Firestore", () => {
     expectTypeOf(AdminFirestore.layer()).toEqualTypeOf<
       Layer.Layer<AdminFirestore.AdminFirestore | Firestore, never, App.App>
-    >();
-    expectTypeOf(AdminFirestore.layerWithEncoder()).toEqualTypeOf<
-      Layer.Layer<AdminFirestore.AdminFirestore | Firestore | FirestoreEncoder, never, App.App>
     >();
   });
 });

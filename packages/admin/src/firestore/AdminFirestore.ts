@@ -18,7 +18,6 @@ import type {
 } from "@visiolab/effect-firebase/firestore/Firestore";
 import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import type * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
-import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
 import type * as Admin from "firebase-admin/firestore";
 import type * as App from "../App.ts";
 import * as internalFirestore from "./internal/firestore.ts";
@@ -156,8 +155,8 @@ export interface Options {
  * @since 0.2.0
  */
 export const make = Effect.fn("AdminFirestore.make")(function* (options?: Options) {
-  const { firestore, encoder } = yield* internalFirestore.openWithEncoder(options);
-  return internalFirestore.fromDatabase(firestore, encoder, AdminTransaction);
+  const firestore = yield* internalFirestore.openDatabase(options);
+  return internalFirestore.fromDatabase(firestore, AdminTransaction);
 });
 
 /** The one service, under both its own tag and the portable one. */
@@ -171,10 +170,9 @@ const both = (service: AdminFirestore) =>
  * Passing no options reads the project's default database, opened with the
  * SDK's own defaults.
  *
- * The encoder a document is written through is built in here rather than
- * asked of the caller, since it is the Admin SDK's own and has to point into
- * the database the options name. It stays inside the service:
- * {@link layerWithEncoder} provides it as well.
+ * A document written through the service is encoded with `toCodecFirestore`
+ * and mapped by `AdminFirestoreValue.toAdmin` into the database the options
+ * name. A write the service does not make itself takes those two directly.
  *
  * @see {@link make} for why building the service cannot fail.
  *
@@ -184,26 +182,3 @@ const both = (service: AdminFirestore) =>
  */
 export const layer = (options?: Options): Layer.Layer<AdminFirestore | Firestore, never, App.App> =>
   Layer.effectContext(Effect.map(make(options), both));
-
-/**
- * {@link layer}, providing the {@link FirestoreEncoder} the service writes
- * through as well.
- *
- * For encoding a write the service does not make itself. The encoder is the
- * service's own rather than a second one, so a reference it writes points into
- * the same database the service reads and writes.
- *
- * @stability unstable
- * @category layers
- * @since 0.2.0
- */
-export const layerWithEncoder = (
-  options?: Options,
-): Layer.Layer<AdminFirestore | Firestore | FirestoreEncoder, never, App.App> =>
-  Layer.effectContext(
-    Effect.map(internalFirestore.openWithEncoder(options), ({ firestore, encoder }) =>
-      both(internalFirestore.fromDatabase(firestore, encoder, AdminTransaction)).pipe(
-        Context.add(FirestoreEncoder, encoder),
-      ),
-    ),
-  );

@@ -33,7 +33,7 @@
     "./Auth": "./src/Auth.ts",
     "./firestore": "./src/firestore/index.ts",
     "./firestore/AdminFirestore": "./src/firestore/AdminFirestore.ts",
-    "./firestore/FirestoreEncoder": "./src/firestore/FirestoreEncoder.ts",
+    "./firestore/AdminFirestoreValue": "./src/firestore/AdminFirestoreValue.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -43,7 +43,7 @@
       "./Auth": "./dist/Auth.mjs",
       "./firestore": "./dist/firestore/index.mjs",
       "./firestore/AdminFirestore": "./dist/firestore/AdminFirestore.mjs",
-      "./firestore/FirestoreEncoder": "./dist/firestore/FirestoreEncoder.mjs",
+      "./firestore/AdminFirestoreValue": "./dist/firestore/AdminFirestoreValue.mjs",
       "./package.json": "./package.json"
     },
     "registry": "https://npm.pkg.github.com"

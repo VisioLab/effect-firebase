@@ -1,19 +1,22 @@
 /**
- * Schemas for the values Firestore stores.
+ * Schemas for the Firestore Values Effect has no schema of its own for.
  *
- * Firestore holds a handful of values that are not plain JSON, and hands each
- * back as an instance belonging to whichever SDK read it. The codecs here decode
- * those shapes into values this library owns, and encode them back through an
- * {@link FirestoreEncoder}, so a document schema is written once and reads the same under
- * the Admin SDK and the web SDK.
+ * Each is a plain schema of a portable value this library owns - a
+ * `Timestamp`, a `GeoPoint`, a `DocumentPath` - with no encoding step of its
+ * own, and `toCodecFirestore` keeps them as they are. A typed document
+ * reference is the exception: Firestore stores only its path, so it is written
+ * as a `DocumentPath` and read back into its collection. Each SDK package
+ * turns them into the SDK's own values on the way out and back on the way in,
+ * so a document schema is written once and reads the same under the Admin SDK
+ * and the web SDK.
  *
  * @stability unstable
  * @since 0.2.0
  */
-import type { Schema } from "effect";
+import type { DateTime, Schema } from "effect";
 import type * as Collection from "./Collection.ts";
+import type * as DocumentPath_ from "./DocumentPath.ts";
 import type * as FieldValue from "./FieldValue.ts";
-import type { FirestoreEncoder } from "./FirestoreEncoder.ts";
 import type * as GeoPoint_ from "./GeoPoint.ts";
 import * as firestoreSchema from "./internal/firestoreSchema.ts";
 import type * as Timestamp_ from "./Timestamp.ts";
@@ -25,21 +28,20 @@ import type * as Timestamp_ from "./Timestamp.ts";
  * @category models
  * @since 0.2.0
  */
-export interface Timestamp extends Schema.decodeTo<
-  Schema.declare<Timestamp_.Timestamp>,
-  Schema.declare<Timestamp_.TimestampLike>,
-  never,
-  FirestoreEncoder
-> {
+export interface Timestamp extends Schema.declare<Timestamp_.Timestamp> {
   readonly Rebuild: Timestamp;
 }
 
 /**
- * Schema that decodes a Firestore timestamp into a `Timestamp`.
+ * Schema for a Firestore timestamp, held as the portable `Timestamp`.
  *
  * Nothing is lost in either direction, so reach for this over
- * {@link DateTimeUtcFromTimestamp} when a document is read, written back, and
- * expected to come out unchanged.
+ * `Schema.DateTimeUtc` or `Schema.Date` - which Firestore stores as a
+ * timestamp just the same, but which stop at the millisecond - when a
+ * document is read, written back, and expected to come out unchanged.
+ *
+ * It serializes with `Schema.toCodecJson` as `{ seconds, nanoseconds }`, so
+ * the same model can be sent over HTTP.
  *
  * @stability unstable
  * @category schemas
@@ -48,35 +50,28 @@ export interface Timestamp extends Schema.decodeTo<
 export const Timestamp: Timestamp = firestoreSchema.Timestamp;
 
 /**
- * Type-level representation of {@link DateTimeUtcFromTimestamp}.
+ * A schema whose encoded side Firestore stores as a timestamp:
+ * {@link Timestamp}, `Schema.DateTimeUtc` or `Schema.Date`, or any schema
+ * transformed into one of them.
+ *
+ * The check is on the encoded type alone, so it takes any schema whose
+ * encoded side is a `Timestamp`, `DateTime.Utc` or `Date`. A declaration of
+ * its own, such as `Schema.declare<Date>(...)`, type-checks but is not
+ * stored as a timestamp: `toCodecFirestore` only stores `Schema.Date` and
+ * `Schema.DateTimeUtc` as one, so it fails to encode, or is written through
+ * its own `toCodecJson`. The types cannot tell the two apart, since
+ * `Schema.Date` is structurally the same as any `Schema.declare<Date>`.
  *
  * @stability unstable
  * @category models
  * @since 0.2.0
  */
-export interface DateTimeUtcFromTimestamp extends Schema.decodeTo<
-  Schema.DateTimeUtc,
-  Schema.declare<Timestamp_.TimestampLike>,
-  never,
-  FirestoreEncoder
-> {
-  readonly Rebuild: DateTimeUtcFromTimestamp;
-}
-
-/**
- * Schema that decodes a Firestore timestamp into a `DateTime.Utc`.
- *
- * `DateTime.Utc` counts in milliseconds, so the finer digits of a timestamp
- * Firestore filled in - a server timestamp, say - are dropped on the way in and
- * do not come back on the way out. Reach for {@link Timestamp} where that
- * matters.
- *
- * @stability unstable
- * @category schemas
- * @since 0.2.0
- */
-export const DateTimeUtcFromTimestamp: DateTimeUtcFromTimestamp =
-  firestoreSchema.DateTimeUtcFromTimestamp;
+export type TimeSchema = Schema.Codec<
+  unknown,
+  Timestamp_.Timestamp | DateTime.Utc | globalThis.Date,
+  unknown,
+  unknown
+>;
 
 /**
  * Type-level representation of {@link GeoPoint}.
@@ -85,22 +80,15 @@ export const DateTimeUtcFromTimestamp: DateTimeUtcFromTimestamp =
  * @category models
  * @since 0.2.0
  */
-export interface GeoPoint extends Schema.decodeTo<
-  Schema.declare<GeoPoint_.GeoPoint>,
-  Schema.declare<GeoPoint_.GeoPointLike>,
-  never,
-  FirestoreEncoder
-> {
+export interface GeoPoint extends Schema.declare<GeoPoint_.GeoPoint> {
   readonly Rebuild: GeoPoint;
 }
 
 /**
- * Schema that decodes a Firestore geopoint into a `GeoPoint`.
+ * Schema for a Firestore geopoint, held as the portable `GeoPoint`.
  *
- * Declaring the shape by hand - a struct of `latitude` and `longitude` - reads
- * a geopoint just as well, but writes it back as a plain object, which
- * Firestore stores as a map. This writes it through the encoder, as the SDK's
- * own `GeoPoint`.
+ * Declaring the shape by hand - a struct of `latitude` and `longitude` - would
+ * be stored as a map. This one is stored as the SDK's own `GeoPoint`.
  *
  * @stability unstable
  * @category schemas
@@ -109,33 +97,55 @@ export interface GeoPoint extends Schema.decodeTo<
 export const GeoPoint: GeoPoint = firestoreSchema.GeoPoint;
 
 /**
+ * Type-level representation of {@link DocumentPath}.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface DocumentPath extends Schema.declare<DocumentPath_.DocumentPath> {
+  readonly Rebuild: DocumentPath;
+}
+
+/**
+ * Schema for a reference to a document as Firestore stores it: its path,
+ * held as the portable `DocumentPath`, with nothing to say what the document
+ * holds.
+ *
+ * It is stored as the SDK's own reference, built against the database the
+ * document is written to. A field that points into a collection the model
+ * knows is a {@link DocumentReference} instead.
+ *
+ * @stability unstable
+ * @category schemas
+ * @since 0.2.0
+ */
+export const DocumentPath: DocumentPath = firestoreSchema.DocumentPath;
+
+/**
  * Type-level representation of {@link DocumentReference}.
  *
  * @stability unstable
  * @category models
  * @since 0.2.0
  */
-export interface DocumentReference<C extends Collection.Any> extends Schema.decodeTo<
-  Schema.declare<Collection.DocumentReference<C>>,
-  Schema.declare<Collection.DocumentReferenceLike>,
-  never,
-  FirestoreEncoder
+export interface DocumentReference<C extends Collection.Any> extends Schema.declare<
+  Collection.DocumentReference<C>
 > {
   readonly Rebuild: DocumentReference<C>;
 }
 
 /**
- * Schema that decodes a Firestore document reference into a reference typed by
- * `collection`.
+ * Schema for a reference to a document in `collection`.
  *
- * The path the reference points at is checked against the collection's
- * segments, so a reference into any other collection - one sharing its last
- * segment included - is refused rather than read as one into this. A field
- * that may point into more than one collection is a `Schema.Union` of one of
- * these per collection.
- *
- * A reference is written as the SDK's own, built by the encoder, since one
- * handed over as it is would be stored as a nested map.
+ * Its type is a reference built from `collection`, which is all `Schema.is`
+ * accepts. Firestore stores a reference as the document's path alone, so
+ * `toCodecFirestore` writes it as a `DocumentPath`. Reading one back checks
+ * its path against the collection's segments and builds the collection's own
+ * reference, so it is equal to one built from `collection`. A path into any
+ * other collection - one sharing its last segment included - is refused
+ * rather than read as one into this. A field that may point into more than
+ * one collection is a `Schema.Union` of one of these per collection.
  *
  * @stability unstable
  * @category schemas
@@ -144,12 +154,7 @@ export interface DocumentReference<C extends Collection.Any> extends Schema.deco
 export const DocumentReference: <C extends Collection.Any>(collection: C) => DocumentReference<C> =
   firestoreSchema.DocumentReference;
 
-interface ServerTimestampSentinel extends Schema.decodeTo<
-  Schema.declare<FieldValue.ServerTimestamp>,
-  Schema.Unknown,
-  never,
-  FirestoreEncoder
-> {
+interface ServerTimestampSentinel extends Schema.declare<FieldValue.ServerTimestamp> {
   readonly Rebuild: ServerTimestampSentinel;
 }
 
@@ -173,10 +178,11 @@ export interface ServerTimestamp extends Schema.withConstructorDefault<ServerTim
  * tag. Hand it to {@link Schema.Struct} and the field is written without ever
  * being named.
  *
- * This one only goes one way. Decoding fails, because a document never holds a
- * sentinel: by the time it is read, the server has replaced it with the
- * timestamp it resolved to, which is what the field reads as on the way back -
- * see {@link FirestoreModel.Timestamp} for the pair.
+ * It is a plain schema of the portable sentinel, which each SDK package turns
+ * into its own on the way out, and it belongs in a write only. A document
+ * never holds a sentinel: by the time it is read, the server has replaced it
+ * with the timestamp it resolved to, which is what the field reads as on the
+ * way back - see {@link FirestoreModel.Timestamp} for the pair.
  *
  * @stability unstable
  * @category schemas
@@ -191,9 +197,9 @@ export const ServerTimestamp: ServerTimestamp = firestoreSchema.ServerTimestamp;
  * @category models
  * @since 0.2.0
  */
-export interface ServerTimestampOr<
-  S extends Schema.Codec<unknown, Timestamp_.TimestampLike, unknown, unknown>,
-> extends Schema.Union<readonly [S, ServerTimestamp]> {
+export interface ServerTimestampOr<S extends TimeSchema> extends Schema.Union<
+  readonly [S, ServerTimestamp]
+> {
   readonly Rebuild: ServerTimestampOr<S>;
 }
 
@@ -203,8 +209,8 @@ export interface ServerTimestampOr<
  *
  * This is the write side of a timestamp, and `schema` is the read side it is
  * built from: {@link Timestamp} where the finer digits are to survive a round
- * trip, {@link DateTimeUtcFromTimestamp} where a `DateTime.Utc` is what the
- * document is to hold, or any codec of a value Firestore stores as a timestamp.
+ * trip, or `Schema.DateTimeUtc` or `Schema.Date` where one of those is what
+ * the document is to hold - see {@link TimeSchema}.
  *
  * A read is only ever that schema - the sentinel is gone by then - so this
  * belongs in the variants a document is written through, against a `read` of
@@ -214,11 +220,8 @@ export interface ServerTimestampOr<
  * @category schemas
  * @since 0.2.0
  */
-export const ServerTimestampOr: <
-  S extends Schema.Codec<unknown, Timestamp_.TimestampLike, unknown, unknown>,
->(
-  schema: S,
-) => ServerTimestampOr<S> = firestoreSchema.ServerTimestampOr;
+export const ServerTimestampOr: <S extends TimeSchema>(schema: S) => ServerTimestampOr<S> =
+  firestoreSchema.ServerTimestampOr;
 
 /**
  * Type-level representation of {@link Increment}.
@@ -227,12 +230,7 @@ export const ServerTimestampOr: <
  * @category models
  * @since 0.2.0
  */
-export interface Increment extends Schema.decodeTo<
-  Schema.declare<FieldValue.Increment>,
-  Schema.Unknown,
-  never,
-  FirestoreEncoder
-> {
+export interface Increment extends Schema.declare<FieldValue.Increment> {
   readonly Rebuild: Increment;
 }
 
@@ -240,10 +238,10 @@ export interface Increment extends Schema.decodeTo<
  * Schema that writes the sentinel standing in for a field moved by a number.
  *
  * A call site hands it {@link FieldValue.increment} or
- * {@link FieldValue.decrement}, and the encoder turns it into the sentinel its
- * SDK writes.
+ * {@link FieldValue.decrement}. It is a plain schema of the portable sentinel,
+ * which each SDK package turns into its own on the way out.
  *
- * This one only goes one way, as {@link ServerTimestamp} does. A document holds
+ * It belongs in a write only, as {@link ServerTimestamp} does. A document holds
  * the sum the server wrote rather than the request to add, so a read of the
  * same field is a plain number - see {@link IncrementOr} for the pair.
  *
@@ -295,23 +293,19 @@ export const IncrementOr: <S extends Schema.Codec<unknown, number, unknown, unkn
  * @category models
  * @since 0.2.0
  */
-export interface DeleteField extends Schema.decodeTo<
-  Schema.declare<FieldValue.DeleteField>,
-  Schema.Unknown,
-  never,
-  FirestoreEncoder
-> {
+export interface DeleteField extends Schema.declare<FieldValue.DeleteField> {
   readonly Rebuild: DeleteField;
 }
 
 /**
  * Schema that writes the sentinel standing in for a field the write removes.
  *
- * A call site hands it {@link FieldValue.deleteField}, and the encoder turns it
- * into the sentinel its SDK writes. Unlike {@link ServerTimestamp} it does not
- * fill itself in, since a field is removed on purpose or not at all.
+ * A call site hands it {@link FieldValue.deleteField}, the portable sentinel,
+ * which each SDK package turns into its own on the way out. Unlike
+ * {@link ServerTimestamp} it does not fill itself in, since a field is removed
+ * on purpose or not at all.
  *
- * This one only goes one way, as the other sentinels do. A field removed is
+ * It belongs in a write only, as the other sentinels do. A field removed is
  * not there to read, so a read of the same is an optional key - see
  * {@link DeleteFieldOr} for the pair.
  *
@@ -351,12 +345,6 @@ export interface DeleteFieldOr<S extends Schema.Top> extends Schema.Union<
 export const DeleteFieldOr: <S extends Schema.Top>(schema: S) => DeleteFieldOr<S> =
   firestoreSchema.DeleteFieldOr;
 
-interface ArrayUnionValue<S extends Schema.Top> extends Schema.declareConstructor<
-  FieldValue.ArrayUnion<S["Type"]>,
-  FieldValue.ArrayUnion<S["Encoded"]>,
-  readonly [S]
-> {}
-
 /**
  * Type-level representation of {@link ArrayUnion}.
  *
@@ -364,11 +352,10 @@ interface ArrayUnionValue<S extends Schema.Top> extends Schema.declareConstructo
  * @category models
  * @since 0.2.0
  */
-export interface ArrayUnion<S extends Schema.Top> extends Schema.decodeTo<
-  ArrayUnionValue<S>,
-  Schema.Unknown,
-  never,
-  FirestoreEncoder
+export interface ArrayUnion<S extends Schema.Top> extends Schema.declareConstructor<
+  FieldValue.ArrayUnion<S["Type"]>,
+  FieldValue.ArrayUnion<S["Encoded"]>,
+  readonly [S]
 > {
   readonly Rebuild: ArrayUnion<S>;
 }
@@ -378,15 +365,16 @@ export interface ArrayUnion<S extends Schema.Top> extends Schema.decodeTo<
  * elements it lacks.
  *
  * A call site hands it {@link FieldValue.arrayUnion}, and each element is
- * encoded through `item` before the encoder turns the lot into the sentinel its
- * SDK writes - so a timestamp among them is stored as a timestamp, and an
- * element `item` refuses is refused here too.
+ * encoded through `item`, and then by `toCodecFirestore` the way `item` is
+ * stored, before the SDK package turns the portable sentinel into its own - so
+ * a `DateTimeUtc` among them is stored as a timestamp, and an element `item`
+ * refuses is refused here too.
  *
  * `item` is what the array holds, and Firestore asks two things of it: that it
  * is not an array itself, since an array may not hold one, and that it does not
  * write a sentinel, since one may not sit inside an array.
  *
- * This one only goes one way, as the other sentinels do. A document holds the
+ * It belongs in a write only, as the other sentinels do. A document holds the
  * array the server wrote rather than the request to grow it - see
  * {@link ArrayOr} for the pair.
  *
@@ -397,12 +385,6 @@ export interface ArrayUnion<S extends Schema.Top> extends Schema.decodeTo<
 export const ArrayUnion: <S extends Schema.Top>(item: S) => ArrayUnion<S> =
   firestoreSchema.ArrayUnion;
 
-interface ArrayRemoveValue<S extends Schema.Top> extends Schema.declareConstructor<
-  FieldValue.ArrayRemove<S["Type"]>,
-  FieldValue.ArrayRemove<S["Encoded"]>,
-  readonly [S]
-> {}
-
 /**
  * Type-level representation of {@link ArrayRemove}.
  *
@@ -410,11 +392,10 @@ interface ArrayRemoveValue<S extends Schema.Top> extends Schema.declareConstruct
  * @category models
  * @since 0.2.0
  */
-export interface ArrayRemove<S extends Schema.Top> extends Schema.decodeTo<
-  ArrayRemoveValue<S>,
-  Schema.Unknown,
-  never,
-  FirestoreEncoder
+export interface ArrayRemove<S extends Schema.Top> extends Schema.declareConstructor<
+  FieldValue.ArrayRemove<S["Type"]>,
+  FieldValue.ArrayRemove<S["Encoded"]>,
+  readonly [S]
 > {
   readonly Rebuild: ArrayRemove<S>;
 }
@@ -428,7 +409,7 @@ export interface ArrayRemove<S extends Schema.Top> extends Schema.decodeTo<
  * schema the array was written with is what gives a match a chance: the server
  * compares what it is handed with what it holds, exactly.
  *
- * This one only goes one way, as the other sentinels do - see {@link ArrayOr}
+ * It belongs in a write only, as the other sentinels do - see {@link ArrayOr}
  * for the pair.
  *
  * @stability unstable

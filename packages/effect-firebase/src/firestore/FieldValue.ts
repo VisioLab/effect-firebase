@@ -7,9 +7,10 @@
  * comes back holding whatever the sentinel resolved to.
  *
  * This module owns those markers without depending on an SDK, the same way
- * `Timestamp` owns the instant. The sentinel an SDK actually writes is built by
- * a {@link FirestoreEncoder.FirestoreEncoder}, and the codecs that reach for it
- * live in `firestore/FirestoreSchema`.
+ * `Timestamp` owns the instant. They are Firestore Values, so a document
+ * encodes to them through `toCodecFirestore`, and each SDK package turns them
+ * into the sentinel its SDK writes. Their schemas live in
+ * `firestore/FirestoreSchema`.
  *
  * @stability unstable
  * @since 0.2.0

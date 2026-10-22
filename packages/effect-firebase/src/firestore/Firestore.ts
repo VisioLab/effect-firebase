@@ -8,7 +8,6 @@ import { Context, Schema } from "effect";
 import type { Effect, Stream } from "effect";
 import type * as Collection from "./Collection.ts";
 import type * as DocumentSnapshot from "./DocumentSnapshot.ts";
-import type { FirestoreEncoder } from "./FirestoreEncoder.ts";
 import type * as FirestoreModel from "./FirestoreModel.ts";
 import type * as QuerySnapshot from "./QuerySnapshot.ts";
 
@@ -44,23 +43,6 @@ export class FirestoreError extends Schema.TaggedError<FirestoreError>()("Firest
 export type Create<C extends Collection.Any> = Collection.DocumentSchema<C>["create"]["Type"];
 
 /**
- * What writing a document in `C` asks for, beyond the service itself.
- *
- * Encoding a document goes through a {@link FirestoreEncoder}, and an
- * implementation has one of its own - it is the whole reason it can write the
- * values its SDK stores - so that one is answered for here rather than by the
- * caller. Anything else a document schema encodes through is not, and stays.
- *
- * @stability unstable
- * @category models
- * @since 0.2.0
- */
-export type WriteServices<C extends Collection.Any> = Exclude<
-  Collection.DocumentSchema<C>["create"]["EncodingServices"],
-  FirestoreEncoder
->;
-
-/**
  * The schema an update to a document in `C` is written through in `Mode`: the
  * collection's model's `update`, or its `updateUnchecked`.
  *
@@ -89,22 +71,6 @@ export type Update<
   C extends Collection.Any,
   Mode extends FirestoreModel.UpdateMode = "checked",
 > = UpdateSchema<C, Mode>["Type"];
-
-/**
- * What updating a document in `C` asks for, beyond the service itself.
- *
- * Not {@link WriteServices}: an update encodes the keys of each Record it
- * writes into as well, and those may take services `set` never asks for. Both
- * modes encode the same fields at the same paths, so they ask for the same.
- *
- * @stability unstable
- * @category models
- * @since 0.2.0
- */
-export type UpdateServices<C extends Collection.Any> = Exclude<
-  Collection.DocumentSchema<C>["update"]["EncodingServices"],
-  FirestoreEncoder
->;
 
 /**
  * How to update a document.
@@ -172,7 +138,11 @@ export interface Transaction {
   readonly setDoc: <C extends Collection.Any>(
     ref: Collection.DocumentReference<C>,
     data: Create<C>,
-  ) => Effect.Effect<void, FirestoreError | Schema.SchemaError, WriteServices<C>>;
+  ) => Effect.Effect<
+    void,
+    FirestoreError | Schema.SchemaError,
+    Collection.DocumentSchema<C>["create"]["EncodingServices"]
+  >;
 
   /**
    * Queues an update of one document, as {@link Firestore.updateDoc} writes
@@ -185,7 +155,11 @@ export interface Transaction {
     ref: Collection.DocumentReference<C>,
     data: Update<C, Mode>,
     options?: UpdateOptions<Mode>,
-  ) => Effect.Effect<void, FirestoreError | Schema.SchemaError, UpdateServices<C>>;
+  ) => Effect.Effect<
+    void,
+    FirestoreError | Schema.SchemaError,
+    Collection.DocumentSchema<C>["update"]["EncodingServices"]
+  >;
 }
 
 /**
@@ -282,7 +256,11 @@ export interface Firestore {
   readonly setDoc: <C extends Collection.Any>(
     ref: Collection.DocumentReference<C>,
     data: Create<C>,
-  ) => Effect.Effect<void, FirestoreError | Schema.SchemaError, WriteServices<C>>;
+  ) => Effect.Effect<
+    void,
+    FirestoreError | Schema.SchemaError,
+    Collection.DocumentSchema<C>["create"]["EncodingServices"]
+  >;
 
   /**
    * Writes one document under an id Firestore picks, and hands back where it
@@ -296,7 +274,7 @@ export interface Firestore {
   ) => Effect.Effect<
     Collection.DocumentReference<C>,
     FirestoreError | Schema.SchemaError,
-    WriteServices<C>
+    Collection.DocumentSchema<C>["create"]["EncodingServices"]
   >;
 
   /**
@@ -309,6 +287,10 @@ export interface Firestore {
    *
    * Unlike {@link setDoc}, this needs the document to be there: Firestore
    * refuses to update one that is not, and so does an empty patch.
+   *
+   * It asks for the services the model's `update` schema encodes through.
+   * Both modes encode the same fields at the same paths, so they ask for the
+   * same.
    */
   readonly updateDoc: <
     C extends Collection.Any,
@@ -317,7 +299,11 @@ export interface Firestore {
     ref: Collection.DocumentReference<C>,
     data: Update<C, Mode>,
     options?: UpdateOptions<Mode>,
-  ) => Effect.Effect<void, FirestoreError | Schema.SchemaError, UpdateServices<C>>;
+  ) => Effect.Effect<
+    void,
+    FirestoreError | Schema.SchemaError,
+    Collection.DocumentSchema<C>["update"]["EncodingServices"]
+  >;
 
   /**
    * Runs `effect` in a transaction, with the {@link Transaction} it reads and

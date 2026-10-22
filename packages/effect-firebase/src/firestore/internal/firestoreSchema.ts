@@ -1,106 +1,75 @@
-import {
-  Array,
-  DateTime,
-  Effect,
-  Equal,
-  Schema,
-  SchemaGetter,
-  SchemaIssue,
-  SchemaParser,
-} from "effect";
+import { Array, Effect, Equal, Schema, SchemaGetter, SchemaIssue, SchemaParser } from "effect";
 import type * as Collection from "../Collection.ts";
+import type * as DocumentPath_ from "../DocumentPath.ts";
 import type * as FieldValue from "../FieldValue.ts";
-import { FirestoreEncoder } from "../FirestoreEncoder.ts";
 import type * as FirestoreSchema from "../FirestoreSchema.ts";
 import type * as GeoPoint_ from "../GeoPoint.ts";
 import type * as Timestamp_ from "../Timestamp.ts";
 import * as collection_ from "./collection.ts";
+import * as documentPath from "./documentPath.ts";
 import * as fieldValue from "./fieldValue.ts";
 import * as geoPoint from "./geoPoint.ts";
 import * as timestamp from "./timestamp.ts";
 
-/** Accepts a timestamp in the shape Firestore hands back, whichever SDK read it. */
-const TimestampLikeValue = Schema.declare<Timestamp_.TimestampLike>(timestamp.isTimestampLike, {
-  representation: { id: "@visiolab/effect-firebase/firestore/Timestamp/Like", payload: null },
-  expected: "a Firestore timestamp",
-  toEquivalence: () => (self, that) =>
-    self.seconds === that.seconds && self.nanoseconds === that.nanoseconds,
-});
-
-const TimestampValue = Schema.declare<Timestamp_.Timestamp>(timestamp.isTimestamp, {
-  representation: { id: "@visiolab/effect-firebase/firestore/Timestamp", payload: null },
-  expected: "a Firestore Timestamp",
-  toEquivalence: () => Equal.equals,
-});
+/** Writes a timestamp as JSON without losing the digits finer than a millisecond. */
+const TimestampJson = Schema.Struct({ seconds: Schema.Int, nanoseconds: Schema.Int });
 
 /** @internal */
-export const Timestamp: FirestoreSchema.Timestamp = TimestampLikeValue.pipe(
-  Schema.decodeTo(TimestampValue, {
-    decode: SchemaGetter.transform(timestamp.fromTimestampLikeUnsafe),
-    encode: SchemaGetter.transformEffect((value: Timestamp_.Timestamp) =>
-      Effect.map(FirestoreEncoder, (encoder) => encoder.timestamp(value)),
-    ),
-  }),
-);
-
-/** @internal */
-export const DateTimeUtcFromTimestamp: FirestoreSchema.DateTimeUtcFromTimestamp =
-  TimestampLikeValue.pipe(
-    Schema.decodeTo(Schema.DateTimeUtc, {
-      decode: SchemaGetter.transform((like: Timestamp_.TimestampLike) =>
-        timestamp.toDateTime(timestamp.fromTimestampLikeUnsafe(like)),
-      ),
-      encode: SchemaGetter.transformEffect((dateTime: DateTime.Utc) =>
-        Effect.map(FirestoreEncoder, (encoder) =>
-          encoder.timestamp(timestamp.fromDateTimeUnsafe(dateTime)),
-        ),
-      ),
-    }),
-  );
-
-/** Accepts a geopoint in the shape Firestore hands back, whichever SDK read it. */
-const GeoPointLikeValue = Schema.declare<GeoPoint_.GeoPointLike>(geoPoint.isGeoPointLike, {
-  representation: { id: "@visiolab/effect-firebase/firestore/GeoPoint/Like", payload: null },
-  expected: "a Firestore geopoint",
-  toEquivalence: () => (self, that) =>
-    self.latitude === that.latitude && self.longitude === that.longitude,
-});
-
-const GeoPointValue = Schema.declare<GeoPoint_.GeoPoint>(geoPoint.isGeoPoint, {
-  representation: { id: "@visiolab/effect-firebase/firestore/GeoPoint", payload: null },
-  expected: "a Firestore GeoPoint",
-  toEquivalence: () => Equal.equals,
-});
-
-/** @internal */
-export const GeoPoint: FirestoreSchema.GeoPoint = GeoPointLikeValue.pipe(
-  Schema.decodeTo(GeoPointValue, {
-    decode: SchemaGetter.transform(geoPoint.fromGeoPointLikeUnsafe),
-    encode: SchemaGetter.transformEffect((value: GeoPoint_.GeoPoint) =>
-      Effect.map(FirestoreEncoder, (encoder) => encoder.geoPoint(value)),
-    ),
-  }),
-);
-
-/** Accepts a reference in the shape Firestore hands back, whichever SDK read it. */
-const DocumentReferenceLikeValue = Schema.declare<Collection.DocumentReferenceLike>(
-  collection_.isDocumentReferenceLike,
+export const Timestamp: FirestoreSchema.Timestamp = Schema.declare<Timestamp_.Timestamp>(
+  timestamp.isTimestamp,
   {
-    representation: {
-      id: "@visiolab/effect-firebase/firestore/DocumentReference/Like",
-      payload: null,
-    },
-    expected: "a Firestore document reference",
-    toEquivalence: () => (self, that) => self.path === that.path,
+    representation: { id: "@visiolab/effect-firebase/firestore/Timestamp", payload: null },
+    expected: "a Firestore Timestamp",
+    toEquivalence: () => Equal.equals,
+    toCodecFirestore: () => undefined,
+    toCodecJson: () =>
+      Schema.link<Timestamp_.Timestamp>()(TimestampJson, {
+        decode: SchemaGetter.transformEffect((json: typeof TimestampJson.Type, options) =>
+          Effect.fromOption(timestamp.make(json.seconds, json.nanoseconds)).pipe(
+            Effect.mapError(
+              () =>
+                new SchemaIssue.InvalidValue(
+                  { message: "Expected an instant Firestore can store" },
+                  json,
+                  options,
+                ),
+            ),
+          ),
+        ),
+        encode: SchemaGetter.transform((value: Timestamp_.Timestamp) => ({
+          seconds: value.seconds,
+          nanoseconds: value.nanoseconds,
+        })),
+      }),
   },
 );
+
+/** @internal */
+export const GeoPoint: FirestoreSchema.GeoPoint = Schema.declare<GeoPoint_.GeoPoint>(
+  geoPoint.isGeoPoint,
+  {
+    representation: { id: "@visiolab/effect-firebase/firestore/GeoPoint", payload: null },
+    expected: "a Firestore GeoPoint",
+    toEquivalence: () => Equal.equals,
+    toCodecFirestore: () => undefined,
+  },
+);
+
+/** @internal */
+export const DocumentPath: FirestoreSchema.DocumentPath =
+  Schema.declare<DocumentPath_.DocumentPath>(documentPath.isDocumentPath, {
+    representation: { id: "@visiolab/effect-firebase/firestore/DocumentPath", payload: null },
+    expected: "a Firestore document path",
+    toEquivalence: () => Equal.equals,
+    toCodecFirestore: () => undefined,
+  });
 
 /** @internal */
 export const DocumentReference = <C extends Collection.Any>(
   collection: C,
 ): FirestoreSchema.DocumentReference<C> => {
   const pattern = collection_.pattern(collection);
-  const DocumentReferenceValue = Schema.declare<Collection.DocumentReference<C>>(
+  return Schema.declare<Collection.DocumentReference<C>>(
     (u): u is Collection.DocumentReference<C> =>
       collection_.isDocumentReference(u) && u.collection === collection,
     {
@@ -110,80 +79,61 @@ export const DocumentReference = <C extends Collection.Any>(
       },
       expected: `a reference to a document in ${pattern}`,
       toEquivalence: () => Equal.equals,
-    },
-  );
-  return DocumentReferenceLikeValue.pipe(
-    Schema.decodeTo(DocumentReferenceValue, {
-      decode: SchemaGetter.transformEffect((like: Collection.DocumentReferenceLike, options) =>
-        Effect.fromOption(collection_.fromPath(collection, like.path)).pipe(
-          Effect.mapError(
-            () =>
-              new SchemaIssue.InvalidValue(
-                { message: `Expected a document in ${pattern}, got "${like.path}"` },
-                like,
-                options,
+      // Firestore stores the path alone, so reading one back checks it against
+      // `collection`'s segments and builds `collection`'s own reference.
+      toCodecFirestore: () =>
+        Schema.link<Collection.DocumentReference<C>>()(
+          DocumentPath.annotate({ expected: `a reference to a document in ${pattern}` }),
+          {
+            decode: SchemaGetter.transformEffect((value: DocumentPath_.DocumentPath, options) =>
+              Effect.fromOption(collection_.fromPath(collection, value.path)).pipe(
+                Effect.mapError(
+                  () =>
+                    new SchemaIssue.InvalidValue(
+                      { message: `Expected a document in ${pattern}, got "${value.path}"` },
+                      value,
+                      options,
+                    ),
+                ),
               ),
-          ),
+            ),
+            encode: SchemaGetter.transform((ref: Collection.DocumentReference<C>) =>
+              documentPath.makeUnchecked(ref.path),
+            ),
+          },
         ),
-      ),
-      encode: SchemaGetter.transformEffect((ref: Collection.DocumentReference<C>) =>
-        Effect.map(FirestoreEncoder, (encoder) => encoder.documentReference(ref)),
-      ),
-    }),
+    },
   );
 };
 
-const ServerTimestampValue = Schema.declare<FieldValue.ServerTimestamp>(
-  fieldValue.isServerTimestamp,
-  {
+/** @internal */
+export const ServerTimestamp: FirestoreSchema.ServerTimestamp =
+  Schema.declare<FieldValue.ServerTimestamp>(fieldValue.isServerTimestamp, {
     representation: {
       id: "@visiolab/effect-firebase/firestore/FieldValue/ServerTimestamp",
       payload: null,
     },
     expected: "a server timestamp",
-  },
-);
-
-const ServerTimestampSentinel = Schema.Unknown.pipe(
-  Schema.decodeTo(ServerTimestampValue, {
-    decode: SchemaGetter.forbidden(
-      () => "A server timestamp is only ever written, never read back",
-    ),
-    encode: SchemaGetter.transformEffect(() =>
-      Effect.map(FirestoreEncoder, (encoder) => encoder.serverTimestamp()),
-    ),
-  }),
-);
+    toCodecFirestore: () => undefined,
+  }).pipe(Schema.withConstructorDefault(Effect.succeed(fieldValue.serverTimestamp)));
 
 /** @internal */
-export const ServerTimestamp: FirestoreSchema.ServerTimestamp = ServerTimestampSentinel.pipe(
-  Schema.withConstructorDefault(Effect.succeed(fieldValue.serverTimestamp)),
-);
-
-/** @internal */
-export const ServerTimestampOr = <
-  S extends Schema.Codec<unknown, Timestamp_.TimestampLike, unknown, unknown>,
->(
+export const ServerTimestampOr = <S extends FirestoreSchema.TimeSchema>(
   schema: S,
 ): FirestoreSchema.ServerTimestampOr<S> => Schema.Union([schema, ServerTimestamp]);
 
-const IncrementValue = Schema.declare<FieldValue.Increment>(fieldValue.isIncrement, {
-  representation: {
-    id: "@visiolab/effect-firebase/firestore/FieldValue/Increment",
-    payload: null,
-  },
-  expected: "an increment",
-  toEquivalence: () => Equal.equals,
-});
-
 /** @internal */
-export const Increment: FirestoreSchema.Increment = Schema.Unknown.pipe(
-  Schema.decodeTo(IncrementValue, {
-    decode: SchemaGetter.forbidden(() => "An increment is only ever written, never read back"),
-    encode: SchemaGetter.transformEffect((value: FieldValue.Increment) =>
-      Effect.map(FirestoreEncoder, (encoder) => encoder.increment(value.by)),
-    ),
-  }),
+export const Increment: FirestoreSchema.Increment = Schema.declare<FieldValue.Increment>(
+  fieldValue.isIncrement,
+  {
+    representation: {
+      id: "@visiolab/effect-firebase/firestore/FieldValue/Increment",
+      payload: null,
+    },
+    expected: "an increment",
+    toEquivalence: () => Equal.equals,
+    toCodecFirestore: () => undefined,
+  },
 );
 
 /** @internal */
@@ -191,22 +141,17 @@ export const IncrementOr = <S extends Schema.Codec<unknown, number, unknown, unk
   schema: S,
 ): FirestoreSchema.IncrementOr<S> => Schema.Union([schema, Increment]);
 
-const DeleteFieldValue = Schema.declare<FieldValue.DeleteField>(fieldValue.isDeleteField, {
-  representation: {
-    id: "@visiolab/effect-firebase/firestore/FieldValue/DeleteField",
-    payload: null,
-  },
-  expected: "a field deletion",
-});
-
 /** @internal */
-export const DeleteField: FirestoreSchema.DeleteField = Schema.Unknown.pipe(
-  Schema.decodeTo(DeleteFieldValue, {
-    decode: SchemaGetter.forbidden(() => "A field deletion is only ever written, never read back"),
-    encode: SchemaGetter.transformEffect(() =>
-      Effect.map(FirestoreEncoder, (encoder) => encoder.deleteField()),
-    ),
-  }),
+export const DeleteField: FirestoreSchema.DeleteField = Schema.declare<FieldValue.DeleteField>(
+  fieldValue.isDeleteField,
+  {
+    representation: {
+      id: "@visiolab/effect-firebase/firestore/FieldValue/DeleteField",
+      payload: null,
+    },
+    expected: "a field deletion",
+    toCodecFirestore: () => undefined,
+  },
 );
 
 /** @internal */
@@ -216,10 +161,13 @@ export const DeleteFieldOr = <S extends Schema.Top>(schema: S): FirestoreSchema.
 /**
  * Declares a sentinel that carries elements, each of them run through `item` -
  * decoded on the way in and encoded on the way out, as `Schema.Option` does
- * with what it holds - so a timestamp among them reaches the encoder as the
- * SDK's own.
+ * with what it holds.
+ *
+ * The sentinel is already in Firestore form, apart from its elements:
+ * `toCodecFirestore` keeps it and derives `item`'s own codec for them, so a
+ * `DateTimeUtc` among them is stored as a timestamp.
  */
-const elementsValue =
+const elementsSentinel =
   <Sentinel extends { readonly elements: ReadonlyArray<unknown> }>(
     name: string,
     is: (u: unknown) => u is Sentinel,
@@ -246,6 +194,7 @@ const elementsValue =
           payload: null,
         },
         expected: `an ${name}`,
+        toCodecFirestore: () => undefined,
         toEquivalence: ([item]) => {
           const elements = Array.makeEquivalence(item);
           return (self, that) => elements(self.elements, that.elements);
@@ -253,20 +202,17 @@ const elementsValue =
       },
     );
 
-const ArrayUnionValue = elementsValue("ArrayUnion", fieldValue.isArrayUnion, fieldValue.arrayUnion);
+const ArrayUnionSentinel = elementsSentinel(
+  "ArrayUnion",
+  fieldValue.isArrayUnion,
+  fieldValue.arrayUnion,
+);
 
 /** @internal */
 export const ArrayUnion = <S extends Schema.Top>(item: S): FirestoreSchema.ArrayUnion<S> =>
-  Schema.Unknown.pipe(
-    Schema.decodeTo(ArrayUnionValue(item), {
-      decode: SchemaGetter.forbidden(() => "An array union is only ever written, never read back"),
-      encode: SchemaGetter.transformEffect((value: FieldValue.ArrayUnion<unknown>) =>
-        Effect.map(FirestoreEncoder, (encoder) => encoder.arrayUnion(value.elements)),
-      ),
-    }),
-  );
+  ArrayUnionSentinel(item) as unknown as FirestoreSchema.ArrayUnion<S>;
 
-const ArrayRemoveValue = elementsValue(
+const ArrayRemoveSentinel = elementsSentinel(
   "ArrayRemove",
   fieldValue.isArrayRemove,
   fieldValue.arrayRemove,
@@ -274,16 +220,7 @@ const ArrayRemoveValue = elementsValue(
 
 /** @internal */
 export const ArrayRemove = <S extends Schema.Top>(item: S): FirestoreSchema.ArrayRemove<S> =>
-  Schema.Unknown.pipe(
-    Schema.decodeTo(ArrayRemoveValue(item), {
-      decode: SchemaGetter.forbidden(
-        () => "An array removal is only ever written, never read back",
-      ),
-      encode: SchemaGetter.transformEffect((value: FieldValue.ArrayRemove<unknown>) =>
-        Effect.map(FirestoreEncoder, (encoder) => encoder.arrayRemove(value.elements)),
-      ),
-    }),
-  );
+  ArrayRemoveSentinel(item) as unknown as FirestoreSchema.ArrayRemove<S>;
 
 /** @internal */
 export const ArrayOr = <S extends Schema.Top>(item: S): FirestoreSchema.ArrayOr<S> =>

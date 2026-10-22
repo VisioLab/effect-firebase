@@ -242,25 +242,6 @@ export interface DocumentReference<C extends Any> extends Inspectable.Inspectabl
 }
 
 /**
- * The minimal shape of a Firestore document reference, whoever built it.
- *
- * Both the Admin SDK and the web SDK hand back a `DocumentReference` carrying
- * these two fields, so this is the shape a reference stored in a document
- * arrives in whichever one read it. A {@link DocumentReference} built here
- * carries them too.
- *
- * @stability unstable
- * @category models
- * @since 0.2.0
- */
-export interface DocumentReferenceLike {
-  /** The document's own id. */
-  readonly id: string;
-  /** The full path, such as `users/alice/posts/hello`. */
-  readonly path: string;
-}
-
-/**
  * @stability unstable
  * @category guards
  * @since 0.1.0
@@ -305,21 +286,6 @@ export const make: <const Segment extends string, S extends FirestoreModel.Any>(
   segment: Segment,
   schema: S,
 ) => Collection<readonly [readonly [Segment, S]]> = collection.make;
-
-/**
- * Whether `u` is shaped like a Firestore document reference.
- *
- * This is what makes a reference readable without depending on an SDK: an
- * SDK's own `DocumentReference` passes, because it carries the same fields. A
- * plain map holding an `id` and a `path` does not, so a document that stores
- * one is not mistaken for a reference.
- *
- * @stability unstable
- * @category guards
- * @since 0.2.0
- */
-export const isDocumentReferenceLike: (u: unknown) => u is DocumentReferenceLike =
-  collection.isDocumentReferenceLike;
 
 /**
  * References the document in `collection` found at `path`, such as
