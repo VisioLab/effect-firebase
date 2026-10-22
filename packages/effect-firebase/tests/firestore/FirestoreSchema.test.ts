@@ -558,6 +558,17 @@ describe("ArrayUnion", () => {
     }),
   );
 
+  it.effect("reads each element back from how Firestore stores it", () =>
+    Effect.gen(function* () {
+      const SeenAt = FirestoreSchema.ArrayUnion(Schema.DateTimeUtc);
+      const decoded = yield* fromFirestore(SeenAt)(
+        FieldValue.arrayUnion(Timestamp.makeUnsafe(1_700_000_000, 123_000_000)),
+      );
+      expect(decoded).toSatisfy(FieldValue.isArrayUnion);
+      expect(decoded.elements).toStrictEqual([DateTime.makeUnsafe(1_700_000_000_123)]);
+    }),
+  );
+
   it.effect("refuses an element the schema it was built from refuses", () =>
     Effect.gen(function* () {
       const Whole = FirestoreSchema.ArrayUnion(Schema.Int);
@@ -618,6 +629,20 @@ describe("ArrayRemove", () => {
       expect(
         yield* toFirestore(SeenAt)(FieldValue.arrayRemove(new Date(1_700_000_000_123))),
       ).toStrictEqual(FieldValue.arrayRemove(Timestamp.makeUnsafe(1_700_000_000, 123_000_000)));
+    }),
+  );
+
+  it.effect("stores an instant as a Timestamp and reads it back", () =>
+    Effect.gen(function* () {
+      const SeenAt = FirestoreSchema.ArrayRemove(Schema.DateTimeUtc);
+      const at = DateTime.makeUnsafe(1_700_000_000_123);
+      const encoded = yield* toFirestore(SeenAt)(FieldValue.arrayRemove(at));
+      expect(encoded).toStrictEqual(
+        FieldValue.arrayRemove(Timestamp.makeUnsafe(1_700_000_000, 123_000_000)),
+      );
+      const decoded = yield* fromFirestore(SeenAt)(encoded);
+      expect(decoded).toSatisfy(FieldValue.isArrayRemove);
+      expect(decoded.elements).toStrictEqual([at]);
     }),
   );
 

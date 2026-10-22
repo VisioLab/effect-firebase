@@ -10,10 +10,10 @@ import {
 } from "effect";
 import type * as FirestoreValue from "../FirestoreValue.ts";
 import type * as Timestamp_ from "../Timestamp.ts";
-import * as firestoreSchema from "./firestoreSchema.ts";
 import * as firestoreValueWalk from "./firestoreValueWalk.ts";
 import * as schemaAST from "./schemaAST.ts";
 import * as timestamp from "./timestamp.ts";
+import * as timestampSchema from "./timestampSchema.ts";
 
 /** @internal */
 export const isFirestoreValue = firestoreValueWalk.isFirestoreValue;
@@ -47,14 +47,14 @@ const timestampFromMillis = (millis: number, options: SchemaAST.ParseOptions) =>
       );
 };
 
-const dateToTimestamp = Schema.link<globalThis.Date>()(firestoreSchema.Timestamp, {
+const dateToTimestamp = Schema.link<globalThis.Date>()(timestampSchema.Timestamp, {
   decode: SchemaGetter.transform((ts: Timestamp_.Timestamp) => new Date(timestamp.toMillis(ts))),
   encode: SchemaGetter.transformEffect((date: globalThis.Date, options) =>
     timestampFromMillis(date.getTime(), options),
   ),
 });
 
-const dateTimeUtcToTimestamp = Schema.link<DateTime.Utc>()(firestoreSchema.Timestamp, {
+const dateTimeUtcToTimestamp = Schema.link<DateTime.Utc>()(timestampSchema.Timestamp, {
   decode: SchemaGetter.transform(timestamp.toDateTime),
   encode: SchemaGetter.transformEffect((dateTime: DateTime.Utc, options) =>
     timestampFromMillis(DateTime.toEpochMillis(dateTime), options),
@@ -106,12 +106,12 @@ const declarationStep = (
   if (getLink === undefined) return schemaAST.replaceEncoding(ast, [unknownToFirestore]);
   const typeParameters = ast.typeParameters.map((tp) => Schema.make(SchemaAST.toEncoded(tp)));
   const link = getLink(typeParameters);
-  if (link !== undefined) return schemaAST.replaceEncoding(ast, [schemaAST.mapLink(link, recur)]);
-  // `undefined` means the declaration is already canonical: in Firestore form,
-  // or in JSON form, and every JSON value is a Firestore Value. One in
-  // Firestore form may still hold values that are not, such as the elements of
-  // an array union, so what it holds is derived in turn.
-  return getLink === annotations?.toCodecFirestore ? schemaAST.recur(ast, recur) : ast;
+  // `undefined` means the declaration is already canonical, and so is
+  // everything it holds: in Firestore form, or in JSON form, and every JSON
+  // value is a Firestore Value.
+  return link === undefined
+    ? ast
+    : schemaAST.replaceEncoding(ast, [schemaAST.mapLink(link, recur)]);
 };
 
 const reorderUnion = (types: ReadonlyArray<SchemaAST.AST>): ReadonlyArray<SchemaAST.AST> => {
