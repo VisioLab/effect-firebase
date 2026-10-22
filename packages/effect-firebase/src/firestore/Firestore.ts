@@ -23,9 +23,10 @@ export class FirestoreError extends Schema.TaggedError<FirestoreError>()("Firest
   /**
    * The code the SDK reported, where it reported one it can be named by.
    *
-   * The Admin SDK answers for Firestore over gRPC, which numbers its statuses
-   * rather than naming them, so this is often absent even where something went
-   * wrong at the database.
+   * The client SDK names every failure, such as `permission-denied`. The Admin
+   * SDK answers for Firestore over gRPC, which numbers its statuses rather than
+   * naming them, so there this is often absent even where something went wrong
+   * at the database.
    */
   code: Schema.optional(Schema.String),
   cause: Schema.optional(Schema.Defect()),
@@ -147,6 +148,9 @@ export interface TransactionOptions {
  * Asking for it in a helper is what says that helper belongs inside a
  * transaction, and so that it may run more than once.
  *
+ * It reads documents one at a time and never a whole collection, since the
+ * client SDK's transactions can only be asked for a document.
+ *
  * @stability unstable
  * @category models
  * @since 0.2.0
@@ -159,14 +163,6 @@ export interface Transaction {
   readonly getDoc: <C extends Collection.Any>(
     ref: Collection.DocumentReference<C>,
   ) => Effect.Effect<DocumentSnapshot.DocumentSnapshot<C>, FirestoreError>;
-
-  /**
-   * Reads every document in one collection, as {@link Firestore.getDocs} does,
-   * as part of the transaction.
-   */
-  readonly getDocs: <C extends Collection.Any>(
-    ref: Collection.CollectionReference<C>,
-  ) => Effect.Effect<ReadonlyArray<DocumentSnapshot.Existing<C>>, FirestoreError>;
 
   /**
    * Queues a write of one whole document, as {@link Firestore.setDoc} writes
