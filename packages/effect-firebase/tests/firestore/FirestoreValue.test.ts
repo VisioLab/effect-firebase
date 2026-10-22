@@ -239,6 +239,22 @@ describe("toCodecFirestore", () => {
       }),
     );
 
+    it.effect("derives a codec for a struct keyed by a symbol, which then fails to encode", () =>
+      Effect.gen(function* () {
+        const secret = Symbol.for("secret");
+        const Keyed = Schema.Struct({ [secret]: Schema.String });
+        const Model = Schema.Struct({ title: Schema.String, keyed: Keyed });
+
+        const codec = FirestoreValue.toCodecFirestore(Model);
+
+        const error = yield* Effect.flip(
+          Schema.encodeUnknownEffect(codec)({ title: "hello", keyed: { [secret]: "x" } }),
+        );
+        expect(error).toBeInstanceOf(Schema.SchemaError);
+        expect(error.message).toContain('at ["keyed"]');
+      }),
+    );
+
     it.effect("encodes the same model fine when the field is absent", () =>
       Effect.gen(function* () {
         expect(yield* encode(Model)({ title: "hello" })).toEqual({ title: "hello" });

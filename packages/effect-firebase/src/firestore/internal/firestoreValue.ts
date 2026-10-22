@@ -150,8 +150,11 @@ const step = (ast: SchemaAST.AST, recur: (ast: SchemaAST.AST) => SchemaAST.AST):
     case "BigInt":
       return schemaAST.keywordToCodecStringTree(ast);
     case "Objects":
+      // A map's keys are strings, so a struct keyed by a symbol has no
+      // Firestore form. Derivation never fails: the struct takes Firestore
+      // Values only, and encoding one fails with a schema issue at its path.
       if (ast.propertySignatures.some((ps) => typeof ps.name !== "string")) {
-        throw new globalThis.Error("Objects property names must be strings", { cause: ast });
+        return schemaAST.replaceEncoding(ast, [unknownToFirestore]);
       }
       return schemaAST.recur(ast, recur, schemaAST.parameterFromString);
     case "Union": {

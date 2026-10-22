@@ -86,10 +86,12 @@ export type Reader = (
   },
 ) => FirestoreValue.FirestoreValue | undefined;
 
-/** A map: a plain object. */
+/** A map: a plain object whose keys are all strings. */
 const isMap = (u: object): u is Record<string, unknown> => {
   const proto = Object.getPrototypeOf(u);
-  return proto === Object.prototype || proto === null;
+  return (
+    (proto === Object.prototype || proto === null) && Object.getOwnPropertySymbols(u).length === 0
+  );
 };
 
 const describe = (u: object): string => {
