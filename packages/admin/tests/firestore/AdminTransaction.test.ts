@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { Context, Effect, Latch, Layer, Ref, Schema } from "effect";
 import { FirestoreError, Transaction } from "@visiolab/effect-firebase/firestore/Firestore";
+import type { Firestore } from "@visiolab/effect-firebase/firestore/Firestore";
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
@@ -182,6 +183,18 @@ describe("AdminTransaction", () => {
     expectTypeOf<Transaction>().not.toHaveProperty("getDocs");
   });
 
+  it("is left for the caller by the portable runTransaction, which only provides Transaction", () => {
+    const body = Effect.gen(function* () {
+      yield* AdminFirestore.AdminTransaction;
+      yield* Transaction;
+    });
+    const run = (firestore: Firestore) => firestore.runTransaction(body);
+
+    expectTypeOf<
+      Effect.Services<ReturnType<typeof run>>
+    >().toEqualTypeOf<AdminFirestore.AdminTransaction.Id>();
+  });
+
   it.effect("is provided alongside Transaction, and neither is asked of the caller", () =>
     Effect.gen(function* () {
       interface Step {
@@ -190,14 +203,17 @@ describe("AdminTransaction", () => {
       const Step = Context.Service<Step>("Step");
       const firestore = yield* fresh("a");
 
-      const run = firestore.runTransaction(
-        Effect.gen(function* () {
-          yield* Step;
-          const admin = yield* AdminFirestore.AdminTransaction;
-          const portable = yield* Transaction;
-          return admin === portable;
-        }),
-      );
+      const body = Effect.gen(function* () {
+        yield* Step;
+        const admin = yield* AdminFirestore.AdminTransaction;
+        const portable = yield* Transaction;
+        return admin === portable;
+      });
+      expectTypeOf<Effect.Services<typeof body>>().toEqualTypeOf<
+        Step | AdminFirestore.AdminTransaction.Id | Transaction
+      >();
+
+      const run = firestore.runTransaction(body);
       expectTypeOf(run).toEqualTypeOf<Effect.Effect<boolean, FirestoreError, Step>>();
 
       expect(yield* Effect.provideService(run, Step, { by: 1 })).toBe(true);

@@ -331,15 +331,24 @@ describe("AdminFirestore, against the emulator", () => {
     expectTypeOf<AdminFirestore.AdminFirestore["instance"]>().toEqualTypeOf<AdminSdk.Firestore>();
     expectTypeOf<Firestore>().not.toHaveProperty("instance");
   });
+
+  it("is still asked for once only the portable Firestore is provided", () => {
+    const program = Effect.asVoid(AdminFirestore.AdminFirestore);
+    const provided = (firestore: Firestore) => Effect.provideService(program, Firestore, firestore);
+
+    expectTypeOf<
+      Effect.Services<ReturnType<typeof provided>>
+    >().toEqualTypeOf<AdminFirestore.AdminFirestore.Id>();
+  });
 });
 
 describe("AdminFirestore layers", () => {
   it("provide AdminFirestore and Firestore, and the encoder with layerWithEncoder", () => {
     expectTypeOf(AdminFirestore.layer()).toEqualTypeOf<
-      Layer.Layer<AdminFirestore.AdminFirestore | Firestore, never, App.App>
+      Layer.Layer<AdminFirestore.AdminFirestore.Id | Firestore, never, App.App>
     >();
     expectTypeOf(AdminFirestore.layerWithEncoder()).toEqualTypeOf<
-      Layer.Layer<AdminFirestore.AdminFirestore | Firestore | FirestoreEncoder, never, App.App>
+      Layer.Layer<AdminFirestore.AdminFirestore.Id | Firestore | FirestoreEncoder, never, App.App>
     >();
   });
 });
