@@ -25,7 +25,8 @@ import * as internal from "./internal/firestoreValue.ts";
  * Turns a Firestore Value into the value the Admin SDK writes into
  * `firestore`.
  *
- * A reference is built against `firestore`, so it points into that database.
+ * A `DocumentPath` becomes `firestore.doc(path)`, so it points into that
+ * database.
  * Every other value is the same whichever database it is written to. The keys
  * of a map are kept as they are, so the dotted field paths of an update stay
  * field paths.
@@ -48,10 +49,9 @@ export const toAdmin: (value: FirestoreValue, firestore: Firestore) => unknown =
  * sentinels the portable sentinels. It fails on a value outside the Firestore
  * Value union, such as a vector, naming the field that holds it.
  *
- * A `DocumentReference` becomes the portable reference at its path, built
- * with `Collection.fromPathUntyped`, since what was read does not name the
- * collection it was defined through. `FirestoreSchema.DocumentReference`
- * turns it into a reference into the collection it names.
+ * A `DocumentReference` becomes the `DocumentPath` it points at, since
+ * Firestore stores nothing else of it. `FirestoreSchema.DocumentReference`
+ * reads that back into the collection it names.
  *
  * @stability unstable
  * @category conversions

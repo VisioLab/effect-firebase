@@ -1,19 +1,9 @@
 import { assert, describe, expect, it } from "@effect/vitest";
-import { Equal, Option, Result, Schema } from "effect";
-import {
-  Collection,
-  FieldValue,
-  FirestoreModel,
-  GeoPoint,
-  Timestamp,
-} from "@visiolab/effect-firebase/firestore";
+import { Equal, Result } from "effect";
+import { DocumentPath, FieldValue, GeoPoint, Timestamp } from "@visiolab/effect-firebase/firestore";
 import { initializeApp } from "firebase/app";
 import * as Client from "firebase/firestore";
 import * as ClientFirestoreValue from "../../src/firestore/ClientFirestoreValue.ts";
-
-class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
-
-const Users = Collection.make("users", User);
 
 // Building SDK values reaches no server, so the database is never connected.
 const firestore = Client.getFirestore(
@@ -26,7 +16,7 @@ describe("ClientFirestoreValue", () => {
       {
         at: Timestamp.makeUnsafe(1, 2000),
         where: GeoPoint.makeUnsafe(1, 2),
-        who: Users.doc(Users.id.make("ada")),
+        who: DocumentPath.makeUnsafe("users/ada"),
         bytes: new Uint8Array([1, 2]),
         nested: [{ n: 1, s: "s", b: true, z: null }],
         createdAt: FieldValue.serverTimestamp,
@@ -77,10 +67,8 @@ describe("ClientFirestoreValue", () => {
 
     expect(value["at"]).toEqual(Timestamp.makeUnsafe(1, 2000));
     expect(value["where"]).toEqual(GeoPoint.makeUnsafe(1, 2));
-    expect(Collection.isDocumentReference(value["who"])).toBe(true);
-    expect(
-      Equal.equals(value["who"], Option.getOrThrow(Collection.fromPathUntyped("users/ada"))),
-    ).toBe(true);
+    expect(DocumentPath.isDocumentPath(value["who"])).toBe(true);
+    expect(Equal.equals(value["who"], DocumentPath.makeUnsafe("users/ada"))).toBe(true);
     expect(value["bytes"]).toEqual(new Uint8Array([1, 2]));
     expect(value["nested"]).toEqual([{ n: 1, s: "s", b: true, z: null }]);
   });

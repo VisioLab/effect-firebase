@@ -1,10 +1,12 @@
 import { Array, Effect, Equal, Schema, SchemaGetter, SchemaIssue, SchemaParser } from "effect";
 import type * as Collection from "../Collection.ts";
+import type * as DocumentPath_ from "../DocumentPath.ts";
 import type * as FieldValue from "../FieldValue.ts";
 import type * as FirestoreSchema from "../FirestoreSchema.ts";
 import type * as GeoPoint_ from "../GeoPoint.ts";
 import type * as Timestamp_ from "../Timestamp.ts";
 import * as collection_ from "./collection.ts";
+import * as documentPath from "./documentPath.ts";
 import * as fieldValue from "./fieldValue.ts";
 import * as geoPoint from "./geoPoint.ts";
 import * as timestamp from "./timestamp.ts";
@@ -53,62 +55,55 @@ export const GeoPoint: FirestoreSchema.GeoPoint = Schema.declare<GeoPoint_.GeoPo
   },
 );
 
-const referenceRepresentation = {
-  id: "@visiolab/effect-firebase/firestore/DocumentReference",
-  payload: null,
-};
-
-/** A reference into any collection, as an SDK mapping reads one back. */
-const AnyDocumentReference = Schema.declare<Collection.DocumentReference<Collection.Any>>(
-  collection_.isDocumentReference,
-  {
-    representation: referenceRepresentation,
-    expected: "a document reference",
+/** @internal */
+export const DocumentPath: FirestoreSchema.DocumentPath =
+  Schema.declare<DocumentPath_.DocumentPath>(documentPath.isDocumentPath, {
+    representation: { id: "@visiolab/effect-firebase/firestore/DocumentPath", payload: null },
+    expected: "a Firestore document path",
     toEquivalence: () => Equal.equals,
     toCodecFirestore: () => undefined,
-  },
-);
+  });
 
 /** @internal */
 export const DocumentReference = <C extends Collection.Any>(
   collection: C,
 ): FirestoreSchema.DocumentReference<C> => {
   const pattern = collection_.pattern(collection);
-  const InCollection = Schema.declare<Collection.DocumentReference<C>>(
+  return Schema.declare<Collection.DocumentReference<C>>(
     (u): u is Collection.DocumentReference<C> =>
       collection_.isDocumentReference(u) && u.collection === collection,
     {
-      representation: referenceRepresentation,
+      representation: {
+        id: "@visiolab/effect-firebase/firestore/DocumentReference",
+        payload: null,
+      },
       expected: `a reference to a document in ${pattern}`,
       toEquivalence: () => Equal.equals,
-      toCodecFirestore: () => undefined,
-    },
-  );
-  // A reference read back names its path but not the collection it was
-  // defined through, so decoding takes a reference into any collection and
-  // re-homes it into `collection` when its path is one of `collection`'s.
-  return AnyDocumentReference.annotate({
-    expected: `a reference to a document in ${pattern}`,
-  }).pipe(
-    Schema.decodeTo(InCollection, {
-      decode: SchemaGetter.transformEffect(
-        (ref: Collection.DocumentReference<Collection.Any>, options) =>
-          ref.collection === collection
-            ? Effect.succeed(ref as Collection.DocumentReference<C>)
-            : Effect.fromOption(collection_.fromPath(collection, ref.path)).pipe(
+      // Firestore stores the path alone, so reading one back checks it against
+      // `collection`'s segments and builds `collection`'s own reference.
+      toCodecFirestore: () =>
+        Schema.link<Collection.DocumentReference<C>>()(
+          DocumentPath.annotate({ expected: `a reference to a document in ${pattern}` }),
+          {
+            decode: SchemaGetter.transformEffect((value: DocumentPath_.DocumentPath, options) =>
+              Effect.fromOption(collection_.fromPath(collection, value.path)).pipe(
                 Effect.mapError(
                   () =>
                     new SchemaIssue.InvalidValue(
-                      { message: `Expected a document in ${pattern}, got "${ref.path}"` },
-                      ref,
+                      { message: `Expected a document in ${pattern}, got "${value.path}"` },
+                      value,
                       options,
                     ),
                 ),
               ),
-      ),
-      encode: SchemaGetter.passthroughSubtype(),
-    }),
-  ) as unknown as FirestoreSchema.DocumentReference<C>;
+            ),
+            encode: SchemaGetter.transform((ref: Collection.DocumentReference<C>) =>
+              documentPath.makeUnchecked(ref.path),
+            ),
+          },
+        ),
+    },
+  );
 };
 
 /** @internal */

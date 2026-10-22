@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { BigDecimal, DateTime, Duration, Effect, Option, Schema, SchemaGetter } from "effect";
-import * as Collection from "../../src/firestore/Collection.ts";
+import * as DocumentPath from "../../src/firestore/DocumentPath.ts";
 import * as FieldValue from "../../src/firestore/FieldValue.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
 import * as FirestoreSchema from "../../src/firestore/FirestoreSchema.ts";
@@ -285,11 +285,7 @@ describe("toCodecFirestore", () => {
   });
 
   describe("portable values", () => {
-    class Member extends FirestoreModel.Class<Member>("Member")({ name: Schema.String }) {}
-    const Users = Collection.make("users", Member);
-    const alice = Users.doc(Users.id.make("alice"));
-
-    it.effect("passes sentinels, references and geopoints through unchanged", () =>
+    it.effect("passes sentinels, document paths and geopoints through unchanged", () =>
       Effect.gen(function* () {
         const Model = Schema.Struct({
           createdAt: Schema.toType(FirestoreSchema.ServerTimestamp),
@@ -297,7 +293,7 @@ describe("toCodecFirestore", () => {
           gone: Schema.toType(FirestoreSchema.DeleteField),
           tags: Schema.toType(FirestoreSchema.ArrayUnion(Schema.String)),
           old: Schema.toType(FirestoreSchema.ArrayRemove(Schema.String)),
-          owner: FirestoreSchema.DocumentReference(Users),
+          owner: FirestoreSchema.DocumentPath,
           where: FirestoreSchema.GeoPoint,
         });
         const value = {
@@ -306,7 +302,7 @@ describe("toCodecFirestore", () => {
           gone: FieldValue.deleteField,
           tags: FieldValue.arrayUnion("a"),
           old: FieldValue.arrayRemove("b"),
-          owner: alice,
+          owner: DocumentPath.makeUnsafe("users/alice"),
           where: GeoPoint.makeUnsafe(52.5, 13.4),
         };
 

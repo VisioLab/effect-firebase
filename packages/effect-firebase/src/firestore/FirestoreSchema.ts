@@ -2,8 +2,10 @@
  * Schemas for the Firestore Values Effect has no schema of its own for.
  *
  * Each is a plain schema of a portable value this library owns - a
- * `Timestamp`, a `GeoPoint`, a typed document reference - with no encoding step
- * of its own. `toCodecFirestore` keeps them as they are, and each SDK package
+ * `Timestamp`, a `GeoPoint`, a `DocumentPath` - with no encoding step of its
+ * own, and `toCodecFirestore` keeps them as they are. A typed document
+ * reference is the exception: Firestore stores only its path, so it is written
+ * as a `DocumentPath` and read back into its collection. Each SDK package
  * turns them into the SDK's own values on the way out and back on the way in,
  * so a document schema is written once and reads the same under the Admin SDK
  * and the web SDK.
@@ -13,6 +15,7 @@
  */
 import type { DateTime, Schema } from "effect";
 import type * as Collection from "./Collection.ts";
+import type * as DocumentPath_ from "./DocumentPath.ts";
 import type * as FieldValue from "./FieldValue.ts";
 import type * as GeoPoint_ from "./GeoPoint.ts";
 import * as firestoreSchema from "./internal/firestoreSchema.ts";
@@ -94,15 +97,40 @@ export interface GeoPoint extends Schema.declare<GeoPoint_.GeoPoint> {
 export const GeoPoint: GeoPoint = firestoreSchema.GeoPoint;
 
 /**
+ * Type-level representation of {@link DocumentPath}.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface DocumentPath extends Schema.declare<DocumentPath_.DocumentPath> {
+  readonly Rebuild: DocumentPath;
+}
+
+/**
+ * Schema for a reference to a document as Firestore stores it: its path,
+ * held as the portable `DocumentPath`, with nothing to say what the document
+ * holds.
+ *
+ * It is stored as the SDK's own reference, built against the database the
+ * document is written to. A field that points into a collection the model
+ * knows is a {@link DocumentReference} instead.
+ *
+ * @stability unstable
+ * @category schemas
+ * @since 0.2.0
+ */
+export const DocumentPath: DocumentPath = firestoreSchema.DocumentPath;
+
+/**
  * Type-level representation of {@link DocumentReference}.
  *
  * @stability unstable
  * @category models
  * @since 0.2.0
  */
-export interface DocumentReference<C extends Collection.Any> extends Schema.decodeTo<
-  Schema.declare<Collection.DocumentReference<C>>,
-  Schema.declare<Collection.DocumentReference<Collection.Any>>
+export interface DocumentReference<C extends Collection.Any> extends Schema.declare<
+  Collection.DocumentReference<C>
 > {
   readonly Rebuild: DocumentReference<C>;
 }
@@ -111,18 +139,13 @@ export interface DocumentReference<C extends Collection.Any> extends Schema.deco
  * Schema for a reference to a document in `collection`.
  *
  * Its type is a reference built from `collection`, which is all `Schema.is`
- * accepts. A reference Firestore hands back names its path but not the
- * collection it was defined through, so it is read back as one built by
- * `Collection.fromPathUntyped`. Decoding takes such a reference, checks its
- * path against the collection's segments and turns it into the collection's
- * own, so a reference read back is equal to one built from `collection`. A
- * reference into any other collection - one sharing its last segment
- * included - is refused rather than read as one into this. A field that may
- * point into more than one collection is a `Schema.Union` of one of these per
- * collection.
- *
- * It is stored as the SDK's own reference, built against the database the
- * document is written to.
+ * accepts. Firestore stores a reference as the document's path alone, so
+ * `toCodecFirestore` writes it as a `DocumentPath`. Reading one back checks
+ * its path against the collection's segments and builds the collection's own
+ * reference, so it is equal to one built from `collection`. A path into any
+ * other collection - one sharing its last segment included - is refused
+ * rather than read as one into this. A field that may point into more than
+ * one collection is a `Schema.Union` of one of these per collection.
  *
  * @stability unstable
  * @category schemas

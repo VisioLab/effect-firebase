@@ -1,6 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { DateTime, Effect, Equal, Option, Schema } from "effect";
+import { DateTime, Effect, Equal, Schema } from "effect";
 import * as Collection from "../../src/firestore/Collection.ts";
+import * as DocumentPath from "../../src/firestore/DocumentPath.ts";
 import * as FieldValue from "../../src/firestore/FieldValue.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
 import * as FirestoreSchema from "../../src/firestore/FirestoreSchema.ts";
@@ -110,19 +111,12 @@ describe("DocumentReference", () => {
   const OrgPosts = Orgs.subcollection("posts", Article);
 
   const Post = FirestoreSchema.DocumentReference(Posts);
-  const decode = Schema.decodeUnknownEffect(Post);
   const hello = Posts.doc(Users.id.make("alice"), Posts.id.make("hello"));
-
-  /** A reference as an SDK mapping reads it back: by its path alone. */
-  const untyped = (path: string) => Option.getOrThrow(Collection.fromPathUntyped(path));
+  const elsewhere = OrgPosts.doc(Orgs.id.make("acme"), OrgPosts.id.make("hello"));
 
   it("is typed by the collection it points into, and asks for no services", () => {
     expectTypeOf<(typeof Post)["Type"]>().toEqualTypeOf<
       Collection.DocumentReference<typeof Posts>
-    >();
-    // Read back, a reference names no collection of its own.
-    expectTypeOf<(typeof Post)["Encoded"]>().toEqualTypeOf<
-      Collection.DocumentReference<Collection.Any>
     >();
     expectTypeOf<(typeof Post)["DecodingServices"]>().toEqualTypeOf<never>();
     expectTypeOf<(typeof Post)["EncodingServices"]>().toEqualTypeOf<never>();
@@ -134,78 +128,84 @@ describe("DocumentReference", () => {
     >();
   });
 
-  it.effect("decodes a reference read back by its path into one of the collection's own", () =>
+  it.effect("is stored as the document's path, and reads back equal, with no layer", () =>
     Effect.gen(function* () {
-      const decoded = yield* decode(untyped("users/alice/posts/hello"));
-      expect(Collection.isDocumentReference(decoded)).toBe(true);
-      expect(decoded.collection).toBe(Posts);
-      expect(decoded.ancestors).toEqual(["alice"]);
-      expect(decoded.id).toBe("hello");
-      expect(Equal.equals(decoded, hello)).toBe(true);
+      const Comment = Schema.Struct({ post: Post });
+      const encoded = yield* toFirestore(Comment)({ post: hello });
+      expect(encoded).toStrictEqual({ post: DocumentPath.makeUnsafe("users/alice/posts/hello") });
+      const decoded = yield* fromFirestore(Comment)(encoded);
+      expect(decoded.post.collection).toBe(Posts);
+      expect(decoded.post.ancestors).toEqual(["alice"]);
+      expect(decoded.post.id).toBe("hello");
+      expect(Equal.equals(decoded.post, hello)).toBe(true);
     }),
   );
 
-  it("is a guard for references into the collection alone", () => {
-    const isPost = Schema.is(Post);
-    expect(isPost(hello)).toBe(true);
-    // Re-homing by path is decoding, not a type check.
-    expect(isPost(untyped(hello.path))).toBe(false);
-    expect(isPost(OrgPosts.doc(Orgs.id.make("acme"), OrgPosts.id.make("hello")))).toBe(false);
-  });
-
-  it.effect("decodes one of ours unchanged", () =>
-    Effect.gen(function* () {
-      expect(yield* decode(hello)).toBe(hello);
-    }),
-  );
-
-  it.effect("refuses a reference into another collection", () =>
+  it.effect("refuses to read a path outside the collection", () =>
     Effect.gen(function* () {
       for (const path of [
         "orgs/acme/posts/hello",
         "users/alice",
         "users/alice/posts/hello/comments/first",
       ]) {
-        const failure = yield* Effect.flip(decode(untyped(path)));
-        expect(String(failure)).toContain(`Expected a document in users/{id}/posts/{id}`);
+        const failure = yield* Effect.flip(fromFirestore(Post)(DocumentPath.makeUnsafe(path)));
+        expect(String(failure)).toContain(
+          `Expected a document in users/{id}/posts/{id}, got "${path}"`,
+        );
       }
-      const elsewhere = OrgPosts.doc(Orgs.id.make("acme"), OrgPosts.id.make("hello"));
-      expect(yield* Effect.flip(decode(elsewhere))).toBeDefined();
     }),
   );
 
-  it.effect("refuses a map that only looks like a reference", () =>
+  it.effect("refuses to read a map that only looks like a reference", () =>
     Effect.gen(function* () {
-      const failure = yield* Effect.flip(decode({ id: "hello", path: "users/alice/posts/hello" }));
+      const failure = yield* Effect.flip(
+        fromFirestore(Post)({ id: "hello", path: "users/alice/posts/hello" }),
+      );
       expect(String(failure)).toContain("users/{id}/posts/{id}");
     }),
   );
 
-  it.effect("is stored as the portable reference, and reads back equal, with no layer", () =>
-    Effect.gen(function* () {
-      const Comment = Schema.Struct({ post: Post });
-      const encoded = yield* toFirestore(Comment)({ post: hello });
-      expect(encoded).toStrictEqual({ post: hello });
-      // What an SDK mapping hands back holds the path, not the collection.
-      const decoded = yield* fromFirestore(Comment)({ post: untyped(hello.path) });
-      expect(Equal.equals(decoded.post, hello)).toBe(true);
-    }),
-  );
+  it("is a guard for references into the collection alone", () => {
+    const isPost = Schema.is(Post);
+    expect(isPost(hello)).toBe(true);
+    expect(isPost(elsewhere)).toBe(false);
+    // What Firestore stores is decoded, not narrowed.
+    expect(isPost(DocumentPath.makeUnsafe(hello.path))).toBe(false);
+  });
+
+  it("is no Firestore Value itself: its path is", () => {
+    expect(FirestoreValue.isFirestoreValue(hello)).toBe(false);
+    expect(FirestoreValue.isFirestoreValue(DocumentPath.makeUnsafe(hello.path))).toBe(true);
+  });
 
   it.effect("refuses to write a reference into another collection", () =>
     Effect.gen(function* () {
-      const elsewhere = OrgPosts.doc(Orgs.id.make("acme"), OrgPosts.id.make("hello"));
-      const failure = yield* Effect.flip(Schema.encodeUnknownEffect(Post)(elsewhere));
+      const failure = yield* Effect.flip(toFirestore(Post)(elsewhere));
       expect(failure).toBeDefined();
     }),
   );
 
-  it.effect("tells collections apart in a union", () =>
+  it.effect("tells collections apart in a union by the path", () =>
     Effect.gen(function* () {
       const Either = Schema.Union([Post, FirestoreSchema.DocumentReference(OrgPosts)]);
-      const decoded = yield* Schema.decodeEffect(Either)(untyped("orgs/acme/posts/hello"));
+      const decoded = yield* fromFirestore(Either)(
+        DocumentPath.makeUnsafe("orgs/acme/posts/hello"),
+      );
       expect(decoded.collection).toBe(OrgPosts);
     }),
+  );
+
+  it.effect(
+    "is stored as the document's path through Schema.Unknown too, and read back as one",
+    () =>
+      Effect.gen(function* () {
+        const Loose = Schema.Struct({ post: Schema.Unknown });
+        const encoded = yield* toFirestore(Loose)({ post: [{ at: hello }] });
+        const path = DocumentPath.makeUnsafe("users/alice/posts/hello");
+        expect(encoded).toStrictEqual({ post: [{ at: path }] });
+        const decoded = yield* fromFirestore(Loose)(encoded);
+        expect(decoded).toStrictEqual({ post: [{ at: path }] });
+      }),
   );
 
   it("compares by where it points", () => {
@@ -214,6 +214,23 @@ describe("DocumentReference", () => {
       true,
     );
     expect(equivalence(hello, Posts.doc(Users.id.make("bob"), Posts.id.make("hello")))).toBe(false);
+  });
+});
+
+describe("DocumentPath", () => {
+  const path = DocumentPath.makeUnsafe("users/alice");
+
+  it.effect("is stored as itself", () =>
+    Effect.gen(function* () {
+      expect(yield* toFirestore(FirestoreSchema.DocumentPath)(path)).toBe(path);
+      expect(yield* fromFirestore(FirestoreSchema.DocumentPath)(path)).toBe(path);
+    }),
+  );
+
+  it("compares by path", () => {
+    const equivalence = Schema.toEquivalence(FirestoreSchema.DocumentPath);
+    expect(equivalence(path, DocumentPath.makeUnsafe("users/alice"))).toBe(true);
+    expect(equivalence(path, DocumentPath.makeUnsafe("users/bob"))).toBe(false);
   });
 });
 

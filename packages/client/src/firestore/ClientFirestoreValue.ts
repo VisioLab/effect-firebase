@@ -26,8 +26,9 @@ import * as internal from "./internal/firestoreValue.ts";
  * `firestore`.
  *
  * The portable `Timestamp`, `GeoPoint` and bytes become the SDK's `Timestamp`,
- * `GeoPoint` and `Bytes`, and the sentinels its `FieldValue`s. A reference is
- * built against `firestore`, so it points into that database. The keys of a
+ * `GeoPoint` and `Bytes`, and the sentinels its `FieldValue`s. A
+ * `DocumentPath` becomes `doc(firestore, path)`, so it points into that
+ * database. The keys of a
  * map are kept as they are, so the dotted field paths of an update stay field
  * paths.
  *
@@ -46,11 +47,10 @@ export const toClient: (value: FirestoreValue, firestore: Firestore) => unknown 
  * Turns a value the client SDK read into a Firestore Value.
  *
  * Its `Timestamp`, `GeoPoint` and `Bytes` become the portable `Timestamp`,
- * `GeoPoint` and `Uint8Array`. A `DocumentReference` becomes the portable
- * reference at its path, built with `Collection.fromPathUntyped`, since what
- * was read does not name the collection it was defined through.
- * `FirestoreSchema.DocumentReference(collection)` turns it into a reference
- * into `collection`. It fails on a value outside the Firestore Value union, such as
+ * `GeoPoint` and `Uint8Array`. A `DocumentReference` becomes the
+ * `DocumentPath` it points at, since Firestore stores nothing else of it.
+ * `FirestoreSchema.DocumentReference(collection)` reads that back into
+ * `collection`. It fails on a value outside the Firestore Value union, such as
  * a vector, naming the field that holds it.
  *
  * @stability unstable

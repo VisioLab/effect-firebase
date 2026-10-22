@@ -2,9 +2,11 @@
  * Firestore as a canonical format.
  *
  * A **Firestore Value** is a value as Firestore stores it, independent of either
- * SDK: a scalar, a timestamp, a geopoint, a document reference, bytes, a
- * sentinel, or an array or map of Firestore Values. {@link toCodecFirestore}
- * derives a codec from any plain schema to Firestore Values, the way
+ * SDK: a scalar, a timestamp, a geopoint, a document path, bytes, a sentinel,
+ * or an array or map of Firestore Values. A typed
+ * `Collection.DocumentReference` is not one, since Firestore stores only its
+ * path. {@link toCodecFirestore} derives a codec from any plain schema to
+ * Firestore Values, the way
  * `Schema.toCodecJson` derives one to JSON, so a model stays a plain Effect
  * schema and encoding it asks for no service. Each SDK package maps Firestore
  * Values to and from its own values.
@@ -13,7 +15,7 @@
  * @since 0.2.0
  */
 import type { Result, Schema, SchemaAST } from "effect";
-import type * as Collection from "./Collection.ts";
+import type * as DocumentPath from "./DocumentPath.ts";
 import type * as FieldValue from "./FieldValue.ts";
 import type { FirestoreError } from "./Firestore.ts";
 import type * as GeoPoint from "./GeoPoint.ts";
@@ -53,7 +55,7 @@ export type FirestoreValue =
   | string
   | Timestamp.Timestamp
   | GeoPoint.GeoPoint
-  | Collection.DocumentReference<Collection.Any>
+  | DocumentPath.DocumentPath
   | Uint8Array
   | FieldValue.ServerTimestamp
   | FieldValue.Increment

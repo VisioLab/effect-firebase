@@ -1,26 +1,21 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Equal, Option, Result } from "effect";
-import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import { Equal, Result } from "effect";
+import * as DocumentPath from "@visiolab/effect-firebase/firestore/DocumentPath";
 import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
-import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as GeoPoint from "@visiolab/effect-firebase/firestore/GeoPoint";
 import * as Timestamp from "@visiolab/effect-firebase/firestore/Timestamp";
 import * as Admin from "firebase-admin/firestore";
-import { Schema } from "effect";
 import * as AdminFirestoreValue from "../../src/firestore/AdminFirestoreValue.ts";
 
 // Never reaches a server: building values and references is all it is for.
 const firestore = new Admin.Firestore({ projectId: "demo-firestore-value", databaseId: "other" });
-
-class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
-const Posts = Collection.make("posts", Post);
 
 describe("toAdmin", () => {
   it("turns Firestore Values into the Admin SDK's own, all the way down", () => {
     const out = AdminFirestoreValue.toAdmin(
       {
         "a.b": [Timestamp.makeUnsafe(1, 2), { at: GeoPoint.makeUnsafe(3, 4) }],
-        ref: Posts.doc(Posts.id.make("hello")),
+        ref: DocumentPath.makeUnsafe("posts/hello"),
         bytes: new Uint8Array([1]),
         views: FieldValue.increment(2),
         tags: FieldValue.arrayUnion(Timestamp.makeUnsafe(5, 6)),
@@ -83,7 +78,7 @@ describe("fromAdmin", () => {
     expect(out.text).toBe("hello");
   });
 
-  it("reads a reference back as the portable one at its path", () => {
+  it("reads a reference back as its path", () => {
     const result = AdminFirestoreValue.fromAdmin({
       ref: firestore.doc("posts/hello"),
       nested: [firestore.doc("posts/hello/comments/first")],
@@ -91,11 +86,11 @@ describe("fromAdmin", () => {
 
     assertSuccess(result);
     const out = result.success as Record<string, any>;
-    expect(Collection.isDocumentReference(out.ref)).toBe(true);
-    expect(
-      Equal.equals(out.ref, Collection.fromPathUntyped("posts/hello").pipe(Option.getOrThrow)),
-    ).toBe(true);
-    expect(out.nested[0].path).toBe("posts/hello/comments/first");
+    expect(DocumentPath.isDocumentPath(out.ref)).toBe(true);
+    expect(Equal.equals(out.ref, DocumentPath.makeUnsafe("posts/hello"))).toBe(true);
+    expect(Equal.equals(out.nested[0], DocumentPath.makeUnsafe("posts/hello/comments/first"))).toBe(
+      true,
+    );
   });
 
   it("fails on a value outside Firestore Values, naming where it is", () => {

@@ -1,5 +1,5 @@
-import { Option, type Result } from "effect";
-import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import type { Result } from "effect";
+import * as DocumentPath from "@visiolab/effect-firebase/firestore/DocumentPath";
 import type { FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
 import * as FirestoreValue from "@visiolab/effect-firebase/firestore/FirestoreValue";
 import * as GeoPoint from "@visiolab/effect-firebase/firestore/GeoPoint";
@@ -12,7 +12,7 @@ const writer = (firestore: Client.Firestore): FirestoreValue.Writer => ({
   bytes: (bytes) => Client.Bytes.fromUint8Array(bytes),
   timestamp: (ts) => new Client.Timestamp(ts.seconds, ts.nanoseconds),
   geoPoint: (point) => new Client.GeoPoint(point.latitude, point.longitude),
-  documentReference: (ref) => Client.doc(firestore, ref.path),
+  documentPath: (ref) => Client.doc(firestore, ref.path),
   serverTimestamp: () => Client.serverTimestamp(),
   increment: (increment) => Client.increment(increment.by),
   deleteField: () => Client.deleteField(),
@@ -31,13 +31,10 @@ export const toClient = (
  * sentinels are not read back: a read never hands one back, and the names it
  * keeps them by are internal to it.
  */
-const reader: FirestoreValue.Reader = (u, { fail }) => {
+const reader: FirestoreValue.Reader = (u) => {
   if (u instanceof Client.Timestamp) return Timestamp.makeUnsafe(u.seconds, u.nanoseconds);
   if (u instanceof Client.GeoPoint) return GeoPoint.makeUnsafe(u.latitude, u.longitude);
-  if (u instanceof Client.DocumentReference) {
-    const ref = Collection.fromPathUntyped(u.path);
-    return Option.isSome(ref) ? ref.value : fail(`a reference to "${u.path}"`);
-  }
+  if (u instanceof Client.DocumentReference) return DocumentPath.makeUnsafe(u.path);
   if (u instanceof Client.Bytes) return u.toUint8Array();
   return undefined;
 };

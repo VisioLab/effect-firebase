@@ -1,7 +1,8 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { Context, DateTime, Effect, Exit, Option, Schema, SchemaGetter } from "effect";
+import { Context, DateTime, Effect, Exit, Schema, SchemaGetter } from "effect";
 import type { VariantSchema } from "effect/schema";
 import * as Collection from "../../src/firestore/Collection.ts";
+import * as DocumentPath from "../../src/firestore/DocumentPath.ts";
 import * as FieldValue from "../../src/firestore/FieldValue.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
 import * as FirestoreSchema from "../../src/firestore/FirestoreSchema.ts";
@@ -9,9 +10,6 @@ import * as FirestoreValue from "../../src/firestore/FirestoreValue.ts";
 import * as GeoPoint from "../../src/firestore/GeoPoint.ts";
 import * as Patch from "../../src/firestore/Patch.ts";
 import * as Timestamp from "../../src/firestore/Timestamp.ts";
-
-/** A reference as an SDK mapping reads it back: by its path alone. */
-const untyped = (path: string) => Option.getOrThrow(Collection.fromPathUntyped(path));
 
 class User extends FirestoreModel.Class<User>("User")({
   displayName: Schema.String,
@@ -1239,12 +1237,12 @@ describe("a field holding a document reference", () => {
   const alice = Users.doc(Users.id.make("alice"));
   const news = Categories.doc(Categories.id.make("news"));
 
-  it.effect("decodes the references a snapshot holds, typed by collection", () =>
+  it.effect("decodes the paths a snapshot holds, typed by collection", () =>
     Effect.gen(function* () {
-      const post = yield* Schema.decodeEffect(Post)({
+      const post = yield* Schema.decodeEffect(FirestoreValue.toCodecFirestore(Post))({
         title: "hello",
-        author: untyped("users/alice"),
-        meta: { category: untyped("categories/news") },
+        author: DocumentPath.makeUnsafe("users/alice"),
+        meta: { category: DocumentPath.makeUnsafe("categories/news") },
       });
       expectTypeOf(post.author).toEqualTypeOf<Collection.DocumentReference<typeof Users>>();
       expect(post.author.collection).toBe(Users);
@@ -1254,26 +1252,28 @@ describe("a field holding a document reference", () => {
     }),
   );
 
-  it.effect("writes the SDK's own references on create", () =>
+  it.effect("writes the references' paths on create", () =>
     Effect.gen(function* () {
-      const encoded = yield* Schema.encodeEffect(Post.create)(
+      const encoded = yield* Schema.encodeEffect(FirestoreValue.toCodecFirestore(Post.create))(
         Post.create.make({ title: "hello", author: alice, meta: { category: news } }),
       );
-      expect(Collection.isDocumentReference(encoded.author)).toBe(true);
-      expect(encoded.author.path).toBe("users/alice");
-      expect(Collection.isDocumentReference(encoded.meta.category)).toBe(true);
+      expect(encoded).toStrictEqual({
+        title: "hello",
+        author: DocumentPath.makeUnsafe("users/alice"),
+        meta: { category: DocumentPath.makeUnsafe("categories/news") },
+      });
     }),
   );
 
-  it.effect("writes the SDK's own references on update, at their path", () =>
+  it.effect("writes the references' paths on update, at their field paths", () =>
     Effect.gen(function* () {
-      const encoded = yield* Schema.encodeEffect(Post.update)(
+      const encoded = yield* Schema.encodeEffect(FirestoreValue.toCodecFirestore(Post.update))(
         Post.update.make({ author: alice, meta: { category: news } }),
       );
-      expect(Object.keys(encoded).sort()).toEqual(["author", "meta.category"]);
-      expect(Collection.isDocumentReference(encoded.author)).toBe(true);
-      expect(Collection.isDocumentReference(encoded["meta.category"])).toBe(true);
-      expect(encoded["meta.category"]?.path).toBe("categories/news");
+      expect(encoded).toStrictEqual({
+        author: DocumentPath.makeUnsafe("users/alice"),
+        "meta.category": DocumentPath.makeUnsafe("categories/news"),
+      });
     }),
   );
 });

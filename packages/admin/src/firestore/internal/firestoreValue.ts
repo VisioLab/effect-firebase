@@ -1,5 +1,5 @@
-import { Option, Predicate, type Result } from "effect";
-import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import { Predicate, type Result } from "effect";
+import * as DocumentPath from "@visiolab/effect-firebase/firestore/DocumentPath";
 import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
 import type { FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
 import * as FirestoreValue from "@visiolab/effect-firebase/firestore/FirestoreValue";
@@ -12,7 +12,7 @@ const writer = (firestore: Admin.Firestore): FirestoreValue.Writer => ({
   bytes: (bytes) => bytes,
   timestamp: (ts) => new Admin.Timestamp(ts.seconds, ts.nanoseconds),
   geoPoint: (point) => new Admin.GeoPoint(point.latitude, point.longitude),
-  documentReference: (ref) => firestore.doc(ref.path),
+  documentPath: (ref) => firestore.doc(ref.path),
   serverTimestamp: () => Admin.FieldValue.serverTimestamp(),
   increment: (increment) => Admin.FieldValue.increment(increment.by),
   deleteField: () => Admin.FieldValue.delete(),
@@ -41,10 +41,7 @@ const reader: FirestoreValue.Reader = (u, { walk, fail }) => {
   }
   if (u instanceof Admin.Timestamp) return Timestamp.makeUnsafe(u.seconds, u.nanoseconds);
   if (u instanceof Admin.GeoPoint) return GeoPoint.makeUnsafe(u.latitude, u.longitude);
-  if (u instanceof Admin.DocumentReference) {
-    const ref = Collection.fromPathUntyped(u.path);
-    return Option.isSome(ref) ? ref.value : fail(`a reference to "${u.path}"`);
-  }
+  if (u instanceof Admin.DocumentReference) return DocumentPath.makeUnsafe(u.path);
   if (u instanceof Admin.FieldValue) {
     const sentinel = u as AdminSentinel;
     switch (sentinel.methodName) {
