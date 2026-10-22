@@ -187,3 +187,109 @@ describe("FirestoreSchema values, against the emulator", () => {
     }).pipe(Effect.provide(layer)),
   );
 });
+
+// Every sentinel, with plain Effect schemas for what each field reads as.
+class Tally extends FirestoreModel.Class<Tally>("Tally")({
+  title: Schema.String,
+  updatedAt: FirestoreModel.Timestamp(Schema.DateTimeUtc),
+  views: FirestoreModel.Number(Schema.Int),
+  nickname: FirestoreModel.Optional(Schema.String),
+  tags: FirestoreModel.Array(Schema.String),
+  seenAt: FirestoreModel.Array(Schema.DateTimeUtc),
+  address: FirestoreModel.Struct({
+    city: Schema.String,
+    note: FirestoreModel.Optional(Schema.String),
+  }),
+}) {}
+
+const Tallies = Collection.make("tallies", Tally);
+const poll = Tallies.doc(Tallies.id.make("poll"));
+
+const at = (iso: string) => DateTime.makeUnsafe(iso);
+
+const tally = {
+  title: "Poll",
+  updatedAt: at("2001-01-01T00:00:00.000Z"),
+  views: 5,
+  nickname: "polly",
+  tags: ["a"],
+  seenAt: [at("2024-01-01T00:00:00.001Z")],
+  address: { city: "Berlin", note: "by the river" },
+};
+
+describe("sentinels, against the emulator", () => {
+  it.effect("take a server timestamp on update", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh;
+      yield* firestore.setDoc(poll, tally);
+
+      const before = Date.now();
+      yield* firestore.updateDoc(poll, { updatedAt: FieldValue.serverTimestamp });
+      const data = yield* read(yield* firestore.getDoc(poll));
+
+      expect(DateTime.toEpochMillis(data.updatedAt)).toBeGreaterThan(before - 60_000);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("move a number up by an increment and down by a decrement", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh;
+      yield* firestore.setDoc(poll, tally);
+
+      yield* firestore.updateDoc(poll, { views: FieldValue.increment(3) });
+      yield* firestore.updateDoc(poll, { views: FieldValue.decrement(2) });
+      const data = yield* read(yield* firestore.getDoc(poll));
+
+      expect(data.views).toBe(6);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("delete a field, at the top level and inside a struct", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh;
+      yield* firestore.setDoc(poll, tally);
+
+      yield* firestore.updateDoc(poll, {
+        nickname: FieldValue.deleteField,
+        address: { note: FieldValue.deleteField },
+      });
+      const data = yield* read(yield* firestore.getDoc(poll));
+
+      expect(data.nickname).toBeUndefined();
+      expect(data.address).toEqual({ city: "Berlin" });
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("grow an array by a union and shrink it by a removal", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh;
+      yield* firestore.setDoc(poll, tally);
+
+      yield* firestore.updateDoc(poll, { tags: FieldValue.arrayUnion("b", "a") });
+      expect((yield* read(yield* firestore.getDoc(poll))).tags).toEqual(["a", "b"]);
+      yield* firestore.updateDoc(poll, { tags: FieldValue.arrayRemove("a") });
+      expect((yield* read(yield* firestore.getDoc(poll))).tags).toEqual(["b"]);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("grow and shrink an array of timestamps, stored as the Admin SDK's own", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh;
+      yield* firestore.setDoc(poll, tally);
+
+      const later = at("2024-06-01T12:00:00.002Z");
+      yield* firestore.updateDoc(poll, { seenAt: FieldValue.arrayUnion(later) });
+      const raw = yield* Effect.promise(() => firestore.instance.doc("tallies/poll").get());
+      const stored = raw.get("seenAt") as ReadonlyArray<unknown>;
+      expect(stored).toHaveLength(2);
+      for (const element of stored) expect(element).toBeInstanceOf(Admin.Timestamp);
+
+      // A removal matches what a union wrote, since both encode the same way.
+      yield* firestore.updateDoc(poll, {
+        seenAt: FieldValue.arrayRemove(at("2024-01-01T00:00:00.001Z")),
+      });
+      const data = yield* read(yield* firestore.getDoc(poll));
+      expect(data.seenAt.map(DateTime.toEpochMillis)).toEqual([DateTime.toEpochMillis(later)]);
+    }).pipe(Effect.provide(layer)),
+  );
+});

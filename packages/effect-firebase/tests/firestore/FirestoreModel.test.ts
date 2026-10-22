@@ -1,9 +1,8 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { Context, DateTime, Effect, Exit, Layer, Option, Schema, SchemaGetter } from "effect";
+import { Context, DateTime, Effect, Exit, Option, Schema, SchemaGetter } from "effect";
 import type { VariantSchema } from "effect/schema";
 import * as Collection from "../../src/firestore/Collection.ts";
 import * as FieldValue from "../../src/firestore/FieldValue.ts";
-import { FirestoreEncoder } from "../../src/firestore/FirestoreEncoder.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
 import * as FirestoreSchema from "../../src/firestore/FirestoreSchema.ts";
 import * as FirestoreValue from "../../src/firestore/FirestoreValue.ts";
@@ -13,40 +12,6 @@ import * as Timestamp from "../../src/firestore/Timestamp.ts";
 
 /** A reference as an SDK mapping reads it back: by its path alone. */
 const untyped = (path: string) => Option.getOrThrow(Collection.fromPathUntyped(path));
-
-/** Stands in for an SDK's own sentinel. */
-class SdkServerTimestamp {}
-
-/** Stands in for an SDK's own sentinel, which carries what it is to add. */
-class SdkIncrement {
-  constructor(readonly by: number) {}
-}
-
-/** Stands in for an SDK's own sentinel. */
-class SdkDeleteField {}
-
-/** Stands in for an SDK's own sentinel, which carries the elements to add. */
-class SdkArrayUnion {
-  constructor(readonly elements: ReadonlyArray<unknown>) {}
-}
-
-/** Stands in for an SDK's own sentinel, which carries the elements to remove. */
-class SdkArrayRemove {
-  constructor(readonly elements: ReadonlyArray<unknown>) {}
-}
-
-const encoder = Layer.succeed(FirestoreEncoder)(
-  FirestoreEncoder.of({
-    timestamp: (value) => value,
-    geoPoint: (value) => value,
-    documentReference: (ref) => ref,
-    serverTimestamp: () => new SdkServerTimestamp(),
-    increment: (by) => new SdkIncrement(by),
-    deleteField: () => new SdkDeleteField(),
-    arrayUnion: (elements) => new SdkArrayUnion(elements),
-    arrayRemove: (elements) => new SdkArrayRemove(elements),
-  }),
-);
 
 class User extends FirestoreModel.Class<User>("User")({
   displayName: Schema.String,
@@ -108,7 +73,7 @@ describe("Class", () => {
     }),
   );
 
-  it.effect("reads a document without an encoder at all", () =>
+  it.effect("reads a document with no services at all", () =>
     Effect.gen(function* () {
       expectTypeOf<(typeof User)["DecodingServices"]>().toEqualTypeOf<never>();
       const user = yield* Schema.decodeUnknownEffect(User)(read());
@@ -140,11 +105,11 @@ describe("create", () => {
           updatedAt: FieldValue.serverTimestamp,
         }),
       );
-      expect(encoded.createdAt).toBeInstanceOf(SdkServerTimestamp);
-      expect(encoded.updatedAt).toBeInstanceOf(SdkServerTimestamp);
+      expect(encoded.createdAt).toBe(FieldValue.serverTimestamp);
+      expect(encoded.updatedAt).toBe(FieldValue.serverTimestamp);
       expect(encoded.displayName).toBe("alice");
       expect("plan" in encoded).toBe(false);
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("writes an instant instead, where it was handed one", () =>
@@ -158,12 +123,12 @@ describe("create", () => {
         }),
       );
       expect(Timestamp.isTimestamp(encoded.createdAt)).toBe(true);
-      expect(encoded.updatedAt).toBeInstanceOf(SdkServerTimestamp);
-    }).pipe(Effect.provide(encoder)),
+      expect(encoded.updatedAt).toBe(FieldValue.serverTimestamp);
+    }),
   );
 
-  it("asks for an encoder to write", () => {
-    expectTypeOf<(typeof User.create)["EncodingServices"]>().toEqualTypeOf<FirestoreEncoder>();
+  it("is written with no services", () => {
+    expectTypeOf<(typeof User.create)["EncodingServices"]>().toEqualTypeOf<never>();
   });
 
   it("refuses a field it only ever reads", () => {
@@ -193,7 +158,7 @@ describe("update", () => {
       );
       expect(Object.keys(encoded)).toEqual(["displayName"]);
       expect(encoded.displayName).toBe("alice in chains");
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("leaves the time to the server where it is handed the sentinel", () =>
@@ -202,8 +167,8 @@ describe("update", () => {
         User.update.make({ updatedAt: FieldValue.serverTimestamp }),
       );
       expect(Object.keys(encoded)).toEqual(["updatedAt"]);
-      expect(encoded.updatedAt).toBeInstanceOf(SdkServerTimestamp);
-    }).pipe(Effect.provide(encoder)),
+      expect(encoded.updatedAt).toBe(FieldValue.serverTimestamp);
+    }),
   );
 
   it("refuses a field that is written once", () => {
@@ -251,8 +216,8 @@ describe("a field written either way", () => {
     occurredAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
   }) {}
 
-  it("keeps the encoder it asks for, rather than widening to unknown", () => {
-    expectTypeOf<(typeof Event.create)["EncodingServices"]>().toEqualTypeOf<FirestoreEncoder>();
+  it("is written with no services, rather than widening to unknown", () => {
+    expectTypeOf<(typeof Event.create)["EncodingServices"]>().toEqualTypeOf<never>();
   });
 
   it.effect("writes the instant this client picked", () =>
@@ -261,7 +226,7 @@ describe("a field written either way", () => {
         Event.create.make({ name: "a", occurredAt: Timestamp.makeUnsafe(1, 2) }),
       );
       expect(Timestamp.isTimestamp(encoded.occurredAt)).toBe(true);
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("writes the one the server picks", () =>
@@ -269,8 +234,8 @@ describe("a field written either way", () => {
       const encoded = yield* Schema.encodeEffect(Event.update)(
         Event.update.make({ occurredAt: FieldValue.serverTimestamp }),
       );
-      expect(encoded.occurredAt).toBeInstanceOf(SdkServerTimestamp);
-    }).pipe(Effect.provide(encoder)),
+      expect(encoded.occurredAt).toBe(FieldValue.serverTimestamp);
+    }),
   );
 
   it.effect("reads back as a timestamp either way", () =>
@@ -314,9 +279,9 @@ describe("a field written either way", () => {
           leftAt: FieldValue.serverTimestamp,
         }),
       );
-      expect((left as { seenAt: unknown }).seenAt).toBeInstanceOf(SdkServerTimestamp);
-      expect((left as { leftAt: unknown }).leftAt).toBeInstanceOf(SdkServerTimestamp);
-    }).pipe(Effect.provide(encoder)),
+      expect((left as { seenAt: unknown }).seenAt).toBe(FieldValue.serverTimestamp);
+      expect((left as { leftAt: unknown }).leftAt).toBe(FieldValue.serverTimestamp);
+    }),
   );
 
   it("is only built from a schema Firestore stores as a timestamp", () => {
@@ -346,7 +311,7 @@ describe("Number", () => {
         Page.create.make({ slug: "home", visits: 0 }),
       );
       expect(encoded.visits).toBe(0);
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("leaves the sum to the server where it was handed a move", () =>
@@ -355,9 +320,9 @@ describe("Number", () => {
         Page.update.make({ visits: FieldValue.increment(1) }),
       );
       expect(Object.keys(encoded)).toEqual(["visits"]);
-      expect(encoded.visits).toBeInstanceOf(SdkIncrement);
-      expect((encoded.visits as SdkIncrement).by).toBe(1);
-    }).pipe(Effect.provide(encoder)),
+      expect(encoded.visits).toSatisfy(FieldValue.isIncrement);
+      expect((encoded.visits as FieldValue.Increment).by).toBe(1);
+    }),
   );
 
   it.effect("counts down just as readily", () =>
@@ -365,8 +330,8 @@ describe("Number", () => {
       const encoded = yield* Schema.encodeEffect(Page.update)(
         Page.update.make({ visits: FieldValue.decrement(2) }),
       );
-      expect((encoded.visits as SdkIncrement).by).toBe(-2);
-    }).pipe(Effect.provide(encoder)),
+      expect((encoded.visits as FieldValue.Increment).by).toBe(-2);
+    }),
   );
 
   it.effect("reads back as the number the server wrote", () =>
@@ -413,11 +378,11 @@ describe("Number", () => {
       const encoded = yield* Schema.encodeEffect(Account.update)(
         Account.update.make({ balance: FieldValue.increment(0.5) }),
       );
-      expect((encoded.balance as SdkIncrement).by).toBe(0.5);
+      expect((encoded.balance as FieldValue.Increment).by).toBe(0.5);
       expect(yield* Schema.decodeEffect(Account)({ balance: 1.5 })).toMatchObject({
         balance: 1.5,
       });
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 });
 
@@ -453,7 +418,7 @@ describe("Array", () => {
         tags: ["news"],
         meta: { keywords: [] },
       });
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it("refuses a sentinel where a document is written whole", () => {
@@ -473,14 +438,14 @@ describe("Array", () => {
         Article.update.make({ tags: FieldValue.arrayUnion("opinion") }),
       );
       expect(Object.keys(grown)).toEqual(["tags"]);
-      expect(grown.tags).toBeInstanceOf(SdkArrayUnion);
-      expect((grown.tags as SdkArrayUnion).elements).toEqual(["opinion"]);
+      expect(grown.tags).toSatisfy(FieldValue.isArrayUnion);
+      expect((grown.tags as FieldValue.ArrayUnion<unknown>).elements).toEqual(["opinion"]);
 
       const shrunk = yield* Schema.encodeEffect(Article.update)(
         Article.update.make({ tags: FieldValue.arrayRemove("news") }),
       );
-      expect(shrunk.tags).toBeInstanceOf(SdkArrayRemove);
-    }).pipe(Effect.provide(encoder)),
+      expect(shrunk.tags).toSatisfy(FieldValue.isArrayRemove);
+    }),
   );
 
   it.effect("writes a sentinel at its path inside a struct", () =>
@@ -489,8 +454,8 @@ describe("Array", () => {
         Article.update.make({ meta: { keywords: FieldValue.arrayUnion("effect") } }),
       );
       expect(Object.keys(encoded)).toEqual(["meta.keywords"]);
-      expect(encoded["meta.keywords"]).toBeInstanceOf(SdkArrayUnion);
-    }).pipe(Effect.provide(encoder)),
+      expect(encoded["meta.keywords"]).toSatisfy(FieldValue.isArrayUnion);
+    }),
   );
 
   it.effect("composes with Optional, which takes the removal besides", () =>
@@ -498,13 +463,13 @@ describe("Array", () => {
       const grown = yield* Schema.encodeEffect(Article.update)(
         Article.update.make({ editors: FieldValue.arrayUnion("alice") }),
       );
-      expect(grown.editors).toBeInstanceOf(SdkArrayUnion);
+      expect(grown.editors).toSatisfy(FieldValue.isArrayUnion);
 
       const removed = yield* Schema.encodeEffect(Article.update)(
         Article.update.make({ editors: FieldValue.deleteField }),
       );
-      expect(removed.editors).toBeInstanceOf(SdkDeleteField);
-    }).pipe(Effect.provide(encoder)),
+      expect(removed.editors).toBe(FieldValue.deleteField);
+    }),
   );
 
   it.effect("encodes the elements of a sentinel as it encodes those of the array", () =>
@@ -520,8 +485,10 @@ describe("Array", () => {
         Log.update.make({ seenAt: FieldValue.arrayUnion(Timestamp.makeUnsafe(1, 2)) }),
       );
       expect((whole.seenAt as ReadonlyArray<unknown>)[0]).toStrictEqual(Timestamp.makeUnsafe(1, 2));
-      expect((grown.seenAt as SdkArrayUnion).elements[0]).toStrictEqual(Timestamp.makeUnsafe(1, 2));
-    }).pipe(Effect.provide(encoder)),
+      expect((grown.seenAt as FieldValue.ArrayUnion<unknown>).elements[0]).toStrictEqual(
+        Timestamp.makeUnsafe(1, 2),
+      );
+    }),
   );
 
   it.effect("reads back as the array the server wrote", () =>
@@ -589,7 +556,7 @@ describe("Optional", () => {
         Profile.create.make({ name: "alice" }),
       );
       expect(encoded).toStrictEqual({ name: "alice" });
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it("refuses the sentinel where a document is written whole", () => {
@@ -605,8 +572,8 @@ describe("Optional", () => {
         Profile.update.make({ nickname: FieldValue.deleteField }),
       );
       expect(Object.keys(encoded)).toEqual(["nickname"]);
-      expect(encoded.nickname).toBeInstanceOf(SdkDeleteField);
-    }).pipe(Effect.provide(encoder)),
+      expect(encoded.nickname).toBe(FieldValue.deleteField);
+    }),
   );
 
   it.effect("keeps what the field it was handed takes", () =>
@@ -614,13 +581,13 @@ describe("Optional", () => {
       const stamped = yield* Schema.encodeEffect(Profile.update)(
         Profile.update.make({ lastSeenAt: FieldValue.serverTimestamp }),
       );
-      expect(stamped.lastSeenAt).toBeInstanceOf(SdkServerTimestamp);
+      expect(stamped.lastSeenAt).toBe(FieldValue.serverTimestamp);
 
       const removed = yield* Schema.encodeEffect(Profile.update)(
         Profile.update.make({ lastSeenAt: FieldValue.deleteField }),
       );
-      expect(removed.lastSeenAt).toBeInstanceOf(SdkDeleteField);
-    }).pipe(Effect.provide(encoder)),
+      expect(removed.lastSeenAt).toBe(FieldValue.deleteField);
+    }),
   );
 
   it("keeps a field with no update out of the update", () => {
@@ -684,11 +651,11 @@ describe("an update reaching into a struct", () => {
         "address.verifiedAt",
         "visits",
       ]);
-      expect(encoded["address.nickname"]).toBeInstanceOf(SdkDeleteField);
-      expect(encoded["address.verifiedAt"]).toBeInstanceOf(SdkServerTimestamp);
+      expect(encoded["address.nickname"]).toBe(FieldValue.deleteField);
+      expect(encoded["address.verifiedAt"]).toBe(FieldValue.serverTimestamp);
       expect(encoded["address.geo.lat"]).toBe(1.5);
-      expect(encoded.visits).toBeInstanceOf(SdkIncrement);
-    }).pipe(Effect.provide(encoder)),
+      expect(encoded.visits).toSatisfy(FieldValue.isIncrement);
+    }),
   );
 
   it.effect("writes an encoded value and a plain struct whole", () =>
@@ -699,14 +666,14 @@ describe("an update reaching into a struct", () => {
       });
       expect(Timestamp.isTimestamp(encoded["address.verifiedAt"])).toBe(true);
       expect(encoded.tags).toStrictEqual({ primary: "cafe" });
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("writes nothing for a struct handed nothing", () =>
     Effect.gen(function* () {
       const encoded = yield* Schema.encodeEffect(Place.update)({ address: {} });
       expect(encoded).toStrictEqual({});
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it("refuses a field written once, at any depth", () => {
@@ -760,7 +727,7 @@ describe("an update reaching into a struct", () => {
           update.make({ address: { geo: Patch.replace({ lat: 1, lng: 2 }) } }),
         );
         expect(encoded).toStrictEqual({ "address.geo": { lat: 1, lng: 2 } });
-      }).pipe(Effect.provide(encoder)),
+      }),
   );
 
   it("refuses to replace a struct holding a field no update writes", () => {
@@ -913,7 +880,7 @@ describe("a struct a document may go without", () => {
     Effect.gen(function* () {
       const encoded = yield* Schema.encodeEffect(Place.create)(Place.create.make({ name: "a" }));
       expect(encoded).toStrictEqual({ name: "a" });
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect.each(modes(Place))("removes the whole map ($mode)", ({ update }) =>
@@ -922,8 +889,8 @@ describe("a struct a document may go without", () => {
         update.make({ address: FieldValue.deleteField }),
       );
       expect(Object.keys(encoded)).toEqual(["address"]);
-      expect(encoded.address).toBeInstanceOf(SdkDeleteField);
-    }).pipe(Effect.provide(encoder)),
+      expect(encoded.address).toBe(FieldValue.deleteField);
+    }),
   );
 
   it.effect.each(modes(Place))(
@@ -936,11 +903,11 @@ describe("a struct a document may go without", () => {
         expect(Object.keys(encoded)).toEqual(["address"]);
         expect(encoded.address).toStrictEqual({
           city: "Berlin",
-          verifiedAt: new SdkServerTimestamp(),
+          verifiedAt: FieldValue.serverTimestamp,
           geo: { lat: 1, lng: 2 },
           notes: {},
         });
-      }).pipe(Effect.provide(encoder)),
+      }),
   );
 
   it("refuses a patch, which would create a missing struct holding only the patch", () => {
@@ -956,7 +923,7 @@ describe("a struct a document may go without", () => {
         address: { city: "Berlin" },
       }).pipe(Effect.exit);
       expect(Exit.isFailure(exit)).toBe(true);
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it("refuses a replacement that is not a whole struct", () => {
@@ -984,9 +951,9 @@ describe("a struct a document may go without", () => {
         "address.nickname",
         "address.verifiedAt",
       ]);
-      expect(encoded["address.nickname"]).toBeInstanceOf(SdkDeleteField);
-      expect(encoded["address.verifiedAt"]).toBeInstanceOf(SdkServerTimestamp);
-    }).pipe(Effect.provide(encoder)),
+      expect(encoded["address.nickname"]).toBe(FieldValue.deleteField);
+      expect(encoded["address.verifiedAt"]).toBe(FieldValue.serverTimestamp);
+    }),
   );
 
   it("refuses the removal and the replacement where a document is written whole", () => {
@@ -1031,7 +998,7 @@ describe("a field made optional twice", () => {
         Place.updateUnchecked.make({ address: { city: "Berlin" } }),
       );
       expect(encoded).toStrictEqual({ "address.city": "Berlin" });
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("removes a plain value once", () =>
@@ -1039,8 +1006,8 @@ describe("a field made optional twice", () => {
       const encoded = yield* Schema.encodeEffect(Place.update)(
         Place.update.make({ nickname: FieldValue.deleteField }),
       );
-      expect(encoded.nickname).toBeInstanceOf(SdkDeleteField);
-    }).pipe(Effect.provide(encoder)),
+      expect(encoded.nickname).toBe(FieldValue.deleteField);
+    }),
   );
 });
 
@@ -1065,7 +1032,7 @@ describe("a struct a document may go without, inside one every document holds", 
         "profile.bio": "hi",
         "profile.address": { city: "Berlin", zip: "10115" },
       });
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it("is not patched", () => {
@@ -1131,7 +1098,7 @@ describe("a struct holding a field no set writes", () => {
         Doc.update.make({ entry: { rank: 2 } }),
       );
       expect(encoded).toStrictEqual({ "entry.rank": 2 });
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 });
 
@@ -1147,7 +1114,7 @@ describe("a replacement handed to a field that is no struct", () => {
         Doc.update.make({ anything: replacement }),
       );
       expect(encoded.anything).toBe(replacement);
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 });
 
@@ -1167,7 +1134,7 @@ describe("the update of a struct every document holds", () => {
         update.make({ address: { city: "Berlin" } }),
       );
       expect(encoded).toStrictEqual({ "address.city": "Berlin" });
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect.each(modes(User))("takes a replacement ($mode)", ({ update }) =>
@@ -1176,7 +1143,7 @@ describe("the update of a struct every document holds", () => {
         update.make({ address: Patch.replace({ city: "Berlin", zip: "10115" }) }),
       );
       expect(encoded).toStrictEqual({ address: { city: "Berlin", zip: "10115" } });
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 });
 
@@ -1202,14 +1169,14 @@ describe("a field with a constructor default", () => {
         archived: false,
         meta: { title: "t", archived: false },
       });
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("leaves it out of an update handed nothing for it", () =>
     Effect.gen(function* () {
       const encoded = yield* Schema.encodeEffect(Doc.update)(Doc.update.make({ name: "b" }));
       expect(encoded).toStrictEqual({ name: "b" });
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("leaves it out at any depth", () =>
@@ -1218,7 +1185,7 @@ describe("a field with a constructor default", () => {
         Doc.updateUnchecked.make({ meta: { title: "t" }, extra: { note: "n" } }),
       );
       expect(encoded).toStrictEqual({ "meta.title": "t", "extra.note": "n" });
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("fills it in where a struct is replaced, as where it is created", () =>
@@ -1233,7 +1200,7 @@ describe("a field with a constructor default", () => {
         meta: { title: "t", archived: false },
         extra: { note: "n", archived: false },
       });
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("writes it where an update was handed it", () =>
@@ -1250,7 +1217,7 @@ describe("a field with a constructor default", () => {
         "meta.archived": true,
         "extra.archived": true,
       });
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 });
 
@@ -1295,7 +1262,7 @@ describe("a field holding a document reference", () => {
       expect(Collection.isDocumentReference(encoded.author)).toBe(true);
       expect(encoded.author.path).toBe("users/alice");
       expect(Collection.isDocumentReference(encoded.meta.category)).toBe(true);
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("writes the SDK's own references on update, at their path", () =>
@@ -1307,7 +1274,7 @@ describe("a field holding a document reference", () => {
       expect(Collection.isDocumentReference(encoded.author)).toBe(true);
       expect(Collection.isDocumentReference(encoded["meta.category"])).toBe(true);
       expect(encoded["meta.category"]?.path).toBe("categories/news");
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 });
 
@@ -1334,7 +1301,7 @@ describe("a geopoint field", () => {
         Landmark.create.make({ name: "Fernsehturm", location: GeoPoint.makeUnsafe(52.52, 13.405) }),
       );
       expect(GeoPoint.isGeoPoint(encoded.location)).toBe(true);
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("is written as the SDK's own by update, rather than flattened as a map", () =>
@@ -1344,7 +1311,7 @@ describe("a geopoint field", () => {
       );
       expect(Object.keys(encoded)).toEqual(["location"]);
       expect(GeoPoint.isGeoPoint(encoded.location)).toBe(true);
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 });
 
@@ -1426,9 +1393,9 @@ describe("Record", () => {
           profile: { links: {} },
         }),
       );
-      expect(encoded.votes.pizza).toBeInstanceOf(SdkIncrement);
-      expect(encoded.seenAt.alice).toBeInstanceOf(SdkServerTimestamp);
-    }).pipe(Effect.provide(encoder)),
+      expect(encoded.votes.pizza).toSatisfy(FieldValue.isIncrement);
+      expect(encoded.seenAt.alice).toBe(FieldValue.serverTimestamp);
+    }),
   );
 
   it("refuses the removal of a key where a document is written whole", () => {
@@ -1459,13 +1426,13 @@ describe("Record", () => {
         "votes.pizza",
         "votes.sushi",
       ]);
-      expect(encoded["votes.pizza"]).toBeInstanceOf(SdkIncrement);
+      expect(encoded["votes.pizza"]).toSatisfy(FieldValue.isIncrement);
       expect(encoded["votes.sushi"]).toBe(3);
-      expect(encoded["tags.pizza"]).toStrictEqual(new SdkArrayUnion(["cheesy"]));
-      expect(encoded["tags.sushi"]).toStrictEqual(new SdkArrayRemove(["raw"]));
-      expect(encoded["seenAt.alice"]).toBeInstanceOf(SdkServerTimestamp);
+      expect(encoded["tags.pizza"]).toStrictEqual(FieldValue.arrayUnion("cheesy"));
+      expect(encoded["tags.sushi"]).toStrictEqual(FieldValue.arrayRemove("raw"));
+      expect(encoded["seenAt.alice"]).toBe(FieldValue.serverTimestamp);
       expect(Timestamp.isTimestamp(encoded["seenAt.bob"])).toBe(true);
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect.each(modes(Poll))("removes a single key ($mode)", ({ update }) =>
@@ -1477,9 +1444,9 @@ describe("Record", () => {
         }),
       );
       expect(Object.keys(encoded).sort()).toEqual(["aliases.old", "votes.gone"]);
-      expect(encoded["aliases.old"]).toBeInstanceOf(SdkDeleteField);
-      expect(encoded["votes.gone"]).toBeInstanceOf(SdkDeleteField);
-    }).pipe(Effect.provide(encoder)),
+      expect(encoded["aliases.old"]).toBe(FieldValue.deleteField);
+      expect(encoded["votes.gone"]).toBe(FieldValue.deleteField);
+    }),
   );
 
   it.effect.each(modes(Poll))("writes a Record of Records at the full path ($mode)", ({ update }) =>
@@ -1490,9 +1457,9 @@ describe("Record", () => {
         }),
       );
       expect(Object.keys(encoded).sort()).toEqual(["scores.r1.a", "scores.r2"]);
-      expect(encoded["scores.r1.a"]).toBeInstanceOf(SdkIncrement);
-      expect(encoded["scores.r2"]).toBeInstanceOf(SdkDeleteField);
-    }).pipe(Effect.provide(encoder)),
+      expect(encoded["scores.r1.a"]).toSatisfy(FieldValue.isIncrement);
+      expect(encoded["scores.r2"]).toBe(FieldValue.deleteField);
+    }),
   );
 
   it.effect.each(modes(Poll))(
@@ -1503,7 +1470,7 @@ describe("Record", () => {
           update.make({ profile: { links: { site: "https://example.com" } } }),
         );
         expect(encoded).toStrictEqual({ "profile.links.site": "https://example.com" });
-      }).pipe(Effect.provide(encoder)),
+      }),
   );
 
   it.effect.each(modes(Poll))("replaces or removes a struct at one key ($mode)", ({ update }) =>
@@ -1518,8 +1485,8 @@ describe("Record", () => {
       );
       expect(Object.keys(encoded).sort()).toEqual(["members.m1", "members.m2"]);
       expect(encoded["members.m1"]).toStrictEqual({ name: "alice", badges: ["early"] });
-      expect(encoded["members.m2"]).toBeInstanceOf(SdkDeleteField);
-    }).pipe(Effect.provide(encoder)),
+      expect(encoded["members.m2"]).toBe(FieldValue.deleteField);
+    }),
   );
 
   it("refuses a patch into a struct at one key, which may be missing", () => {
@@ -1538,8 +1505,8 @@ describe("Record", () => {
             members: { m1: { badges: FieldValue.arrayUnion("early") } },
           }),
         );
-        expect(encoded).toStrictEqual({ "members.m1.badges": new SdkArrayUnion(["early"]) });
-      }).pipe(Effect.provide(encoder)),
+        expect(encoded).toStrictEqual({ "members.m1.badges": FieldValue.arrayUnion("early") });
+      }),
   );
 
   it.effect.each(modes(Poll))("writes a Record handed a replacement whole ($mode)", ({ update }) =>
@@ -1548,7 +1515,7 @@ describe("Record", () => {
         update.make({ votes: Patch.replace({ pizza: 0 }), aliases: Patch.replace({}) }),
       );
       expect(encoded).toStrictEqual({ votes: { pizza: 0 }, aliases: {} });
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it("refuses the removal of a Record every document holds", () => {
@@ -1566,7 +1533,7 @@ describe("Record", () => {
       expect(Exit.isFailure(exit)).toBe(true);
       expect(String(exit)).toContain(`"${key}"`);
       expect(String(exit)).toContain(`"aliases"`);
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("fails to encode a key no path can name, at any depth", () =>
@@ -1575,7 +1542,7 @@ describe("Record", () => {
         Effect.exit,
       );
       expect(String(exit)).toContain(`"a.b" in "scores.r1"`);
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("writes a key in its encoded form", () =>
@@ -1585,7 +1552,7 @@ describe("Record", () => {
       }) {}
       const encoded = yield* Schema.encodeEffect(Lookup.update)({ byCode: { de: "Germany" } });
       expect(encoded).toStrictEqual({ "byCode.DE": "Germany" });
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("writes each key of a Record of Records in its encoded form", () =>
@@ -1595,7 +1562,7 @@ describe("Record", () => {
       }) {}
       const encoded = yield* Schema.encodeEffect(Grid.update)({ cells: { a: { b: 1 } } });
       expect(encoded).toStrictEqual({ "cells.A.B": 1 });
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("refuses a key whose encoded form no path can name", () =>
@@ -1615,7 +1582,7 @@ describe("Record", () => {
         Effect.exit,
       );
       expect(String(exit)).toContain(`Invalid Firestore field name "a.b" in "byCode"`);
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("encodes a key with the services it takes", () =>
@@ -1638,17 +1605,12 @@ describe("Record", () => {
           }),
         ),
       }) {}
-      expectTypeOf<(typeof Lookup.update)["EncodingServices"]>().toEqualTypeOf<
-        FirestoreEncoder | Casing
-      >();
+      expectTypeOf<(typeof Lookup.update)["EncodingServices"]>().toEqualTypeOf<Casing>();
       const encoded = yield* Schema.encodeEffect(Lookup.updateUnchecked)({
         byCode: { de: { name: "Germany" } },
       });
       expect(encoded).toStrictEqual({ "byCode.DE.name": "Germany" });
-    }).pipe(
-      Effect.provide(encoder),
-      Effect.provideService(Casing, { encode: (s) => s.toUpperCase() }),
-    ),
+    }).pipe(Effect.provideService(Casing, { encode: (s) => s.toUpperCase() })),
   );
 
   it("takes a patch, a replacement, and a removal per key", () => {
@@ -1737,7 +1699,7 @@ describe("a Record keyed by literals", () => {
         answers: { yes: FieldValue.increment(1) },
       });
       expect(Object.keys(encoded)).toEqual(["answers.Y"]);
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("refuses a key whose encoded form no path can name", () =>
@@ -1757,7 +1719,7 @@ describe("a Record keyed by literals", () => {
         answers: { yes: FieldValue.increment(1) },
       }).pipe(Effect.exit);
       expect(String(exit)).toContain(`Invalid Firestore field name "a.b" in "answers"`);
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect.each(modes(Survey))("writes each key at its own path ($mode)", ({ update }) =>
@@ -1769,9 +1731,9 @@ describe("a Record keyed by literals", () => {
         }),
       );
       expect(Object.keys(encoded).sort()).toEqual(["counts.yes", "notes.no"]);
-      expect(encoded["counts.yes"]).toBeInstanceOf(SdkIncrement);
-      expect(encoded["notes.no"]).toBeInstanceOf(SdkDeleteField);
-    }).pipe(Effect.provide(encoder)),
+      expect(encoded["counts.yes"]).toSatisfy(FieldValue.isIncrement);
+      expect(encoded["notes.no"]).toBe(FieldValue.deleteField);
+    }),
   );
 
   it.each(["", "a.b"])("refuses a literal no path can name (%j)", (literal) => {
@@ -1807,7 +1769,7 @@ describe("a Record a document may go without", () => {
       expect("votes" in tally).toBe(false);
       const encoded = yield* Schema.encodeEffect(Tally.create)(Tally.create.make({}));
       expect(encoded).toStrictEqual({});
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect.each(modes(Tally))("removes the whole Record ($mode)", ({ update }) =>
@@ -1816,8 +1778,8 @@ describe("a Record a document may go without", () => {
         update.make({ votes: FieldValue.deleteField, counts: FieldValue.deleteField }),
       );
       expect(Object.keys(encoded).sort()).toEqual(["counts", "votes"]);
-      expect(encoded.votes).toBeInstanceOf(SdkDeleteField);
-    }).pipe(Effect.provide(encoder)),
+      expect(encoded.votes).toBe(FieldValue.deleteField);
+    }),
   );
 
   it.effect.each(modes(Tally))(
@@ -1828,7 +1790,7 @@ describe("a Record a document may go without", () => {
           update.make({ votes: { pizza: FieldValue.increment(1) } }),
         );
         expect(Object.keys(encoded)).toEqual(["votes.pizza"]);
-      }).pipe(Effect.provide(encoder)),
+      }),
   );
 
   it("is not patched where its keys are literals, which a missing Record would lack", () => {
@@ -1842,7 +1804,7 @@ describe("a Record a document may go without", () => {
   });
 
   it("takes the removal at its own path in its encoded type", () => {
-    expectTypeOf<(typeof Tally.update)["Encoded"]["votes"]>().toEqualTypeOf<unknown>();
+    expectTypeOf<FieldValue.DeleteField>().toExtend<(typeof Tally.update)["Encoded"]["votes"]>();
     expectTypeOf<"votes">().toExtend<keyof (typeof Tally.update)["Encoded"]>();
   });
 });
@@ -1876,6 +1838,6 @@ describe("a Record of a value no update writes", () => {
         Archive.create.make({ name: "a", frozen: { k: "v" } }),
       );
       expect(encoded).toStrictEqual({ name: "a", frozen: { k: "v" } });
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 });

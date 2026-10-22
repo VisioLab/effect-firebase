@@ -1,48 +1,15 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { DateTime, Effect, Equal, Layer, Option, Schema } from "effect";
+import { DateTime, Effect, Equal, Option, Schema } from "effect";
 import * as Collection from "../../src/firestore/Collection.ts";
 import * as FieldValue from "../../src/firestore/FieldValue.ts";
-import { FirestoreEncoder } from "../../src/firestore/FirestoreEncoder.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
 import * as FirestoreSchema from "../../src/firestore/FirestoreSchema.ts";
 import * as FirestoreValue from "../../src/firestore/FirestoreValue.ts";
 import * as GeoPoint from "../../src/firestore/GeoPoint.ts";
 import * as Timestamp from "../../src/firestore/Timestamp.ts";
 
-/** Stands in for an SDK's own sentinel. */
-class SdkServerTimestamp {}
-
-/** Stands in for an SDK's own sentinel, which carries what it is to add. */
-class SdkIncrement {
-  constructor(readonly by: number) {}
-}
-
-/** Stands in for an SDK's own sentinel. */
-class SdkDeleteField {}
-
-/** Stands in for an SDK's own sentinel, which carries the elements to add. */
-class SdkArrayUnion {
-  constructor(readonly elements: ReadonlyArray<unknown>) {}
-}
-
-/** Stands in for an SDK's own sentinel, which carries the elements to remove. */
-class SdkArrayRemove {
-  constructor(readonly elements: ReadonlyArray<unknown>) {}
-}
-
-/** The sentinels are still built by an encoder, until they become plain values too (#76). */
-const encoder = Layer.succeed(FirestoreEncoder)(
-  FirestoreEncoder.of({
-    timestamp: (value) => value,
-    geoPoint: (value) => value,
-    documentReference: (ref) => ref,
-    serverTimestamp: () => new SdkServerTimestamp(),
-    increment: (by) => new SdkIncrement(by),
-    deleteField: () => new SdkDeleteField(),
-    arrayUnion: (elements) => new SdkArrayUnion(elements),
-    arrayRemove: (elements) => new SdkArrayRemove(elements),
-  }),
-);
+/** Stands in for an SDK's own sentinel, which a read never hands back. */
+class SdkSentinel {}
 
 const toFirestore = <S extends Schema.Top>(schema: S) =>
   Schema.encodeUnknownEffect(FirestoreValue.toCodecFirestore(schema));
@@ -258,29 +225,76 @@ describe("a model of them", () => {
   });
 });
 
-describe("ServerTimestamp", () => {
-  it.effect("writes the sentinel the encoder builds", () =>
+describe("a model of the sentinels", () => {
+  class Post extends FirestoreModel.Class<Post>("Post")({
+    title: Schema.String,
+    publishedAt: FirestoreModel.Timestamp(Schema.DateTimeUtc),
+    views: FirestoreModel.Number(Schema.Finite),
+    seenAt: FirestoreModel.Array(Schema.DateTimeUtc),
+    subtitle: FirestoreModel.Optional(Schema.String),
+    touchedAt: FirestoreModel.FieldOnly(["create", "update"])(FirestoreSchema.ServerTimestamp),
+  }) {}
+
+  it("is written with no services", () => {
+    expectTypeOf<(typeof Post.create)["EncodingServices"]>().toEqualTypeOf<never>();
+    expectTypeOf<(typeof Post.update)["EncodingServices"]>().toEqualTypeOf<never>();
+    expectTypeOf<(typeof Post.updateUnchecked)["EncodingServices"]>().toEqualTypeOf<never>();
+  });
+
+  it.effect("writes every sentinel as the portable sentinel, with no layer", () =>
     Effect.gen(function* () {
-      const encoded = yield* Schema.encodeEffect(FirestoreSchema.ServerTimestamp)(
+      const encoded = yield* toFirestore(Post.update)(
+        Post.update.make({
+          publishedAt: FieldValue.serverTimestamp,
+          views: FieldValue.increment(2),
+          seenAt: FieldValue.arrayUnion(DateTime.makeUnsafe(1_700_000_000_123)),
+          subtitle: FieldValue.deleteField,
+          touchedAt: FieldValue.serverTimestamp,
+        }),
+      );
+      expect(encoded).toStrictEqual({
+        publishedAt: FieldValue.serverTimestamp,
+        views: FieldValue.increment(2),
+        seenAt: FieldValue.arrayUnion(Timestamp.makeUnsafe(1_700_000_000, 123_000_000)),
+        subtitle: FieldValue.deleteField,
+        touchedAt: FieldValue.serverTimestamp,
+      });
+    }),
+  );
+});
+
+describe("ServerTimestamp", () => {
+  it.effect("is stored as the portable sentinel, with no layer", () =>
+    Effect.gen(function* () {
+      const encoded = yield* toFirestore(FirestoreSchema.ServerTimestamp)(
         FieldValue.serverTimestamp,
       );
-      expect(encoded).toBeInstanceOf(SdkServerTimestamp);
-    }).pipe(Effect.provide(encoder)),
+      expect(encoded).toBe(FieldValue.serverTimestamp);
+    }),
   );
 
-  it.effect("refuses to be read, since a document never holds one", () =>
+  it.effect("refuses what is not the portable sentinel, such as an SDK's own", () =>
     Effect.gen(function* () {
       const failure = yield* Effect.flip(
-        Schema.decodeEffect(FirestoreSchema.ServerTimestamp)(new SdkServerTimestamp()),
+        Schema.decodeUnknownEffect(FirestoreSchema.ServerTimestamp)(new SdkSentinel()),
       );
       expect(failure).toBeDefined();
     }),
   );
 
-  it("asks for an encoder to write", () => {
+  it("is the portable sentinel on both sides, and asks for no services", () => {
+    expectTypeOf<
+      (typeof FirestoreSchema.ServerTimestamp)["Encoded"]
+    >().toEqualTypeOf<FieldValue.ServerTimestamp>();
     expectTypeOf<
       (typeof FirestoreSchema.ServerTimestamp)["EncodingServices"]
-    >().toEqualTypeOf<FirestoreEncoder>();
+    >().toEqualTypeOf<never>();
+  });
+
+  it("keeps its own name through a rebuild", () => {
+    expectTypeOf(
+      FirestoreSchema.ServerTimestamp.annotate({}),
+    ).toEqualTypeOf<FirestoreSchema.ServerTimestamp>();
   });
 
   it("fills itself in, since there is only one value it takes", () => {
@@ -310,17 +324,16 @@ describe("ServerTimestampOr", () => {
         const encoded = yield* toFirestore(schema)(value);
         expect(Equal.equals(encoded, at)).toBe(true);
       }
-      // The sentinel is still written through an encoder (#76).
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("writes the sentinel just as readily", () =>
     Effect.gen(function* () {
       const WrittenAt = FirestoreSchema.ServerTimestampOr(Schema.DateTimeUtc);
-      expect(yield* toFirestore(WrittenAt)(FieldValue.serverTimestamp)).toBeInstanceOf(
-        SdkServerTimestamp,
+      expect(yield* toFirestore(WrittenAt)(FieldValue.serverTimestamp)).toBe(
+        FieldValue.serverTimestamp,
       );
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("holds the instant a read hands back however the schema it was handed holds it", () =>
@@ -349,35 +362,31 @@ describe("ServerTimestampOr", () => {
 });
 
 describe("Increment", () => {
-  const encode = Schema.encodeEffect(FirestoreSchema.Increment);
+  const encode = toFirestore(FirestoreSchema.Increment);
 
-  it.effect("hands the encoder how far the field moves", () =>
+  it.effect("is stored as the portable sentinel, carrying how far the field moves", () =>
     Effect.gen(function* () {
-      const encoded = yield* encode(FieldValue.increment(2));
-      expect(encoded).toBeInstanceOf(SdkIncrement);
-      expect((encoded as SdkIncrement).by).toBe(2);
-    }).pipe(Effect.provide(encoder)),
+      expect(yield* encode(FieldValue.increment(2))).toStrictEqual(FieldValue.increment(2));
+    }),
   );
 
   it.effect("writes a move down as the negative it is", () =>
     Effect.gen(function* () {
-      expect(((yield* encode(FieldValue.decrement(3))) as SdkIncrement).by).toBe(-3);
-    }).pipe(Effect.provide(encoder)),
+      expect(yield* encode(FieldValue.decrement(3))).toStrictEqual(FieldValue.increment(-3));
+    }),
   );
 
-  it.effect("refuses to be read, since a document holds the sum instead", () =>
+  it.effect("refuses what is not the portable sentinel, such as an SDK's own", () =>
     Effect.gen(function* () {
       const failure = yield* Effect.flip(
-        Schema.decodeEffect(FirestoreSchema.Increment)(new SdkIncrement(2)),
+        Schema.decodeUnknownEffect(FirestoreSchema.Increment)(new SdkSentinel()),
       );
       expect(failure).toBeDefined();
     }),
   );
 
-  it("asks for an encoder to write", () => {
-    expectTypeOf<
-      (typeof FirestoreSchema.Increment)["EncodingServices"]
-    >().toEqualTypeOf<FirestoreEncoder>();
+  it("asks for no services", () => {
+    expectTypeOf<(typeof FirestoreSchema.Increment)["EncodingServices"]>().toEqualTypeOf<never>();
   });
 
   it("keeps its own name through a rebuild", () => {
@@ -387,19 +396,18 @@ describe("Increment", () => {
 
 describe("IncrementOr", () => {
   const Visits = FirestoreSchema.IncrementOr(Schema.Finite);
-  const encode = Schema.encodeEffect(Visits);
+  const encode = toFirestore(Visits);
 
   it.effect("writes the number it was handed", () =>
     Effect.gen(function* () {
       expect(yield* encode(7)).toBe(7);
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("writes the sentinel just as readily", () =>
     Effect.gen(function* () {
-      const encoded = yield* encode(FieldValue.increment(1));
-      expect(encoded).toBeInstanceOf(SdkIncrement);
-    }).pipe(Effect.provide(encoder)),
+      expect(yield* encode(FieldValue.increment(1))).toStrictEqual(FieldValue.increment(1));
+    }),
   );
 
   it.effect("decodes the number it wraps, which is all a read ever holds", () =>
@@ -419,12 +427,10 @@ describe("IncrementOr", () => {
   it.effect("carries a tighter schema into the writes as well as the read", () =>
     Effect.gen(function* () {
       const Whole = FirestoreSchema.IncrementOr(Schema.Int);
-      expect(yield* Schema.encodeEffect(Whole)(7)).toBe(7);
-      // Flipped through `asVoid`, since what a write encodes to is the SDK's to
-      // say and so reads as `unknown` here.
-      expect(yield* Effect.flip(Effect.asVoid(Schema.encodeEffect(Whole)(7.5)))).toBeDefined();
+      expect(yield* toFirestore(Whole)(7)).toBe(7);
+      expect(yield* Effect.flip(toFirestore(Whole)(7.5))).toBeDefined();
       expect(yield* Effect.flip(Schema.decodeEffect(Whole)(7.5))).toBeDefined();
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it("keeps the schema it was handed, rather than widening to a number", () => {
@@ -446,28 +452,25 @@ describe("IncrementOr", () => {
 });
 
 describe("DeleteField", () => {
-  it.effect("writes the sentinel the encoder builds", () =>
+  it.effect("is stored as the portable sentinel, with no layer", () =>
     Effect.gen(function* () {
-      const encoded = yield* Schema.encodeEffect(FirestoreSchema.DeleteField)(
+      expect(yield* toFirestore(FirestoreSchema.DeleteField)(FieldValue.deleteField)).toBe(
         FieldValue.deleteField,
       );
-      expect(encoded).toBeInstanceOf(SdkDeleteField);
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
-  it.effect("refuses to be read, since a field removed is not there to read", () =>
+  it.effect("refuses what is not the portable sentinel, such as an SDK's own", () =>
     Effect.gen(function* () {
       const failure = yield* Effect.flip(
-        Schema.decodeEffect(FirestoreSchema.DeleteField)(new SdkDeleteField()),
+        Schema.decodeUnknownEffect(FirestoreSchema.DeleteField)(new SdkSentinel()),
       );
       expect(failure).toBeDefined();
     }),
   );
 
-  it("asks for an encoder to write", () => {
-    expectTypeOf<
-      (typeof FirestoreSchema.DeleteField)["EncodingServices"]
-    >().toEqualTypeOf<FirestoreEncoder>();
+  it("asks for no services", () => {
+    expectTypeOf<(typeof FirestoreSchema.DeleteField)["EncodingServices"]>().toEqualTypeOf<never>();
   });
 
   it("keeps its own name through a rebuild", () => {
@@ -479,18 +482,18 @@ describe("DeleteField", () => {
 
 describe("DeleteFieldOr", () => {
   const Nickname = FirestoreSchema.DeleteFieldOr(Schema.String);
-  const encode = Schema.encodeEffect(Nickname);
+  const encode = toFirestore(Nickname);
 
   it.effect("writes the value it was handed", () =>
     Effect.gen(function* () {
       expect(yield* encode("ally")).toBe("ally");
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("writes the sentinel just as readily", () =>
     Effect.gen(function* () {
-      expect(yield* encode(FieldValue.deleteField)).toBeInstanceOf(SdkDeleteField);
-    }).pipe(Effect.provide(encoder)),
+      expect(yield* encode(FieldValue.deleteField)).toBe(FieldValue.deleteField);
+    }),
   );
 
   it("keeps the schema it was handed", () => {
@@ -503,41 +506,53 @@ describe("DeleteFieldOr", () => {
 describe("ArrayUnion", () => {
   const Tags = FirestoreSchema.ArrayUnion(Schema.String);
 
-  it.effect("hands the encoder the elements the array is to gain", () =>
+  it.effect("is stored as the portable sentinel, holding the elements the array is to gain", () =>
     Effect.gen(function* () {
-      const encoded = yield* Schema.encodeEffect(Tags)(FieldValue.arrayUnion("a", "b"));
-      expect(encoded).toBeInstanceOf(SdkArrayUnion);
-      expect((encoded as SdkArrayUnion).elements).toEqual(["a", "b"]);
-    }).pipe(Effect.provide(encoder)),
+      expect(yield* toFirestore(Tags)(FieldValue.arrayUnion("a", "b"))).toStrictEqual(
+        FieldValue.arrayUnion("a", "b"),
+      );
+    }),
   );
 
   it.effect("encodes each element through the schema it was built from", () =>
     Effect.gen(function* () {
       const Counts = FirestoreSchema.ArrayUnion(Schema.FiniteFromString);
-      const encoded = yield* Schema.encodeEffect(Counts)(FieldValue.arrayUnion(1, 2));
-      expect((encoded as SdkArrayUnion).elements).toEqual(["1", "2"]);
-    }).pipe(Effect.provide(encoder)),
+      expect(yield* toFirestore(Counts)(FieldValue.arrayUnion(1, 2))).toStrictEqual(
+        FieldValue.arrayUnion("1", "2"),
+      );
+    }),
+  );
+
+  it.effect("stores each element as Firestore stores it, so an instant is a Timestamp", () =>
+    Effect.gen(function* () {
+      const SeenAt = FirestoreSchema.ArrayUnion(Schema.DateTimeUtc);
+      const encoded = yield* toFirestore(SeenAt)(
+        FieldValue.arrayUnion(DateTime.makeUnsafe(1_700_000_000_123)),
+      );
+      expect(encoded).toStrictEqual(
+        FieldValue.arrayUnion(Timestamp.makeUnsafe(1_700_000_000, 123_000_000)),
+      );
+      expect(FirestoreValue.isFirestoreValue(encoded)).toBe(true);
+    }),
   );
 
   it.effect("refuses an element the schema it was built from refuses", () =>
     Effect.gen(function* () {
       const Whole = FirestoreSchema.ArrayUnion(Schema.Int);
-      const failure = yield* Effect.flip(
-        Effect.asVoid(Schema.encodeEffect(Whole)(FieldValue.arrayUnion(1, 1.5))),
-      );
+      const failure = yield* Effect.flip(toFirestore(Whole)(FieldValue.arrayUnion(1, 1.5)));
       expect(String(failure)).toContain(`["elements"][1]`);
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
-  it.effect("refuses to be read, since a document holds the array instead", () =>
+  it.effect("refuses what is not the portable sentinel, such as an SDK's own", () =>
     Effect.gen(function* () {
-      const failure = yield* Effect.flip(Schema.decodeEffect(Tags)(new SdkArrayUnion(["a"])));
+      const failure = yield* Effect.flip(Schema.decodeUnknownEffect(Tags)(new SdkSentinel()));
       expect(failure).toBeDefined();
     }),
   );
 
-  it("asks for an encoder, and for whatever its elements ask for", () => {
-    expectTypeOf<(typeof Tags)["EncodingServices"]>().toEqualTypeOf<FirestoreEncoder>();
+  it("asks for no services, only whatever its elements ask for", () => {
+    expectTypeOf<(typeof Tags)["EncodingServices"]>().toEqualTypeOf<never>();
     expectTypeOf<(typeof Tags)["Type"]>().toEqualTypeOf<FieldValue.ArrayUnion<string>>();
   });
 
@@ -558,25 +573,35 @@ describe("ArrayUnion", () => {
 describe("ArrayRemove", () => {
   const Tags = FirestoreSchema.ArrayRemove(Schema.String);
 
-  it.effect("hands the encoder the elements the array is to lose", () =>
+  it.effect("is stored as the portable sentinel, holding the elements the array is to lose", () =>
     Effect.gen(function* () {
-      const encoded = yield* Schema.encodeEffect(Tags)(FieldValue.arrayRemove("a"));
-      expect(encoded).toBeInstanceOf(SdkArrayRemove);
-      expect((encoded as SdkArrayRemove).elements).toEqual(["a"]);
-    }).pipe(Effect.provide(encoder)),
+      expect(yield* toFirestore(Tags)(FieldValue.arrayRemove("a"))).toStrictEqual(
+        FieldValue.arrayRemove("a"),
+      );
+    }),
   );
 
   it.effect("encodes each element through the schema it was built from", () =>
     Effect.gen(function* () {
       const Seen = FirestoreSchema.ArrayRemove(Schema.Struct({ count: Schema.FiniteFromString }));
-      const encoded = yield* Schema.encodeEffect(Seen)(FieldValue.arrayRemove({ count: 1 }));
-      expect((encoded as SdkArrayRemove).elements[0]).toEqual({ count: "1" });
-    }).pipe(Effect.provide(encoder)),
+      expect(yield* toFirestore(Seen)(FieldValue.arrayRemove({ count: 1 }))).toStrictEqual(
+        FieldValue.arrayRemove({ count: "1" }),
+      );
+    }),
   );
 
-  it.effect("refuses to be read, since a document holds the array instead", () =>
+  it.effect("stores each element as Firestore stores it, so an instant is a Timestamp", () =>
     Effect.gen(function* () {
-      const failure = yield* Effect.flip(Schema.decodeEffect(Tags)(new SdkArrayRemove(["a"])));
+      const SeenAt = FirestoreSchema.ArrayRemove(Schema.Date);
+      expect(
+        yield* toFirestore(SeenAt)(FieldValue.arrayRemove(new Date(1_700_000_000_123))),
+      ).toStrictEqual(FieldValue.arrayRemove(Timestamp.makeUnsafe(1_700_000_000, 123_000_000)));
+    }),
+  );
+
+  it.effect("refuses what is not the portable sentinel, such as an SDK's own", () =>
+    Effect.gen(function* () {
+      const failure = yield* Effect.flip(Schema.decodeUnknownEffect(Tags)(new SdkSentinel()));
       expect(failure).toBeDefined();
     }),
   );
@@ -588,19 +613,19 @@ describe("ArrayRemove", () => {
 
 describe("ArrayOr", () => {
   const Tags = FirestoreSchema.ArrayOr(Schema.String);
-  const encode = Schema.encodeEffect(Tags);
+  const encode = toFirestore(Tags);
 
   it.effect("writes the array it was handed", () =>
     Effect.gen(function* () {
       expect(yield* encode(["a", "b"])).toEqual(["a", "b"]);
-    }).pipe(Effect.provide(encoder)),
+    }),
   );
 
   it.effect("writes either sentinel just as readily", () =>
     Effect.gen(function* () {
-      expect(yield* encode(FieldValue.arrayUnion("a"))).toBeInstanceOf(SdkArrayUnion);
-      expect(yield* encode(FieldValue.arrayRemove("a"))).toBeInstanceOf(SdkArrayRemove);
-    }).pipe(Effect.provide(encoder)),
+      expect(yield* encode(FieldValue.arrayUnion("a"))).toStrictEqual(FieldValue.arrayUnion("a"));
+      expect(yield* encode(FieldValue.arrayRemove("a"))).toStrictEqual(FieldValue.arrayRemove("a"));
+    }),
   );
 
   it.effect("decodes the array, which is all a read ever holds", () =>

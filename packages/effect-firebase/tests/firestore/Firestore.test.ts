@@ -2,7 +2,6 @@ import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { Context, Effect, Schema, SchemaGetter } from "effect";
 import * as Firestore from "../../src/firestore/Firestore.ts";
 import * as Collection from "../../src/firestore/Collection.ts";
-import { FirestoreEncoder } from "../../src/firestore/FirestoreEncoder.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
 import * as FirestoreSchema from "../../src/firestore/FirestoreSchema.ts";
 
@@ -37,10 +36,10 @@ describe("WriteServices", () => {
     expectTypeOf<Firestore.WriteServices<typeof Plain>>().toEqualTypeOf<never>();
   });
 
-  it("answers for the encoder itself, since an implementation has one", () => {
+  it("asks for nothing where a document writes a sentinel", () => {
     expectTypeOf<
       Collection.DocumentSchema<typeof Stamped>["create"]["EncodingServices"]
-    >().toEqualTypeOf<FirestoreEncoder>();
+    >().toEqualTypeOf<never>();
     expectTypeOf<Firestore.WriteServices<typeof Stamped>>().toEqualTypeOf<never>();
   });
 
@@ -77,7 +76,7 @@ describe("Update", () => {
 });
 
 describe("UpdateServices", () => {
-  it("answers for the encoder itself, as writing a whole document does", () => {
+  it("asks for nothing where a patch writes a sentinel", () => {
     expectTypeOf<Firestore.UpdateServices<typeof Stamped>>().toEqualTypeOf<never>();
   });
 

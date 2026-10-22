@@ -11,8 +11,6 @@
 import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
 import { FieldValue, GeoPoint, Timestamp } from "firebase-admin/firestore";
 import type { Firestore } from "firebase-admin/firestore";
-import type { FirestoreValue } from "@visiolab/effect-firebase/firestore/FirestoreValue";
-import { toAdmin } from "./AdminFirestoreValue.ts";
 
 /**
  * Builds the values the Admin SDK writes into `firestore`.
@@ -32,8 +30,6 @@ export const make = (firestore: Firestore): FirestoreEncoder =>
     serverTimestamp: () => FieldValue.serverTimestamp(),
     increment: (by) => FieldValue.increment(by),
     deleteField: () => FieldValue.delete(),
-    arrayUnion: (elements) =>
-      FieldValue.arrayUnion(...elements.map((e) => toAdmin(e as FirestoreValue, firestore))),
-    arrayRemove: (elements) =>
-      FieldValue.arrayRemove(...elements.map((e) => toAdmin(e as FirestoreValue, firestore))),
+    arrayUnion: (elements) => FieldValue.arrayUnion(...elements),
+    arrayRemove: (elements) => FieldValue.arrayRemove(...elements),
   });

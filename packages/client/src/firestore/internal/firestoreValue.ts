@@ -37,9 +37,8 @@ export const toClient = (value: FirestoreValue, firestore: Client.Firestore): un
     if (FieldValue.isArrayRemove(u)) return Client.arrayRemove(...u.elements.map(go));
     if (Array.isArray(u)) return u.map(go);
     if (isPlainObject(u)) return mapValues(u, go);
-    // The client SDK's own values, which the `FirestoreSchema` codecs still
-    // build through `FirestoreEncoder`, pass through untouched until they stop
-    // doing so (#77).
+    // Not a Firestore Value, so nothing the library encodes reaches here. What
+    // does - an SDK value handed through `Schema.Any` - is the SDK's to judge.
     return u;
   };
   return go(value);

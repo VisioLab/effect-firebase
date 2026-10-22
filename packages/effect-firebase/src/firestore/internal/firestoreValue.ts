@@ -13,7 +13,6 @@ import type * as Timestamp_ from "../Timestamp.ts";
 import * as collection from "./collection.ts";
 import * as fieldValue from "./fieldValue.ts";
 import * as firestoreSchema from "./firestoreSchema.ts";
-import * as firestoreValueAnnotations from "./firestoreValueAnnotations.ts";
 import * as geoPoint from "./geoPoint.ts";
 import * as schemaAST from "./schemaAST.ts";
 import * as timestamp from "./timestamp.ts";
@@ -156,11 +155,12 @@ const declarationStep = (
   if (getLink === undefined) return schemaAST.replaceEncoding(ast, [unknownToFirestore]);
   const typeParameters = ast.typeParameters.map((tp) => Schema.make(SchemaAST.toEncoded(tp)));
   const link = getLink(typeParameters);
+  if (link !== undefined) return schemaAST.replaceEncoding(ast, [schemaAST.mapLink(link, recur)]);
   // `undefined` means the declaration is already canonical: in Firestore form,
-  // or in JSON form, and every JSON value is a Firestore Value.
-  return link === undefined
-    ? ast
-    : schemaAST.replaceEncoding(ast, [schemaAST.mapLink(link, recur)]);
+  // or in JSON form, and every JSON value is a Firestore Value. One in
+  // Firestore form may still hold values that are not, such as the elements of
+  // an array union, so what it holds is derived in turn.
+  return getLink === annotations?.toCodecFirestore ? schemaAST.recur(ast, recur) : ast;
 };
 
 const reorderUnion = (types: ReadonlyArray<SchemaAST.AST>): ReadonlyArray<SchemaAST.AST> => {
@@ -185,8 +185,6 @@ const step = (ast: SchemaAST.AST, recur: (ast: SchemaAST.AST) => SchemaAST.AST):
     case "Declaration":
       return declarationStep(ast, recur);
     case "Unknown":
-      if (ast.annotations?.[firestoreValueAnnotations.sdkValue] === true) return ast;
-      return schemaAST.replaceEncoding(ast, [unknownToFirestore]);
     case "ObjectKeyword":
       return schemaAST.replaceEncoding(ast, [unknownToFirestore]);
     case "Undefined":

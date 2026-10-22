@@ -1,8 +1,7 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { DateTime, Effect, Layer, Option, Schema, SchemaGetter } from "effect";
+import { DateTime, Effect, Option, Schema, SchemaGetter } from "effect";
 import * as Collection from "../../src/firestore/Collection.ts";
 import * as FieldValue from "../../src/firestore/FieldValue.ts";
-import { FirestoreEncoder } from "../../src/firestore/FirestoreEncoder.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
 import * as FirestoreSchema from "../../src/firestore/FirestoreSchema.ts";
 import * as FirestoreValue from "../../src/firestore/FirestoreValue.ts";
@@ -284,39 +283,6 @@ describe("toCodecFirestore", () => {
         seconds: DateTime.makeUnsafe(1_700_000_000_000),
       });
     }),
-  );
-
-  it.effect(
-    "passes through the sentinels the encoder-backed FirestoreSchema codecs build, during the migration",
-    () =>
-      Effect.gen(function* () {
-        class SdkServerTimestamp {}
-        const encoder = Layer.succeed(FirestoreEncoder)(
-          FirestoreEncoder.of({
-            timestamp: (value) => value,
-            geoPoint: (value) => value,
-            documentReference: (ref) => ref,
-            serverTimestamp: () => new SdkServerTimestamp(),
-            increment: (by) => by,
-            deleteField: () => null,
-            arrayUnion: (elements) => elements,
-            arrayRemove: (elements) => elements,
-          }),
-        );
-        const Model = Schema.Struct({
-          at: FirestoreSchema.Timestamp,
-          createdAt: FirestoreSchema.ServerTimestamp,
-        });
-
-        const encoded = yield* encode(Model)({
-          at: Timestamp.makeUnsafe(1, 2),
-          createdAt: FieldValue.serverTimestamp,
-        }).pipe(Effect.provide(encoder));
-        expect(encoded).toStrictEqual({
-          at: Timestamp.makeUnsafe(1, 2),
-          createdAt: new SdkServerTimestamp(),
-        });
-      }),
   );
 
   it("types the encoded side as a Firestore Value and adds no services", () => {

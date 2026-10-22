@@ -14,7 +14,6 @@
 import type { DateTime, Schema } from "effect";
 import type * as Collection from "./Collection.ts";
 import type * as FieldValue from "./FieldValue.ts";
-import type { FirestoreEncoder } from "./FirestoreEncoder.ts";
 import type * as GeoPoint_ from "./GeoPoint.ts";
 import * as firestoreSchema from "./internal/firestoreSchema.ts";
 import type * as Timestamp_ from "./Timestamp.ts";
@@ -122,12 +121,7 @@ export interface DocumentReference<C extends Collection.Any> extends Schema.decl
 export const DocumentReference: <C extends Collection.Any>(collection: C) => DocumentReference<C> =
   firestoreSchema.DocumentReference;
 
-interface ServerTimestampSentinel extends Schema.decodeTo<
-  Schema.declare<FieldValue.ServerTimestamp>,
-  Schema.Unknown,
-  never,
-  FirestoreEncoder
-> {
+interface ServerTimestampSentinel extends Schema.declare<FieldValue.ServerTimestamp> {
   readonly Rebuild: ServerTimestampSentinel;
 }
 
@@ -151,10 +145,11 @@ export interface ServerTimestamp extends Schema.withConstructorDefault<ServerTim
  * tag. Hand it to {@link Schema.Struct} and the field is written without ever
  * being named.
  *
- * This one only goes one way. Decoding fails, because a document never holds a
- * sentinel: by the time it is read, the server has replaced it with the
- * timestamp it resolved to, which is what the field reads as on the way back -
- * see {@link FirestoreModel.Timestamp} for the pair.
+ * It is a plain schema of the portable sentinel, which each SDK package turns
+ * into its own on the way out, and it belongs in a write only. A document
+ * never holds a sentinel: by the time it is read, the server has replaced it
+ * with the timestamp it resolved to, which is what the field reads as on the
+ * way back - see {@link FirestoreModel.Timestamp} for the pair.
  *
  * @stability unstable
  * @category schemas
@@ -202,12 +197,7 @@ export const ServerTimestampOr: <S extends TimeSchema>(schema: S) => ServerTimes
  * @category models
  * @since 0.2.0
  */
-export interface Increment extends Schema.decodeTo<
-  Schema.declare<FieldValue.Increment>,
-  Schema.Unknown,
-  never,
-  FirestoreEncoder
-> {
+export interface Increment extends Schema.declare<FieldValue.Increment> {
   readonly Rebuild: Increment;
 }
 
@@ -215,10 +205,10 @@ export interface Increment extends Schema.decodeTo<
  * Schema that writes the sentinel standing in for a field moved by a number.
  *
  * A call site hands it {@link FieldValue.increment} or
- * {@link FieldValue.decrement}, and the encoder turns it into the sentinel its
- * SDK writes.
+ * {@link FieldValue.decrement}. It is a plain schema of the portable sentinel,
+ * which each SDK package turns into its own on the way out.
  *
- * This one only goes one way, as {@link ServerTimestamp} does. A document holds
+ * It belongs in a write only, as {@link ServerTimestamp} does. A document holds
  * the sum the server wrote rather than the request to add, so a read of the
  * same field is a plain number - see {@link IncrementOr} for the pair.
  *
@@ -270,23 +260,19 @@ export const IncrementOr: <S extends Schema.Codec<unknown, number, unknown, unkn
  * @category models
  * @since 0.2.0
  */
-export interface DeleteField extends Schema.decodeTo<
-  Schema.declare<FieldValue.DeleteField>,
-  Schema.Unknown,
-  never,
-  FirestoreEncoder
-> {
+export interface DeleteField extends Schema.declare<FieldValue.DeleteField> {
   readonly Rebuild: DeleteField;
 }
 
 /**
  * Schema that writes the sentinel standing in for a field the write removes.
  *
- * A call site hands it {@link FieldValue.deleteField}, and the encoder turns it
- * into the sentinel its SDK writes. Unlike {@link ServerTimestamp} it does not
- * fill itself in, since a field is removed on purpose or not at all.
+ * A call site hands it {@link FieldValue.deleteField}, the portable sentinel,
+ * which each SDK package turns into its own on the way out. Unlike
+ * {@link ServerTimestamp} it does not fill itself in, since a field is removed
+ * on purpose or not at all.
  *
- * This one only goes one way, as the other sentinels do. A field removed is
+ * It belongs in a write only, as the other sentinels do. A field removed is
  * not there to read, so a read of the same is an optional key - see
  * {@link DeleteFieldOr} for the pair.
  *
@@ -326,12 +312,6 @@ export interface DeleteFieldOr<S extends Schema.Top> extends Schema.Union<
 export const DeleteFieldOr: <S extends Schema.Top>(schema: S) => DeleteFieldOr<S> =
   firestoreSchema.DeleteFieldOr;
 
-interface ArrayUnionValue<S extends Schema.Top> extends Schema.declareConstructor<
-  FieldValue.ArrayUnion<S["Type"]>,
-  FieldValue.ArrayUnion<S["Encoded"]>,
-  readonly [S]
-> {}
-
 /**
  * Type-level representation of {@link ArrayUnion}.
  *
@@ -339,11 +319,10 @@ interface ArrayUnionValue<S extends Schema.Top> extends Schema.declareConstructo
  * @category models
  * @since 0.2.0
  */
-export interface ArrayUnion<S extends Schema.Top> extends Schema.decodeTo<
-  ArrayUnionValue<S>,
-  Schema.Unknown,
-  never,
-  FirestoreEncoder
+export interface ArrayUnion<S extends Schema.Top> extends Schema.declareConstructor<
+  FieldValue.ArrayUnion<S["Type"]>,
+  FieldValue.ArrayUnion<S["Encoded"]>,
+  readonly [S]
 > {
   readonly Rebuild: ArrayUnion<S>;
 }
@@ -353,15 +332,16 @@ export interface ArrayUnion<S extends Schema.Top> extends Schema.decodeTo<
  * elements it lacks.
  *
  * A call site hands it {@link FieldValue.arrayUnion}, and each element is
- * encoded through `item` before the encoder turns the lot into the sentinel its
- * SDK writes - so a timestamp among them is stored as a timestamp, and an
- * element `item` refuses is refused here too.
+ * encoded through `item`, and then by `toCodecFirestore` the way `item` is
+ * stored, before the SDK package turns the portable sentinel into its own - so
+ * a `DateTimeUtc` among them is stored as a timestamp, and an element `item`
+ * refuses is refused here too.
  *
  * `item` is what the array holds, and Firestore asks two things of it: that it
  * is not an array itself, since an array may not hold one, and that it does not
  * write a sentinel, since one may not sit inside an array.
  *
- * This one only goes one way, as the other sentinels do. A document holds the
+ * It belongs in a write only, as the other sentinels do. A document holds the
  * array the server wrote rather than the request to grow it - see
  * {@link ArrayOr} for the pair.
  *
@@ -372,12 +352,6 @@ export interface ArrayUnion<S extends Schema.Top> extends Schema.decodeTo<
 export const ArrayUnion: <S extends Schema.Top>(item: S) => ArrayUnion<S> =
   firestoreSchema.ArrayUnion;
 
-interface ArrayRemoveValue<S extends Schema.Top> extends Schema.declareConstructor<
-  FieldValue.ArrayRemove<S["Type"]>,
-  FieldValue.ArrayRemove<S["Encoded"]>,
-  readonly [S]
-> {}
-
 /**
  * Type-level representation of {@link ArrayRemove}.
  *
@@ -385,11 +359,10 @@ interface ArrayRemoveValue<S extends Schema.Top> extends Schema.declareConstruct
  * @category models
  * @since 0.2.0
  */
-export interface ArrayRemove<S extends Schema.Top> extends Schema.decodeTo<
-  ArrayRemoveValue<S>,
-  Schema.Unknown,
-  never,
-  FirestoreEncoder
+export interface ArrayRemove<S extends Schema.Top> extends Schema.declareConstructor<
+  FieldValue.ArrayRemove<S["Type"]>,
+  FieldValue.ArrayRemove<S["Encoded"]>,
+  readonly [S]
 > {
   readonly Rebuild: ArrayRemove<S>;
 }
@@ -403,7 +376,7 @@ export interface ArrayRemove<S extends Schema.Top> extends Schema.decodeTo<
  * schema the array was written with is what gives a match a chance: the server
  * compares what it is handed with what it holds, exactly.
  *
- * This one only goes one way, as the other sentinels do - see {@link ArrayOr}
+ * It belongs in a write only, as the other sentinels do - see {@link ArrayOr}
  * for the pair.
  *
  * @stability unstable

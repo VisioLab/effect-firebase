@@ -66,9 +66,8 @@ export const toAdmin = (value: FirestoreValue, firestore: Admin.Firestore): unkn
     if (FieldValue.isArrayRemove(u)) return Admin.FieldValue.arrayRemove(...u.elements.map(go));
     if (Array.isArray(u)) return u.map(go);
     if (isPlainObject(u)) return mapValues(u, go);
-    // The Admin SDK's own values, which the `FirestoreSchema` codecs still
-    // build through `FirestoreEncoder`, pass through untouched until they stop
-    // doing so.
+    // Not a Firestore Value, so nothing the library encodes reaches here. What
+    // does - an SDK value handed through `Schema.Any` - is the SDK's to judge.
     return u;
   };
   return go(value);
