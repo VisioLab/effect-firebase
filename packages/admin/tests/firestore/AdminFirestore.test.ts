@@ -7,8 +7,9 @@ import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreE
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as Admin from "firebase-admin/app";
 import { DocumentReference, initializeFirestore } from "firebase-admin/firestore";
+import type * as AdminSdk from "firebase-admin/firestore";
 import * as App from "../../src/App.ts";
-import * as AdminFirestore from "../../src/firestore/Firestore.ts";
+import * as AdminFirestore from "../../src/firestore/AdminFirestore.ts";
 import { clear } from "./emulator.ts";
 
 // A named app keeps each run independent of whatever the default app is, and of
@@ -253,4 +254,92 @@ describe("Firestore, against the emulator", () => {
       expect(error).toBeInstanceOf(FirestoreError);
     }).pipe(Effect.provide(layer)),
   );
+});
+
+describe("AdminFirestore, against the emulator", () => {
+  const projectId = "demo-admin-firestore";
+  const adminLayer = AdminFirestore.layer().pipe(
+    Layer.provide(App.layer({ projectId }, "admin-firestore")),
+  );
+
+  it.effect("is provided as Firestore too, as one and the same object", () =>
+    Effect.gen(function* () {
+      yield* clear(projectId);
+      const admin = yield* AdminFirestore.AdminFirestore;
+      const firestore = yield* Firestore;
+
+      expect(admin).toBe(firestore);
+
+      // Portable code and admin code talk to the same database.
+      yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
+      expect((yield* admin.getDoc(Posts.doc(hello)))._tag).toBe("Existing");
+    }).pipe(Effect.provide(adminLayer)),
+  );
+
+  it.effect("layerWithEncoder provides the encoder alongside both, as the same service", () =>
+    Effect.gen(function* () {
+      const admin = yield* AdminFirestore.AdminFirestore;
+      const firestore = yield* Firestore;
+      const encoder = yield* FirestoreEncoder;
+
+      expect(admin).toBe(firestore);
+      // The encoder writes references into the database the service reads.
+      const ref = encoder.documentReference(Posts.doc(hello));
+      expect((ref as DocumentReference).firestore).toBe(admin.instance);
+    }).pipe(
+      Effect.provide(
+        AdminFirestore.layerWithEncoder().pipe(
+          Layer.provide(App.layer({ projectId }, "admin-firestore-encoder")),
+        ),
+      ),
+    ),
+  );
+
+  it.effect("hands out the Admin SDK's own Firestore, for what the service does not wrap", () =>
+    Effect.gen(function* () {
+      yield* clear(projectId);
+      const admin = yield* AdminFirestore.AdminFirestore;
+
+      yield* Effect.promise(() =>
+        admin.instance.doc(`posts/${hello}`).set({ title: "Raw", views: 3 }),
+      );
+      const snapshot = yield* admin.getDoc(Posts.doc(hello));
+
+      expect(DocumentSnapshot.isExisting(snapshot) && snapshot.raw).toEqual({
+        title: "Raw",
+        views: 3,
+      });
+    }).pipe(Effect.provide(adminLayer)),
+  );
+
+  it.effect("hands out the database the options name", () =>
+    Effect.gen(function* () {
+      const admin = yield* AdminFirestore.AdminFirestore;
+
+      expect(admin.instance.databaseId).toBe("other");
+    }).pipe(
+      Effect.provide(
+        AdminFirestore.layer({ databaseId: "other" }).pipe(
+          Layer.provide(App.layer({ projectId }, "admin-firestore-other")),
+        ),
+      ),
+    ),
+  );
+
+  it("is a Firestore, and the only one of the two with the SDK's instance", () => {
+    expectTypeOf<AdminFirestore.AdminFirestore>().toExtend<Firestore>();
+    expectTypeOf<AdminFirestore.AdminFirestore["instance"]>().toEqualTypeOf<AdminSdk.Firestore>();
+    expectTypeOf<Firestore>().not.toHaveProperty("instance");
+  });
+});
+
+describe("AdminFirestore layers", () => {
+  it("provide AdminFirestore and Firestore, and the encoder with layerWithEncoder", () => {
+    expectTypeOf(AdminFirestore.layer()).toEqualTypeOf<
+      Layer.Layer<AdminFirestore.AdminFirestore | Firestore, never, App.App>
+    >();
+    expectTypeOf(AdminFirestore.layerWithEncoder()).toEqualTypeOf<
+      Layer.Layer<AdminFirestore.AdminFirestore | Firestore | FirestoreEncoder, never, App.App>
+    >();
+  });
 });

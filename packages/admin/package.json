@@ -32,7 +32,7 @@
     "./App": "./src/App.ts",
     "./Auth": "./src/Auth.ts",
     "./firestore": "./src/firestore/index.ts",
-    "./firestore/Firestore": "./src/firestore/Firestore.ts",
+    "./firestore/AdminFirestore": "./src/firestore/AdminFirestore.ts",
     "./firestore/FirestoreEncoder": "./src/firestore/FirestoreEncoder.ts",
     "./package.json": "./package.json"
   },
@@ -42,7 +42,7 @@
       "./App": "./dist/App.mjs",
       "./Auth": "./dist/Auth.mjs",
       "./firestore": "./dist/firestore/index.mjs",
-      "./firestore/Firestore": "./dist/firestore/Firestore.mjs",
+      "./firestore/AdminFirestore": "./dist/firestore/AdminFirestore.mjs",
       "./firestore/FirestoreEncoder": "./dist/firestore/FirestoreEncoder.mjs",
       "./package.json": "./package.json"
     },

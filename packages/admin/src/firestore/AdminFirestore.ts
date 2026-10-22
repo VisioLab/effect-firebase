@@ -1,5 +1,10 @@
 /**
- * Firestore for a single app, as exposed by the Firebase Admin SDK.
+ * Admin Firestore for a single app: a {@link Firestore}, plus what only the
+ * Firebase Admin SDK can do.
+ *
+ * Its layers provide one service under both {@link AdminFirestore} and the
+ * portable {@link Firestore}, so portable code and code that needs the Admin
+ * SDK share one database.
  *
  * @stability unstable
  * @since 0.2.0
@@ -7,8 +12,41 @@
 import { Context, Effect, Layer } from "effect";
 import { Firestore } from "@visiolab/effect-firebase/firestore/Firestore";
 import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
+import type * as Admin from "firebase-admin/firestore";
 import type * as App from "../App.ts";
 import * as internalFirestore from "./internal/firestore.ts";
+
+/**
+ * A {@link Firestore} that also offers what only the Admin SDK can do.
+ *
+ * It only ever widens {@link Firestore}, so it can be handed to portable code
+ * as it is.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface AdminFirestore extends Firestore {
+  /**
+   * The Admin SDK's own Firestore, for the database the service was opened
+   * on.
+   *
+   * For what this service does not wrap yet. What goes through it skips the
+   * collection's model and comes back as the SDK's own values and errors.
+   */
+  readonly instance: Admin.Firestore;
+}
+
+/**
+ * Service key for {@link AdminFirestore}.
+ *
+ * @stability unstable
+ * @category services
+ * @since 0.2.0
+ */
+export const AdminFirestore = Context.Service<AdminFirestore>(
+  "@visiolab/effect-firebase-admin/firestore/AdminFirestore",
+);
 
 /**
  * How to open a database.
@@ -44,7 +82,7 @@ export interface Options {
 }
 
 /**
- * Builds {@link Firestore} on top of the {@link App.App} in context.
+ * Builds {@link AdminFirestore} on top of the {@link App.App} in context.
  *
  * Constructing the service cannot fail: opening a database only throws when the
  * app has already been deleted, when it was handed something that is not an
@@ -60,13 +98,14 @@ export interface Options {
  * @category constructors
  * @since 0.2.0
  */
-export const make = Effect.fn("Firestore.make")(function* (options?: Options) {
+export const make = Effect.fn("AdminFirestore.make")(function* (options?: Options) {
   const { firestore, encoder } = yield* internalFirestore.openWithEncoder(options);
   return internalFirestore.fromDatabase(firestore, encoder);
 });
 
 /**
- * A layer that provides {@link Firestore} for the {@link App.App} in context.
+ * A layer that provides {@link AdminFirestore} for the {@link App.App} in
+ * context, and the same service as {@link Firestore} too.
  *
  * Passing no options reads the project's default database, opened with the
  * SDK's own defaults.
@@ -82,8 +121,12 @@ export const make = Effect.fn("Firestore.make")(function* (options?: Options) {
  * @category layers
  * @since 0.2.0
  */
-export const layer = (options?: Options): Layer.Layer<Firestore, never, App.App> =>
-  Layer.effect(Firestore, make(options));
+export const layer = (options?: Options): Layer.Layer<AdminFirestore | Firestore, never, App.App> =>
+  Layer.effectContext(
+    Effect.map(make(options), (service) =>
+      Context.make(AdminFirestore, service).pipe(Context.add(Firestore, service)),
+    ),
+  );
 
 /**
  * {@link layer}, providing the {@link FirestoreEncoder} the service writes
@@ -99,11 +142,13 @@ export const layer = (options?: Options): Layer.Layer<Firestore, never, App.App>
  */
 export const layerWithEncoder = (
   options?: Options,
-): Layer.Layer<Firestore | FirestoreEncoder, never, App.App> =>
+): Layer.Layer<AdminFirestore | Firestore | FirestoreEncoder, never, App.App> =>
   Layer.effectContext(
-    Effect.map(internalFirestore.openWithEncoder(options), ({ firestore, encoder }) =>
-      Context.make(Firestore, internalFirestore.fromDatabase(firestore, encoder)).pipe(
+    Effect.map(internalFirestore.openWithEncoder(options), ({ firestore, encoder }) => {
+      const service = internalFirestore.fromDatabase(firestore, encoder);
+      return Context.make(AdminFirestore, service).pipe(
+        Context.add(Firestore, service),
         Context.add(FirestoreEncoder, encoder),
-      ),
-    ),
+      );
+    }),
   );

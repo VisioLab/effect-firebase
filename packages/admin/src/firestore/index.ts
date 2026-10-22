@@ -1,10 +1,10 @@
 /**
- * Firestore, as exposed by the Firebase Admin SDK.
+ * Admin Firestore: Firestore, plus what only the Firebase Admin SDK can do.
  *
  * @stability unstable
  * @since 0.2.0
  */
-export * as Firestore from "./Firestore.ts";
+export * as AdminFirestore from "./AdminFirestore.ts";
 /**
  * @stability unstable
  * @since 0.2.0
