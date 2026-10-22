@@ -34,7 +34,6 @@
     "./firestore": "./src/firestore/index.ts",
     "./firestore/AdminFirestore": "./src/firestore/AdminFirestore.ts",
     "./firestore/AdminFirestoreValue": "./src/firestore/AdminFirestoreValue.ts",
-    "./firestore/FirestoreEncoder": "./src/firestore/FirestoreEncoder.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -45,7 +44,6 @@
       "./firestore": "./dist/firestore/index.mjs",
       "./firestore/AdminFirestore": "./dist/firestore/AdminFirestore.mjs",
       "./firestore/AdminFirestoreValue": "./dist/firestore/AdminFirestoreValue.mjs",
-      "./firestore/FirestoreEncoder": "./dist/firestore/FirestoreEncoder.mjs",
       "./package.json": "./package.json"
     },
     "registry": "https://npm.pkg.github.com"

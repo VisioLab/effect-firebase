@@ -7,13 +7,10 @@ import type {
   UpdateOptions,
   UpdateSchema,
   TransactionOptions,
-  UpdateServices,
-  WriteServices,
 } from "@visiolab/effect-firebase/firestore/Firestore";
 import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import * as ClientQuerySnapshot from "../ClientQuerySnapshot.ts";
-import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
 import type * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import { toCodecFirestore } from "@visiolab/effect-firebase/firestore/FirestoreValue";
 import { FirebaseError } from "firebase/app";
@@ -21,7 +18,6 @@ import * as Client from "firebase/firestore";
 import * as App from "../../App.ts";
 import * as ClientDocumentSnapshot from "../ClientDocumentSnapshot.ts";
 import type * as ClientFirestore from "../ClientFirestore.ts";
-import * as Encoder from "../FirestoreEncoder.ts";
 import * as firestoreValue from "./firestoreValue.ts";
 
 /**
@@ -125,21 +121,16 @@ const querySnapshotOf = <C extends Collection.Any>(
   );
 
 /**
- * Opens the database the options name on the {@link App.App} in context,
- * together with the encoder that writes into it.
+ * Opens the database the options name on the {@link App.App} in context.
  *
  * The SDK memoizes a database on the app itself, and deleting the app
  * terminates it, so there is nothing to release here.
  *
  * @internal
  */
-export const openWithEncoder = Effect.fnUntraced(function* (options?: ClientFirestore.Options) {
+export const openDatabase = Effect.fnUntraced(function* (options?: ClientFirestore.Options) {
   const app = yield* App.App;
-  const firestore = open(app, options);
-  // Built from the database just opened rather than taken from context, so a
-  // reference written into a document points into the database it is written
-  // to, whichever one the options name.
-  return { firestore, encoder: Encoder.make(firestore) };
+  return open(app, options);
 });
 
 /**
@@ -225,7 +216,7 @@ const transactionTarget = (tx: Client.Transaction): Target => ({
  * The reads and writes a {@link Firestore} and a {@link Transaction} share,
  * made against `target`.
  */
-const operations = (firestore: Client.Firestore, encoder: FirestoreEncoder, target: Target) => {
+const operations = (firestore: Client.Firestore, target: Target) => {
   const call = <A>(
     span: string,
     message: string,
@@ -239,32 +230,24 @@ const operations = (firestore: Client.Firestore, encoder: FirestoreEncoder, targ
   /**
    * Turns what is written, in the shape `schema` takes, into the values the
    * client SDK writes: encoded to Firestore Values through the codec derived
-   * from `schema`, then mapped to the SDK's own.
-   *
-   * The encoder is answered for here rather than by the caller, since the
-   * `FirestoreSchema` codecs still build SDK values through it, which the
-   * mapping passes through as they are. Whatever else the schema encodes
-   * through is left where it is, for the caller to provide.
+   * from `schema`, then mapped to the SDK's own. Whatever services the schema
+   * encodes through are left for the caller to provide.
    */
   const encode = <S extends Schema.Top>(schema: S, data: S["Type"]) =>
-    Effect.provideService(
-      Effect.map(Schema.encodeEffect(toCodecFirestore(schema))(data), (encoded) =>
-        firestoreValue.toClient(encoded, firestore),
-      ),
-      FirestoreEncoder,
-      encoder,
+    Effect.map(Schema.encodeEffect(toCodecFirestore(schema))(data), (encoded) =>
+      firestoreValue.toClient(encoded, firestore),
     );
 
   /** A document, in its model's `create` shape. */
   const encodeCreate = <C extends Collection.Any>(collection: C, data: Create<C>) => {
-    // Named so that the encoder is built against the schema `C` was defined
-    // with rather than against `Schema.Top`, which keeps the services it
+    // Named so that the codec is derived from the schema `C` was defined
+    // with rather than from `Schema.Top`, which keeps the services it
     // encodes through in the type instead of erasing them to `unknown`.
     const schema: Collection.DocumentSchema<C>["create"] = collection.schema.create;
     return encode(schema, data) as Effect.Effect<
       Client.DocumentData,
       Schema.SchemaError,
-      WriteServices<C>
+      Collection.DocumentSchema<C>["create"]["EncodingServices"]
     >;
   };
 
@@ -283,7 +266,7 @@ const operations = (firestore: Client.Firestore, encoder: FirestoreEncoder, targ
     return encode(schema, data) as Effect.Effect<
       Client.UpdateData<Client.DocumentData>,
       Schema.SchemaError,
-      UpdateServices<C>
+      Collection.DocumentSchema<C>["update"]["EncodingServices"]
     >;
   };
 
@@ -374,25 +357,15 @@ const snapshotListenOptions = (
 });
 
 /**
- * The service over a database already opened, writing through `encoder`.
- *
- * The encoder is handed in rather than built here so that `layerWithEncoder`
- * can put the very same one into context.
+ * The service over a database already opened.
  *
  * @internal
  */
-export const fromDatabase = (
-  firestore: Client.Firestore,
-  encoder: FirestoreEncoder,
-): ClientFirestore.ClientFirestore => {
-  const { call, encodeCreate, readDoc, ...database } = operations(
-    firestore,
-    encoder,
-    databaseTarget,
-  );
+export const fromDatabase = (firestore: Client.Firestore): ClientFirestore.ClientFirestore => {
+  const { call, encodeCreate, readDoc, ...database } = operations(firestore, databaseTarget);
 
   const makeTransaction = (tx: Client.Transaction): Transaction => {
-    const { readDoc, setDoc, updateDoc } = operations(firestore, encoder, transactionTarget(tx));
+    const { readDoc, setDoc, updateDoc } = operations(firestore, transactionTarget(tx));
     return Transaction.of({
       // A transaction reads from the server alone and never holds writes of
       // its own that are pending, so its metadata says nothing and is left

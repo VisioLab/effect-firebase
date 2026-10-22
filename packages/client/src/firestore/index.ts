@@ -29,8 +29,3 @@ export * as ClientFirestoreValue from "./ClientFirestoreValue.ts";
  * @since 0.1.0
  */
 export * as ClientQuerySnapshot from "./ClientQuerySnapshot.ts";
-/**
- * @stability unstable
- * @since 0.1.0
- */
-export * as FirestoreEncoder from "./FirestoreEncoder.ts";

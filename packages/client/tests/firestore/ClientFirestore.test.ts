@@ -11,7 +11,6 @@ import {
   QuerySnapshot,
   Timestamp,
 } from "@visiolab/effect-firebase/firestore";
-import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
 import * as Client from "firebase/app";
 import {
   Bytes,
@@ -85,23 +84,6 @@ describe("ClientFirestore", () => {
     }).pipe(Effect.provide(layer)),
   );
 
-  it.effect("layerWithEncoder provides both tags and the encoder", () =>
-    Effect.gen(function* () {
-      const client = yield* ClientFirestore.ClientFirestore;
-      const portable = yield* Firestore;
-      const encoder = yield* FirestoreEncoder;
-
-      expect(client).toBe(portable);
-      expect(typeof encoder.documentReference).toBe("function");
-    }).pipe(
-      Effect.provide(
-        ClientFirestore.layerWithEncoder({ emulator }).pipe(
-          Layer.provideMerge(App.layer({ projectId }, "firestore-encoder")),
-        ),
-      ),
-    ),
-  );
-
   it.effect("exposes the client SDK's own Firestore object as instance", () =>
     Effect.gen(function* () {
       const client = yield* ClientFirestore.ClientFirestore;
@@ -117,9 +99,6 @@ describe("ClientFirestore", () => {
     expectTypeOf<Firestore>().not.toHaveProperty("instance");
     expectTypeOf(ClientFirestore.layer()).toEqualTypeOf<
       Layer.Layer<ClientFirestore.ClientFirestore | Firestore, never, App.App>
-    >();
-    expectTypeOf(ClientFirestore.layerWithEncoder()).toEqualTypeOf<
-      Layer.Layer<ClientFirestore.ClientFirestore | Firestore | FirestoreEncoder, never, App.App>
     >();
   });
 
@@ -224,29 +203,6 @@ describe("ClientFirestore", () => {
 
       expect(String(defect)).toContain("deleted-fs");
     }),
-  );
-
-  it.effect(
-    "layerWithEncoder provides the encoder it writes through, pointing into the same database",
-    () =>
-      Effect.gen(function* () {
-        const app = Client.initializeApp({ projectId: "demo-fs-encoder" }, "fs-encoder");
-
-        const encoder = yield* Effect.provide(
-          FirestoreEncoder,
-          ClientFirestore.layerWithEncoder({ databaseId: "other" }).pipe(
-            Layer.provide(Layer.succeed(App.App, app)),
-          ),
-        );
-
-        // A reference is the one value built against a database, so it is what
-        // tells which database the encoder was built from.
-        const ref = encoder.documentReference(Posts.doc(hello));
-        expect(ref).toBeInstanceOf(DocumentReference);
-        expect((ref as DocumentReference).firestore).toBe(getFirestore(app, "other"));
-
-        yield* Effect.promise(() => Client.deleteApp(app));
-      }),
   );
 });
 

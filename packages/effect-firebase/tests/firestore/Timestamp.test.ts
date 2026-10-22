@@ -3,10 +3,7 @@ import { DateTime, Effect, Equal, Hash, HashSet, Option } from "effect";
 import * as Timestamp from "../../src/firestore/Timestamp.ts";
 
 /** The shape an SDK hands back, which is not one of ours. */
-const native = (seconds: number, nanoseconds: number): Timestamp.TimestampLike => ({
-  seconds,
-  nanoseconds,
-});
+const native = (seconds: number, nanoseconds: number) => ({ seconds, nanoseconds });
 
 describe("makeUnsafe", () => {
   it("carries the two fields Firestore stores", () => {
@@ -83,15 +80,6 @@ describe("conversions", () => {
     expect(Timestamp.toDateTime(Timestamp.fromDateTimeUnsafe(dateTime))).toStrictEqual(dateTime);
   });
 
-  it("takes over a timestamp read through an SDK, leaving one of ours alone", () => {
-    const taken = Timestamp.fromTimestampLikeUnsafe(native(1, 2));
-    expect(Timestamp.isTimestamp(taken)).toBe(true);
-    expect(taken.seconds).toBe(1);
-
-    const ours = Timestamp.makeUnsafe(1, 2);
-    expect(Timestamp.fromTimestampLikeUnsafe(ours)).toBe(ours);
-  });
-
   it.effect("reads the current instant from the clock", () =>
     Effect.gen(function* () {
       const before = yield* DateTime.now;
@@ -108,38 +96,7 @@ describe("guards", () => {
   it("tells ours apart from the shape alone", () => {
     expect(Timestamp.isTimestamp(Timestamp.makeUnsafe(0, 0))).toBe(true);
     expect(Timestamp.isTimestamp(native(0, 0))).toBe(false);
-    expect(Timestamp.isTimestampLike(Timestamp.makeUnsafe(0, 0))).toBe(true);
-    expect(Timestamp.isTimestampLike(native(0, 0))).toBe(true);
-  });
-
-  it("accepts an SDK timestamp, whose fields are getters on its prototype", () => {
-    class SdkTimestamp {
-      constructor(
-        private readonly _seconds: number,
-        private readonly _nanoseconds: number,
-      ) {}
-      get seconds() {
-        return this._seconds;
-      }
-      get nanoseconds() {
-        return this._nanoseconds;
-      }
-    }
-    const sdk = new SdkTimestamp(1, 2);
-
-    expect(Object.hasOwn(sdk, "seconds")).toBe(false);
-    expect(Timestamp.isTimestampLike(sdk)).toBe(true);
-    expect(Timestamp.toMillis(Timestamp.fromTimestampLikeUnsafe(sdk))).toBe(1_000);
-  });
-
-  it("rejects what Firestore would not have handed back", () => {
-    expect(Timestamp.isTimestampLike(null)).toBe(false);
-    expect(Timestamp.isTimestampLike({ seconds: 0 })).toBe(false);
-    expect(Timestamp.isTimestampLike({ seconds: "0", nanoseconds: 0 })).toBe(false);
-    expect(Timestamp.isTimestampLike(native(0, -1))).toBe(false);
-    expect(Timestamp.isTimestampLike(native(0, 1_000_000_000))).toBe(false);
-    expect(Timestamp.isTimestampLike(native(253_402_300_800, 0))).toBe(false);
-    expect(Timestamp.isTimestampLike(DateTime.makeUnsafe(0))).toBe(false);
+    expect(Timestamp.isTimestamp(DateTime.makeUnsafe(0))).toBe(false);
   });
 });
 
@@ -154,7 +111,7 @@ describe("Order", () => {
   });
 
   it("orders a timestamp read through an SDK alongside ours", () => {
-    expect(Timestamp.Order(native(1, 0), Timestamp.makeUnsafe(2, 0))).toBe(-1);
+    expect(Timestamp.Order(Timestamp.makeUnsafe(1, 0), Timestamp.makeUnsafe(2, 0))).toBe(-1);
   });
 });
 

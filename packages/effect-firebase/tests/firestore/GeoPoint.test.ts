@@ -3,10 +3,7 @@ import { Equal, Hash, HashSet, Option } from "effect";
 import * as GeoPoint from "../../src/firestore/GeoPoint.ts";
 
 /** The shape an SDK hands back, which is not one of ours. */
-const native = (latitude: number, longitude: number): GeoPoint.GeoPointLike => ({
-  latitude,
-  longitude,
-});
+const native = (latitude: number, longitude: number) => ({ latitude, longitude });
 
 describe("makeUnsafe", () => {
   it("carries the two fields Firestore stores", () => {
@@ -45,51 +42,10 @@ describe("make", () => {
   });
 });
 
-describe("fromGeoPointLikeUnsafe", () => {
-  it("takes over a geopoint read through an SDK, leaving one of ours alone", () => {
-    const taken = GeoPoint.fromGeoPointLikeUnsafe(native(1, 2));
-    expect(GeoPoint.isGeoPoint(taken)).toBe(true);
-    expect(taken.latitude).toBe(1);
-
-    const ours = GeoPoint.makeUnsafe(1, 2);
-    expect(GeoPoint.fromGeoPointLikeUnsafe(ours)).toBe(ours);
-  });
-});
-
 describe("guards", () => {
   it("tells ours apart from the shape alone", () => {
     expect(GeoPoint.isGeoPoint(GeoPoint.makeUnsafe(0, 0))).toBe(true);
     expect(GeoPoint.isGeoPoint(native(0, 0))).toBe(false);
-    expect(GeoPoint.isGeoPointLike(GeoPoint.makeUnsafe(0, 0))).toBe(true);
-    expect(GeoPoint.isGeoPointLike(native(0, 0))).toBe(true);
-  });
-
-  it("accepts an SDK geopoint, whose fields are getters on its prototype", () => {
-    class SdkGeoPoint {
-      constructor(
-        private readonly _latitude: number,
-        private readonly _longitude: number,
-      ) {}
-      get latitude() {
-        return this._latitude;
-      }
-      get longitude() {
-        return this._longitude;
-      }
-    }
-    const sdk = new SdkGeoPoint(1, 2);
-
-    expect(Object.hasOwn(sdk, "latitude")).toBe(false);
-    expect(GeoPoint.isGeoPointLike(sdk)).toBe(true);
-    expect(GeoPoint.fromGeoPointLikeUnsafe(sdk).longitude).toBe(2);
-  });
-
-  it("rejects what Firestore would not have handed back", () => {
-    expect(GeoPoint.isGeoPointLike(null)).toBe(false);
-    expect(GeoPoint.isGeoPointLike({ latitude: 0 })).toBe(false);
-    expect(GeoPoint.isGeoPointLike({ latitude: "0", longitude: 0 })).toBe(false);
-    expect(GeoPoint.isGeoPointLike(native(91, 0))).toBe(false);
-    expect(GeoPoint.isGeoPointLike(native(0, -181))).toBe(false);
   });
 });
 

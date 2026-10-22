@@ -307,6 +307,27 @@ describe("toCodecFirestore", () => {
     }),
   );
 
+  it("encodes a model with sentinels synchronously, with no layer", () => {
+    class Post extends FirestoreModel.Class<Post>("Post")({
+      title: Schema.String,
+      views: FirestoreModel.Number(Schema.Finite),
+      createdAt: FirestoreModel.Timestamp(Schema.DateTimeUtc),
+    }) {}
+
+    expect(
+      Schema.encodeSync(FirestoreValue.toCodecFirestore(Post.create))({
+        title: "Hello",
+        views: 0,
+        createdAt: FieldValue.serverTimestamp,
+      }),
+    ).toEqual({ title: "Hello", views: 0, createdAt: FieldValue.serverTimestamp });
+    expect(
+      Schema.encodeSync(FirestoreValue.toCodecFirestore(Post.update))({
+        views: FieldValue.increment(1),
+      }),
+    ).toEqual({ views: FieldValue.increment(1) });
+  });
+
   it("types the encoded side as a Firestore Value and adds no services", () => {
     const Model = Schema.Struct({
       utc: Schema.DateTimeUtc,

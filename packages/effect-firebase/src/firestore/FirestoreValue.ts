@@ -118,8 +118,10 @@ export interface toCodecFirestore<S extends Schema.Constraint> extends Schema.Bo
  *    anything else fails with a schema issue at its path.
  *
  * Keywords follow `Schema.toCodecJson`: a `bigint` or `symbol` is written as a
- * string, and `undefined` as `null`. Derivation never fails and is memoized
- * per schema.
+ * string, and `undefined` as `null`. Unlike there, `Schema.Any` is no escape
+ * hatch: like `Schema.Unknown` it takes Firestore Values only, since the SDK
+ * mappings take nothing else. Derivation never fails and is memoized per
+ * schema.
  *
  * @stability unstable
  * @category converting

@@ -13,8 +13,3 @@ export * as AdminFirestore from "./AdminFirestore.ts";
  * @since 0.2.0
  */
 export * as AdminFirestoreValue from "./AdminFirestoreValue.ts";
-/**
- * @stability unstable
- * @since 0.2.0
- */
-export * as FirestoreEncoder from "./FirestoreEncoder.ts";

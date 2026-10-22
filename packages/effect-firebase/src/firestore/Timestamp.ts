@@ -18,23 +18,6 @@ import * as timestamp from "./internal/timestamp.ts";
 const TypeId = timestamp.TypeId;
 
 /**
- * The minimal shape of a Firestore timestamp, whoever built it.
- *
- * Both the Admin SDK and the web SDK hand back a `Timestamp` carrying these two
- * fields, so this is the shape a document arrives in whichever one read it.
- *
- * @stability unstable
- * @category models
- * @since 0.2.0
- */
-export interface TimestampLike {
-  /** Seconds since the Unix epoch, which is negative before it. */
-  readonly seconds: number;
-  /** The fraction of that second, which is never negative. */
-  readonly nanoseconds: number;
-}
-
-/**
  * An instant, held the way Firestore holds it.
  *
  * Firestore stores timestamps to microsecond precision, which is finer than a
@@ -45,8 +28,12 @@ export interface TimestampLike {
  * @category models
  * @since 0.2.0
  */
-export interface Timestamp extends TimestampLike, Equal.Equal, Inspectable.Inspectable {
+export interface Timestamp extends Equal.Equal, Inspectable.Inspectable {
   readonly [TypeId]: typeof TypeId;
+  /** Seconds since the Unix epoch, which is negative before it. */
+  readonly seconds: number;
+  /** The fraction of that second, which is never negative. */
+  readonly nanoseconds: number;
 }
 
 /**
@@ -57,19 +44,6 @@ export interface Timestamp extends TimestampLike, Equal.Equal, Inspectable.Inspe
  * @since 0.2.0
  */
 export const isTimestamp: (u: unknown) => u is Timestamp = timestamp.isTimestamp;
-
-/**
- * Whether `u` is shaped like a Firestore timestamp and holds an instant
- * Firestore can address.
- *
- * This is what makes a timestamp readable without depending on an SDK: an SDK's
- * own `Timestamp` passes, because it carries the same two fields.
- *
- * @stability unstable
- * @category guards
- * @since 0.2.0
- */
-export const isTimestampLike: (u: unknown) => u is TimestampLike = timestamp.isTimestampLike;
 
 /**
  * Builds a timestamp from the two fields Firestore stores, throwing when they
@@ -139,18 +113,6 @@ export const fromDateTime: (dateTime: DateTime.Utc) => Option.Option<Timestamp> 
   timestamp.fromDateTime;
 
 /**
- * Takes over a timestamp read through an SDK, leaving one of ours alone.
- *
- * Throws when the fields fall outside the range Firestore addresses.
- *
- * @stability unstable
- * @category constructors
- * @since 0.2.0
- */
-export const fromTimestampLikeUnsafe: (like: TimestampLike) => Timestamp =
-  timestamp.fromTimestampLikeUnsafe;
-
-/**
  * The current instant, read from the `Clock`, to the millisecond it reports.
  *
  * This is the time here rather than the time at the database.
@@ -186,4 +148,4 @@ export const toDateTime: (self: Timestamp) => DateTime.Utc = timestamp.toDateTim
  * @category ordering
  * @since 0.2.0
  */
-export const Order: order.Order<TimestampLike> = timestamp.Order;
+export const Order: order.Order<Timestamp> = timestamp.Order;

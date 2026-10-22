@@ -2,10 +2,11 @@ import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { Context, Effect, Schema, SchemaGetter } from "effect";
 import * as Firestore from "../../src/firestore/Firestore.ts";
 import * as Collection from "../../src/firestore/Collection.ts";
+import * as FieldValue from "../../src/firestore/FieldValue.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
 import * as FirestoreSchema from "../../src/firestore/FirestoreSchema.ts";
 
-/** A service a document schema might encode through that is not the encoder. */
+/** A service a document schema might encode through. */
 interface Secrets {
   readonly seal: (value: string) => string;
 }
@@ -31,20 +32,40 @@ const Plain = Collection.make("plain", PlainDoc);
 const Stamped = Collection.make("stamped", StampedDoc);
 const Secret = Collection.make("secret", SecretDoc);
 
-describe("WriteServices", () => {
-  it("asks for nothing when a document encodes on its own", () => {
-    expectTypeOf<Firestore.WriteServices<typeof Plain>>().toEqualTypeOf<never>();
+/** The writes a portable service makes for each collection, never run. */
+const writes = (firestore: Firestore.Firestore) => ({
+  plain: firestore.setDoc(Plain.doc(Plain.id.make("a")), { title: "x" }),
+  stamped: firestore.setDoc(Stamped.doc(Stamped.id.make("a")), {
+    title: "x",
+    createdAt: FieldValue.serverTimestamp,
+  }),
+  stampedAdd: firestore.addDoc(Stamped.collection(), {
+    title: "x",
+    createdAt: FieldValue.serverTimestamp,
+  }),
+  stampedUpdate: firestore.updateDoc(Stamped.doc(Stamped.id.make("a")), { title: "y" }),
+  secret: firestore.setDoc(Secret.doc(Secret.id.make("a")), { token: "t" }),
+  secretUpdate: firestore.updateDoc(Secret.doc(Secret.id.make("a")), { token: "t" }),
+});
+type Writes = ReturnType<typeof writes>;
+
+describe("writes", () => {
+  it("ask for nothing when a document encodes on its own", () => {
+    expectTypeOf<Effect.Services<Writes["plain"]>>().toEqualTypeOf<never>();
   });
 
-  it("asks for nothing where a document writes a sentinel", () => {
+  it("ask for nothing where a document writes a sentinel", () => {
     expectTypeOf<
       Collection.DocumentSchema<typeof Stamped>["create"]["EncodingServices"]
     >().toEqualTypeOf<never>();
-    expectTypeOf<Firestore.WriteServices<typeof Stamped>>().toEqualTypeOf<never>();
+    expectTypeOf<Effect.Services<Writes["stamped"]>>().toEqualTypeOf<never>();
+    expectTypeOf<Effect.Services<Writes["stampedAdd"]>>().toEqualTypeOf<never>();
+    expectTypeOf<Effect.Services<Writes["stampedUpdate"]>>().toEqualTypeOf<never>();
   });
 
-  it("leaves anything else the document encodes through to the caller", () => {
-    expectTypeOf<Firestore.WriteServices<typeof Secret>>().toEqualTypeOf<Secrets>();
+  it("leave anything else the document encodes through to the caller", () => {
+    expectTypeOf<Effect.Services<Writes["secret"]>>().toEqualTypeOf<Secrets>();
+    expectTypeOf<Effect.Services<Writes["secretUpdate"]>>().toEqualTypeOf<Secrets>();
   });
 });
 
@@ -72,16 +93,6 @@ describe("Update", () => {
     const patch = { address: { city: "Berlin" } };
     expectTypeOf(patch).not.toExtend<Firestore.Update<typeof Profiles>>();
     expectTypeOf(patch).toExtend<Firestore.Update<typeof Profiles, "unchecked">>();
-  });
-});
-
-describe("UpdateServices", () => {
-  it("asks for nothing where a patch writes a sentinel", () => {
-    expectTypeOf<Firestore.UpdateServices<typeof Stamped>>().toEqualTypeOf<never>();
-  });
-
-  it("leaves anything else the patch encodes through to the caller", () => {
-    expectTypeOf<Firestore.UpdateServices<typeof Secret>>().toEqualTypeOf<Secrets>();
   });
 });
 

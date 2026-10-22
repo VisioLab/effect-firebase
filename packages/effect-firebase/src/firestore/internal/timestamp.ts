@@ -29,10 +29,8 @@ const inNanosecondsRange = (n: number): boolean =>
 
 /** @internal */
 export const isTimestamp = (u: unknown): u is Timestamp.Timestamp =>
-  Predicate.hasProperty(u, TypeId) && u[TypeId] === TypeId && isTimestampLike(u);
-
-/** @internal */
-export const isTimestampLike = (u: unknown): u is Timestamp.TimestampLike =>
+  Predicate.hasProperty(u, TypeId) &&
+  u[TypeId] === TypeId &&
   Predicate.hasProperty(u, "seconds") &&
   Predicate.hasProperty(u, "nanoseconds") &&
   Predicate.isNumber(u.seconds) &&
@@ -40,7 +38,7 @@ export const isTimestampLike = (u: unknown): u is Timestamp.TimestampLike =>
   inSecondsRange(u.seconds) &&
   inNanosecondsRange(u.nanoseconds);
 
-const Proto: Omit<Timestamp.Timestamp, keyof Timestamp.TimestampLike> = {
+const Proto: Omit<Timestamp.Timestamp, "seconds" | "nanoseconds"> = {
   ...Inspectable.BaseProto,
   [TypeId]: TypeId,
   toJSON(this: Timestamp.Timestamp) {
@@ -103,10 +101,6 @@ export const fromDateTime = (dateTime: DateTime.Utc): Option.Option<Timestamp.Ti
   fromMillis(DateTime.toEpochMillis(dateTime));
 
 /** @internal */
-export const fromTimestampLikeUnsafe = (like: Timestamp.TimestampLike): Timestamp.Timestamp =>
-  isTimestamp(like) ? like : makeUnsafe(like.seconds, like.nanoseconds);
-
-/** @internal */
 export const now: Effect.Effect<Timestamp.Timestamp> = Effect.map(DateTime.now, fromDateTimeUnsafe);
 
 /** @internal */
@@ -118,7 +112,7 @@ export const toDateTime = (self: Timestamp.Timestamp): DateTime.Utc =>
   DateTime.makeUnsafe(toMillis(self));
 
 /** @internal */
-export const Order: order.Order<Timestamp.TimestampLike> = order.make((self, that) =>
+export const Order: order.Order<Timestamp.Timestamp> = order.make((self, that) =>
   self.seconds === that.seconds
     ? order.Number(self.nanoseconds, that.nanoseconds)
     : order.Number(self.seconds, that.seconds),
