@@ -11,6 +11,13 @@
  */
 import { Context, Effect, Layer } from "effect";
 import { Firestore } from "@visiolab/effect-firebase/firestore/Firestore";
+import type {
+  FirestoreError,
+  Transaction,
+  TransactionOptions,
+} from "@visiolab/effect-firebase/firestore/Firestore";
+import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import type * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
 import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
 import type * as Admin from "firebase-admin/firestore";
 import type * as App from "../App.ts";
@@ -35,7 +42,57 @@ export interface AdminFirestore extends Firestore {
    * collection's model and comes back as the SDK's own values and errors.
    */
   readonly instance: Admin.Firestore;
+
+  /**
+   * Runs `effect` in a transaction, as {@link Firestore.runTransaction} does,
+   * with the transaction provided both as the {@link AdminTransaction} and as
+   * the portable {@link Transaction}.
+   *
+   * Both are the same transaction, so portable transaction helpers and ones
+   * that need the Admin SDK can run in the same body, and neither is left for
+   * the caller to provide.
+   */
+  readonly runTransaction: <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+    options?: TransactionOptions,
+  ) => Effect.Effect<A, E | FirestoreError, Exclude<R, AdminTransaction | Transaction>>;
 }
+
+/**
+ * A {@link Transaction} that can also read every document in a collection,
+ * which only the Admin SDK's transactions can.
+ *
+ * It holds to the same rules as {@link Transaction}: a collection read is a
+ * read, so it comes before every write.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface AdminTransaction extends Transaction {
+  /**
+   * Reads every document in the collection at `ref`, as
+   * {@link Firestore.getDocs} does, as part of the transaction.
+   *
+   * Every document it hands back is locked for the rest of the transaction,
+   * so another write to one of them makes the transaction run again.
+   */
+  readonly getDocs: <C extends Collection.Any>(
+    ref: Collection.CollectionReference<C>,
+  ) => Effect.Effect<QuerySnapshot.QuerySnapshot<C>, FirestoreError>;
+}
+
+/**
+ * Service key for the {@link AdminTransaction} an
+ * {@link AdminFirestore.runTransaction} body runs in.
+ *
+ * @stability unstable
+ * @category services
+ * @since 0.2.0
+ */
+export const AdminTransaction = Context.Service<AdminTransaction>(
+  "@visiolab/effect-firebase-admin/firestore/AdminFirestore/AdminTransaction",
+);
 
 /**
  * Service key for {@link AdminFirestore}.
