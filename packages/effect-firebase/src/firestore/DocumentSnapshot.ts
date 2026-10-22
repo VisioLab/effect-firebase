@@ -148,7 +148,7 @@ export const isMissing: <C extends Collection.Any>(
  */
 export const make: <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
-  raw: unknown,
+  data: unknown,
 ) => DocumentSnapshot<C> = documentSnapshot.make;
 
 /**
@@ -160,7 +160,7 @@ export const make: <C extends Collection.Any>(
  */
 export const existing: <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
-  raw: unknown,
+  data: unknown,
 ) => Existing<C> = documentSnapshot.existing;
 
 /**

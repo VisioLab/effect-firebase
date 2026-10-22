@@ -83,12 +83,12 @@ const MissingProto = {
 /** @internal */
 export const existing = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
-  raw: unknown,
+  data: unknown,
 ): DocumentSnapshot.Existing<C> => {
   const self = Object.assign(Object.create(ExistingProto) as typeof ExistingProto, {
     ref,
     id: ref.id,
-    raw,
+    raw: data,
   });
   return self as unknown as DocumentSnapshot.Existing<C>;
 };
@@ -107,5 +107,6 @@ export const missing = <C extends Collection.Any>(
 /** @internal */
 export const make = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
-  raw: unknown,
-): DocumentSnapshot.DocumentSnapshot<C> => (raw === undefined ? missing(ref) : existing(ref, raw));
+  data: unknown,
+): DocumentSnapshot.DocumentSnapshot<C> =>
+  data === undefined ? missing(ref) : existing(ref, data);
