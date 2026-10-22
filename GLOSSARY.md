@@ -39,3 +39,9 @@ _Avoid_: document list, docs array
 
 **Snapshot Metadata**:
 What the client SDK reports about where a snapshot came from: whether it was served from the local cache, and whether it reflects writes not yet acknowledged by the server.
+
+### Values
+
+**Firestore Value**:
+A value as Firestore stores it, independent of either SDK: a scalar, a timestamp, a geopoint, a document reference, bytes, a sentinel, or an array or map of Firestore Values.
+_Avoid_: encoded value, SDK value, raw value
