@@ -120,8 +120,9 @@ describe("DocumentReference", () => {
     expectTypeOf<(typeof Post)["Type"]>().toEqualTypeOf<
       Collection.DocumentReference<typeof Posts>
     >();
+    // Read back, a reference names no collection of its own.
     expectTypeOf<(typeof Post)["Encoded"]>().toEqualTypeOf<
-      Collection.DocumentReference<typeof Posts>
+      Collection.DocumentReference<Collection.Any>
     >();
     expectTypeOf<(typeof Post)["DecodingServices"]>().toEqualTypeOf<never>();
     expectTypeOf<(typeof Post)["EncodingServices"]>().toEqualTypeOf<never>();
@@ -143,6 +144,14 @@ describe("DocumentReference", () => {
       expect(Equal.equals(decoded, hello)).toBe(true);
     }),
   );
+
+  it("is a guard for references into the collection alone", () => {
+    const isPost = Schema.is(Post);
+    expect(isPost(hello)).toBe(true);
+    // Re-homing by path is decoding, not a type check.
+    expect(isPost(untyped(hello.path))).toBe(false);
+    expect(isPost(OrgPosts.doc(Orgs.id.make("acme"), OrgPosts.id.make("hello")))).toBe(false);
+  });
 
   it.effect("decodes one of ours unchanged", () =>
     Effect.gen(function* () {

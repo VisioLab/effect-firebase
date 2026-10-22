@@ -53,41 +53,61 @@ export const GeoPoint: FirestoreSchema.GeoPoint = Schema.declare<GeoPoint_.GeoPo
   },
 );
 
+const referenceRepresentation = {
+  id: "@visiolab/effect-firebase/firestore/DocumentReference",
+  payload: null,
+};
+
+/** A reference into any collection, as an SDK mapping reads one back. */
+const AnyDocumentReference = Schema.declare<Collection.DocumentReference<Collection.Any>>(
+  collection_.isDocumentReference,
+  {
+    representation: referenceRepresentation,
+    expected: "a document reference",
+    toEquivalence: () => Equal.equals,
+    toCodecFirestore: () => undefined,
+  },
+);
+
 /** @internal */
 export const DocumentReference = <C extends Collection.Any>(
   collection: C,
 ): FirestoreSchema.DocumentReference<C> => {
   const pattern = collection_.pattern(collection);
-  // A reference read back names its path but not the collection it was
-  // defined through, so a reference into any collection is taken, and
-  // re-homed into `collection` when its path is one of `collection`'s.
-  return Schema.declareConstructor<Collection.DocumentReference<C>>()(
-    [],
-    () => (input, ast, options) => {
-      if (!collection_.isDocumentReference(input))
-        return Effect.fail(new SchemaIssue.InvalidType(ast, input, options));
-      if (input.collection === collection)
-        return Effect.succeed(input as Collection.DocumentReference<C>);
-      return Effect.fromOption(collection_.fromPath(collection, input.path)).pipe(
-        Effect.mapError(
-          () =>
-            new SchemaIssue.InvalidValue(
-              { message: `Expected a document in ${pattern}, got "${input.path}"` },
-              input,
-              options,
-            ),
-        ),
-      );
-    },
+  const InCollection = Schema.declare<Collection.DocumentReference<C>>(
+    (u): u is Collection.DocumentReference<C> =>
+      collection_.isDocumentReference(u) && u.collection === collection,
     {
-      representation: {
-        id: "@visiolab/effect-firebase/firestore/DocumentReference",
-        payload: null,
-      },
+      representation: referenceRepresentation,
       expected: `a reference to a document in ${pattern}`,
       toEquivalence: () => Equal.equals,
       toCodecFirestore: () => undefined,
     },
+  );
+  // A reference read back names its path but not the collection it was
+  // defined through, so decoding takes a reference into any collection and
+  // re-homes it into `collection` when its path is one of `collection`'s.
+  return AnyDocumentReference.annotate({
+    expected: `a reference to a document in ${pattern}`,
+  }).pipe(
+    Schema.decodeTo(InCollection, {
+      decode: SchemaGetter.transformEffect(
+        (ref: Collection.DocumentReference<Collection.Any>, options) =>
+          ref.collection === collection
+            ? Effect.succeed(ref as Collection.DocumentReference<C>)
+            : Effect.fromOption(collection_.fromPath(collection, ref.path)).pipe(
+                Effect.mapError(
+                  () =>
+                    new SchemaIssue.InvalidValue(
+                      { message: `Expected a document in ${pattern}, got "${ref.path}"` },
+                      ref,
+                      options,
+                    ),
+                ),
+              ),
+      ),
+      encode: SchemaGetter.passthroughSubtype(),
+    }),
   ) as unknown as FirestoreSchema.DocumentReference<C>;
 };
 

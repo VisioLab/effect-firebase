@@ -92,8 +92,9 @@ export const GeoPoint: GeoPoint = firestoreSchema.GeoPoint;
  * @category models
  * @since 0.2.0
  */
-export interface DocumentReference<C extends Collection.Any> extends Schema.declare<
-  Collection.DocumentReference<C>
+export interface DocumentReference<C extends Collection.Any> extends Schema.decodeTo<
+  Schema.declare<Collection.DocumentReference<C>>,
+  Schema.declare<Collection.DocumentReference<Collection.Any>>
 > {
   readonly Rebuild: DocumentReference<C>;
 }
@@ -101,9 +102,10 @@ export interface DocumentReference<C extends Collection.Any> extends Schema.decl
 /**
  * Schema for a reference to a document in `collection`.
  *
- * A reference Firestore hands back names its path but not the collection it
- * was defined through, so it is read back as one built by
- * `Collection.fromPathUntyped`. This schema takes such a reference, checks its
+ * Its type is a reference built from `collection`, which is all `Schema.is`
+ * accepts. A reference Firestore hands back names its path but not the
+ * collection it was defined through, so it is read back as one built by
+ * `Collection.fromPathUntyped`. Decoding takes such a reference, checks its
  * path against the collection's segments and turns it into the collection's
  * own, so a reference read back is equal to one built from `collection`. A
  * reference into any other collection - one sharing its last segment
