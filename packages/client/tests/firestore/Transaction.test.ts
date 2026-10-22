@@ -5,9 +5,7 @@ import {
   FirestoreError,
   Transaction,
 } from "@visiolab/effect-firebase/firestore/Firestore";
-import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
-import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
-import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
+import { Collection, DocumentSnapshot, FirestoreModel } from "@visiolab/effect-firebase/firestore";
 import * as App from "../../src/App.ts";
 import * as ClientFirestore from "../../src/firestore/Firestore.ts";
 import { clear, emulator } from "./emulator.ts";

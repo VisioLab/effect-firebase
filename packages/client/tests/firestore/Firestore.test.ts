@@ -1,13 +1,15 @@
 import { describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { Effect, Fiber, Layer, Schema } from "effect";
 import { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
-import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
-import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
-import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
+import {
+  Collection,
+  DocumentSnapshot,
+  FieldValue,
+  FirestoreModel,
+  FirestoreSchema,
+  Timestamp,
+} from "@visiolab/effect-firebase/firestore";
 import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
-import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
-import * as FirestoreSchema from "@visiolab/effect-firebase/firestore/FirestoreSchema";
-import * as Timestamp from "@visiolab/effect-firebase/firestore/Timestamp";
 import * as Client from "firebase/app";
 import {
   connectFirestoreEmulator,

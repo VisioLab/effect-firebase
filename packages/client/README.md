@@ -10,7 +10,7 @@ initializes the app when the layer is built and deletes it again when the
 layer's scope closes:
 
 ```ts
-import * as App from "@visiolab/effect-firebase-client/App";
+import { App } from "@visiolab/effect-firebase-client";
 
 App.layer({ apiKey: "...", projectId: "my-project", appId: "..." });
 ```
@@ -24,7 +24,7 @@ is left alone when the scope closes rather than deleted.
 in context:
 
 ```ts
-import * as Firestore from "@visiolab/effect-firebase-client/firestore/Firestore";
+import { Firestore } from "@visiolab/effect-firebase-client/firestore";
 import { persistentLocalCache } from "firebase/firestore";
 
 Firestore.layer({
