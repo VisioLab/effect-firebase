@@ -29,7 +29,7 @@ import * as internalFirestore from "./internal/firestore.ts";
  *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.1.0
  */
 export interface ClientFirestore extends Firestore {
   /**
@@ -102,7 +102,7 @@ export interface ClientFirestore extends Firestore {
  *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.1.0
  */
 export interface ListenOptions {
   /**
@@ -125,7 +125,7 @@ export interface ListenOptions {
  *
  * @stability unstable
  * @category services
- * @since 0.2.0
+ * @since 0.1.0
  */
 export const ClientFirestore = Context.Service<ClientFirestore.Id, ClientFirestore>(
   "@visiolab/effect-firebase-client/firestore/ClientFirestore",
@@ -133,7 +133,7 @@ export const ClientFirestore = Context.Service<ClientFirestore.Id, ClientFiresto
 
 /**
  * @stability unstable
- * @since 0.2.0
+ * @since 0.1.0
  */
 export declare namespace ClientFirestore {
   /**
@@ -145,7 +145,7 @@ export declare namespace ClientFirestore {
    *
    * @stability unstable
    * @category services
-   * @since 0.2.0
+   * @since 0.1.0
    */
   export interface Id {
     readonly "~@visiolab/effect-firebase-client/firestore/ClientFirestore": unique symbol;
@@ -171,7 +171,7 @@ export declare namespace ClientFirestore {
  *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.1.0
  */
 export type ReadSource = "default" | "server" | "cache";
 
@@ -180,7 +180,7 @@ export type ReadSource = "default" | "server" | "cache";
  *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.1.0
  */
 export interface ReadOptions {
   /**

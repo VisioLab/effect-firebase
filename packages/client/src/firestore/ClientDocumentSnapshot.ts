@@ -17,7 +17,7 @@
  * ```
  *
  * @stability unstable
- * @since 0.2.0
+ * @since 0.1.0
  */
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
@@ -28,7 +28,7 @@ import { withMetadata } from "./internal/snapshot.ts";
  *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.1.0
  */
 export interface SnapshotMetadata {
   /**
@@ -49,7 +49,7 @@ export interface SnapshotMetadata {
  *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.1.0
  */
 export interface Existing<C extends Collection.Any> extends DocumentSnapshot.Existing<C> {
   readonly metadata: SnapshotMetadata;
@@ -62,7 +62,7 @@ export interface Existing<C extends Collection.Any> extends DocumentSnapshot.Exi
  *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.1.0
  */
 export interface Missing<C extends Collection.Any> extends DocumentSnapshot.Missing<C> {
   readonly metadata: SnapshotMetadata;
@@ -74,7 +74,7 @@ export interface Missing<C extends Collection.Any> extends DocumentSnapshot.Miss
  *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.1.0
  */
 export type ClientDocumentSnapshot<C extends Collection.Any> = Existing<C> | Missing<C>;
 
@@ -84,7 +84,7 @@ export type ClientDocumentSnapshot<C extends Collection.Any> = Existing<C> | Mis
  *
  * @stability unstable
  * @category constructors
- * @since 0.2.0
+ * @since 0.1.0
  */
 export const make = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
@@ -98,7 +98,7 @@ export const make = <C extends Collection.Any>(
  *
  * @stability unstable
  * @category constructors
- * @since 0.2.0
+ * @since 0.1.0
  */
 export const existing = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
@@ -111,7 +111,7 @@ export const existing = <C extends Collection.Any>(
  *
  * @stability unstable
  * @category constructors
- * @since 0.2.0
+ * @since 0.1.0
  */
 export const missing = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,

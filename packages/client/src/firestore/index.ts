@@ -3,7 +3,7 @@
  * Snapshot Metadata of the read.
  *
  * @stability unstable
- * @since 0.2.0
+ * @since 0.1.0
  */
 export * as ClientDocumentSnapshot from "./ClientDocumentSnapshot.ts";
 /**
@@ -11,7 +11,7 @@ export * as ClientDocumentSnapshot from "./ClientDocumentSnapshot.ts";
  * SDK can do.
  *
  * @stability unstable
- * @since 0.2.0
+ * @since 0.1.0
  */
 export * as ClientFirestore from "./ClientFirestore.ts";
 /**
@@ -19,7 +19,7 @@ export * as ClientFirestore from "./ClientFirestore.ts";
  * Snapshot Metadata of the read.
  *
  * @stability unstable
- * @since 0.2.0
+ * @since 0.1.0
  */
 export * as ClientQuerySnapshot from "./ClientQuerySnapshot.ts";
 /**
