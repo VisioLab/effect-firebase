@@ -1,4 +1,4 @@
-import { Cause, Context, Effect, Exit, Option, Queue, Schema, Stream } from "effect";
+import { Cause, Context, Effect, Exit, Option, Queue, Result, Schema, Stream } from "effect";
 import { constVoid } from "effect/Function";
 import { FirestoreError, Transaction } from "@visiolab/effect-firebase/firestore/Firestore";
 import type {
@@ -14,11 +14,13 @@ import type * as Collection from "@visiolab/effect-firebase/firestore/Collection
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
 import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
+import { toCodecFirestore } from "@visiolab/effect-firebase/firestore/FirestoreValue";
 import type * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import { FirebaseError } from "firebase-admin/app";
 import * as Admin from "firebase-admin/firestore";
 import * as App from "../../App.ts";
 import type * as AdminFirestore from "../AdminFirestore.ts";
+import * as AdminFirestoreValue from "../AdminFirestoreValue.ts";
 import * as Encoder from "../FirestoreEncoder.ts";
 
 /**
@@ -107,16 +109,49 @@ const thrownFor = (cause: Cause.Cause<unknown>): unknown => {
     : new BodyFailed(cause);
 };
 
+/**
+ * What the Admin SDK read for the document at `path`, as Firestore Values, or
+ * `undefined` for a document that is not there.
+ */
+const fromAdmin = (
+  path: string,
+  data: Admin.DocumentData | undefined,
+): Result.Result<unknown, FirestoreError> =>
+  data === undefined
+    ? Result.succeed(undefined)
+    : Result.mapError(
+        AdminFirestoreValue.fromAdmin(data),
+        (error) =>
+          new FirestoreError({
+            message: `Failed to read the document "${path}": ${error.message}`,
+            code: undefined,
+            cause: error.cause,
+          }),
+      );
+
+/** A snapshot of the document at `ref`, from what the Admin SDK read for it. */
+const documentSnapshotOf = <C extends Collection.Any>(
+  ref: Collection.DocumentReference<C>,
+  snapshot: Admin.DocumentSnapshot,
+): Result.Result<DocumentSnapshot.DocumentSnapshot<C>, FirestoreError> =>
+  // `data()` hands back `undefined` for a document that is not there, which is
+  // what tells the two apart.
+  Result.map(fromAdmin(ref.path, snapshot.data()), (raw) => DocumentSnapshot.make(ref, raw));
+
 /** A snapshot of the documents `query` read from the collection at `ref`. */
 const querySnapshotOf = <C extends Collection.Any>(
   ref: Collection.CollectionReference<C>,
   query: Admin.QuerySnapshot,
-): QuerySnapshot.QuerySnapshot<C> =>
-  QuerySnapshot.make(
-    query.docs.map((snapshot) =>
-      DocumentSnapshot.existing(ref.doc(ref.collection.id.make(snapshot.id)), snapshot.data()),
-    ),
-  );
+): Result.Result<QuerySnapshot.QuerySnapshot<C>, FirestoreError> => {
+  const docs: Array<DocumentSnapshot.Existing<C>> = [];
+  for (const snapshot of query.docs) {
+    const doc = ref.doc(ref.collection.id.make(snapshot.id));
+    const raw = fromAdmin(doc.path, snapshot.data());
+    if (Result.isFailure(raw)) return Result.fail(raw.failure);
+    docs.push(DocumentSnapshot.existing(doc, raw.success));
+  }
+  return Result.succeed(QuerySnapshot.make(docs));
+};
 
 /**
  * Where reads and writes go: straight to the database, or into a transaction.
@@ -168,14 +203,18 @@ const operations = (firestore: Admin.Firestore, encoder: FirestoreEncoder, targe
 
   /**
    * Turns what is written, in the shape `schema` takes, into the values the
-   * Admin SDK writes.
+   * Admin SDK writes: encoded to Firestore Values through the codec derived
+   * from `schema`, then mapped to the Admin SDK's own.
    *
-   * The encoder is answered for here rather than by the caller, since writing
-   * through an SDK is the whole reason there is one. Whatever else the schema
+   * The encoder is answered for here rather than by the caller, since the
+   * `FirestoreSchema` codecs still write through one. Whatever else the schema
    * encodes through is left where it is, for the caller to provide.
    */
   const encode = <S extends Schema.Top>(schema: S, data: S["Type"]) =>
-    Effect.provideService(Schema.encodeEffect(schema)(data), FirestoreEncoder, encoder);
+    Schema.encodeEffect(toCodecFirestore(schema))(data).pipe(
+      Effect.map((encoded) => AdminFirestoreValue.toAdmin(encoded, firestore)),
+      Effect.provideService(FirestoreEncoder, encoder),
+    );
 
   /** A document, in its model's `create` shape. */
   const encodeCreate = <C extends Collection.Any>(collection: C, data: Create<C>) => {
@@ -218,9 +257,7 @@ const operations = (firestore: Admin.Firestore, encoder: FirestoreEncoder, targe
           target.getDoc(firestore.doc(ref.path)),
         );
 
-        // `data()` hands back `undefined` for a document that is not there,
-        // which is what tells the two apart.
-        return DocumentSnapshot.make(ref, snapshot.data());
+        return yield* Effect.fromResult(documentSnapshotOf(ref, snapshot));
       }),
 
     getDocs: <C extends Collection.Any>(ref: Collection.CollectionReference<C>) =>
@@ -229,7 +266,7 @@ const operations = (firestore: Admin.Firestore, encoder: FirestoreEncoder, targe
           target.getDocs(firestore.collection(ref.path)),
         );
 
-        return querySnapshotOf(ref, query);
+        return yield* Effect.fromResult(querySnapshotOf(ref, query));
       }),
 
     setDoc: <C extends Collection.Any>(ref: Collection.DocumentReference<C>, data: Create<C>) =>
@@ -269,14 +306,20 @@ const listen = <S, A>(
   span: string,
   message: string,
   subscribe: (onNext: (snapshot: S) => void, onError: (error: Error) => void) => () => void,
-  toElement: (snapshot: S) => A,
+  toElement: (snapshot: S) => Result.Result<A, FirestoreError>,
 ): Stream.Stream<A, FirestoreError> =>
   Stream.callback<A, FirestoreError>(
     (queue) =>
       Effect.acquireRelease(
         Effect.sync(() =>
           subscribe(
-            (snapshot) => Queue.offerUnsafe(queue, toElement(snapshot)),
+            (snapshot) => {
+              // Runs inside the SDK's callback, so a snapshot that does not
+              // map fails the stream rather than throwing back into the SDK.
+              const element = toElement(snapshot);
+              if (Result.isSuccess(element)) Queue.offerUnsafe(queue, element.success);
+              else Queue.failCauseUnsafe(queue, Cause.fail(element.failure));
+            },
             (cause) => Queue.failCauseUnsafe(queue, Cause.fail(firestoreError(message)(cause))),
           ),
         ),
@@ -333,7 +376,7 @@ export const fromDatabase = (
         "streamDoc",
         `Failed to listen to the document "${ref.path}"`,
         (onNext, onError) => firestore.doc(ref.path).onSnapshot(onNext, onError),
-        (snapshot: Admin.DocumentSnapshot) => DocumentSnapshot.make(ref, snapshot.data()),
+        (snapshot: Admin.DocumentSnapshot) => documentSnapshotOf(ref, snapshot),
       ),
 
     streamDocs: <C extends Collection.Any>(ref: Collection.CollectionReference<C>) =>

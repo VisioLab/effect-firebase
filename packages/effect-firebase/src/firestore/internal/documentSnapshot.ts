@@ -57,8 +57,10 @@ const ExistingProto = {
   // A getter rather than a field, so that nothing is built until it is asked
   // for. It suspends as well, because a schema that decodes synchronously
   // decodes when it is called rather than when it is run, which would decode
-  // on reading `data` and replay that one result on every run. The raw data
-  // is Firestore Values, so it decodes through the codec derived to them.
+  // on reading `data` and replay that one result on every run.
+  // `raw` holds Firestore Values, which the SDK mapped its own values to, so it
+  // is decoded through the codec derived from the model rather than the model
+  // itself. Derivation is memoized, so this costs nothing after the first read.
   get data(): Effect.Effect<unknown, Schema.SchemaError> {
     const self = this as unknown as ExistingImpl;
     return Effect.suspend(() =>
