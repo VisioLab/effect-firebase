@@ -10,10 +10,15 @@
  * @since 0.1.0
  */
 import { Context, Effect, Layer } from "effect";
+import type { Stream } from "effect";
 import { Firestore } from "@visiolab/effect-firebase/firestore/Firestore";
+import type { FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
+import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
 import type { Firestore as SdkFirestore, FirestoreLocalCache } from "firebase/firestore";
 import type * as App from "../App.ts";
+import type * as ClientDocumentSnapshot from "./ClientDocumentSnapshot.ts";
+import type * as ClientQuerySnapshot from "./ClientQuerySnapshot.ts";
 import * as internalFirestore from "./internal/firestore.ts";
 
 /**
@@ -34,6 +39,41 @@ export interface ClientFirestore extends Firestore {
    * on. What is done through it goes around the schemas and the typed errors.
    */
   readonly instance: SdkFirestore;
+
+  /**
+   * Reads one document, as {@link Firestore.getDoc} does, with the
+   * {@link ClientDocumentSnapshot.SnapshotMetadata} of the read.
+   */
+  readonly getDoc: <C extends Collection.Any>(
+    ref: Collection.DocumentReference<C>,
+  ) => Effect.Effect<ClientDocumentSnapshot.ClientDocumentSnapshot<C>, FirestoreError>;
+
+  /**
+   * Reads every document in one collection, as {@link Firestore.getDocs}
+   * does, with the {@link ClientDocumentSnapshot.SnapshotMetadata} of the read
+   * as a whole and of each document.
+   */
+  readonly getDocs: <C extends Collection.Any>(
+    ref: Collection.CollectionReference<C>,
+  ) => Effect.Effect<ClientQuerySnapshot.ClientQuerySnapshot<C>, FirestoreError>;
+
+  /**
+   * Listens to one document, as {@link Firestore.streamDoc} does, each
+   * snapshot with the {@link ClientDocumentSnapshot.SnapshotMetadata} it
+   * arrived with.
+   */
+  readonly streamDoc: <C extends Collection.Any>(
+    ref: Collection.DocumentReference<C>,
+  ) => Stream.Stream<ClientDocumentSnapshot.ClientDocumentSnapshot<C>, FirestoreError>;
+
+  /**
+   * Listens to one collection, as {@link Firestore.streamDocs} does, each
+   * snapshot with the {@link ClientDocumentSnapshot.SnapshotMetadata} it
+   * arrived with.
+   */
+  readonly streamDocs: <C extends Collection.Any>(
+    ref: Collection.CollectionReference<C>,
+  ) => Stream.Stream<ClientQuerySnapshot.ClientQuerySnapshot<C>, FirestoreError>;
 }
 
 /**

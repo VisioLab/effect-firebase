@@ -140,3 +140,43 @@ describe("Firestore.streamDocs", () => {
     }).pipe(Effect.scoped, Effect.provide(layer)),
   );
 });
+
+describe("ClientFirestore streams, Snapshot Metadata", () => {
+  // A listener hears of this client's own write before the server has
+  // acknowledged it, which is what its metadata says.
+  it.effect("streamDoc emits each snapshot with the metadata it arrived with", () =>
+    Effect.gen(function* () {
+      yield* fresh;
+      const firestore = yield* ClientFirestore.ClientFirestore;
+      const snapshots = yield* listening(firestore.streamDoc(hello));
+
+      const missing = yield* Queue.take(snapshots);
+      expect(missing._tag).toBe("Missing");
+      expect(missing.metadata).toEqual({ fromCache: false, hasPendingWrites: false });
+
+      yield* firestore.setDoc(hello, { title: "Hello", views: 1 });
+      const written = yield* Queue.take(snapshots);
+      expect(written._tag).toBe("Existing");
+      expect(written.metadata).toEqual({ fromCache: false, hasPendingWrites: true });
+    }).pipe(Effect.scoped, Effect.provide(layer)),
+  );
+
+  it.effect("streamDocs emits each snapshot with the metadata of the read and its documents", () =>
+    Effect.gen(function* () {
+      yield* fresh;
+      const firestore = yield* ClientFirestore.ClientFirestore;
+      const snapshots = yield* listening(firestore.streamDocs(Posts.collection()));
+
+      const empty = yield* Queue.take(snapshots);
+      expect(empty.docs).toEqual([]);
+      expect(empty.metadata).toEqual({ fromCache: false, hasPendingWrites: false });
+
+      yield* firestore.setDoc(hello, { title: "Hello", views: 1 });
+      const written = yield* Queue.take(snapshots);
+      expect(written.metadata).toEqual({ fromCache: false, hasPendingWrites: true });
+      expect(written.docs.map((doc) => doc.metadata)).toEqual([
+        { fromCache: false, hasPendingWrites: true },
+      ]);
+    }).pipe(Effect.scoped, Effect.provide(layer)),
+  );
+});
