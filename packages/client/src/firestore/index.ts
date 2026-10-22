@@ -1,10 +1,11 @@
 /**
- * Firestore, as exposed by the Firebase client SDK.
+ * Client Firestore: the portable Firestore, plus what only the Firebase client
+ * SDK can do.
  *
  * @stability unstable
- * @since 0.1.0
+ * @since 0.2.0
  */
-export * as Firestore from "./Firestore.ts";
+export * as ClientFirestore from "./ClientFirestore.ts";
 /**
  * @stability unstable
  * @since 0.1.0

@@ -7,7 +7,7 @@ import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentS
 import * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as App from "../../src/App.ts";
-import * as ClientFirestore from "../../src/firestore/Firestore.ts";
+import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
 import { clear, emulator } from "./emulator.ts";
 
 /**

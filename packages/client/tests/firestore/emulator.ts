@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import type * as ClientFirestore from "../../src/firestore/Firestore.ts";
+import type * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
 
 const host = process.env["FIRESTORE_EMULATOR_HOST"] ?? "127.0.0.1:8080";
 
