@@ -24,12 +24,12 @@ The new `firestore/ClientFirestoreValue` module exports the mapping the service
 applies, for writes made through the raw SDK:
 
 ```ts
-const encoded = Schema.encodeSync(toCodecFirestore(Event))(event);
+const encoded = Schema.encodeSync(FirestoreValue.toCodecFirestore(Event))(event);
 await setDoc(doc(firestore, "events/e"), ClientFirestoreValue.toClient(encoded, firestore));
 ```
 
 `ClientFirestoreValue.fromClient` goes the other way, from what the client SDK
-read to Firestore Values. A document reference read back keeps its path, and
-`FirestoreSchema.DocumentReference(collection)` resolves it as before.
+read to Firestore Values. A document reference read back is the portable
+reference at its path, built by `Collection.fromPathUntyped`.
 
-Models that use the `FirestoreSchema` codecs keep working unchanged.
+The `effect` peer dependency is pinned to `4.0.4`, as the core package's is.

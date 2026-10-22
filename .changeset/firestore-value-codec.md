@@ -19,13 +19,21 @@ const encoded = Schema.encodeSync(FirestoreValue.toCodecFirestore(User))(user);
 `Schema.Date` and `Schema.DateTimeUtc` are written as a portable `Timestamp`
 (and read back to the millisecond), `Schema.Uint8Array` as bytes, and any
 other declaration through its `toCodecFirestore`, `toCodecJson` or `toCodec`
-annotation, so `Option`, `Schema.Class` and the like need no extra work. A
-`bigint` is written as a string, as in JSON. A value Firestore can't store
-fails with a schema error at its path.
+annotation, so `Option`, `Duration`, `Schema.Class` and the like need no extra
+work. A `bigint` is written as a string, as in JSON. A value Firestore can't
+store fails with a schema error at its path. Unlike `Schema.toCodecJson`,
+`Schema.Any` is no escape hatch: like `Schema.Unknown`, it takes Firestore
+Values only.
 
 `FirestoreValue.FirestoreValue` is the union of values Firestore stores, with
-`FirestoreValue.isFirestoreValue` as its guard. The `Timestamp` schema also
-gains a `toCodecJson` form, `{ seconds, nanoseconds }`.
+`FirestoreValue.isFirestoreValue` as its guard. `FirestoreSchema.Timestamp`
+also gains a `toCodecJson` form, `{ seconds, nanoseconds }`, so the same model
+can be sent over HTTP.
 
-Nothing existing changes. The `effect` peer range is pinned to `4.0.4`, since
-the derivation builds on Effect internals.
+`Collection.fromPathUntyped(path)` builds the portable reference to a document
+from its path alone, which is how both SDK packages read a reference back.
+`FirestoreSchema.DocumentReference(collection)` decodes such a reference into
+one built from `collection`.
+
+The `effect` peer range is pinned to `4.0.4`, since the derivation builds on
+Effect internals a patch release may change.

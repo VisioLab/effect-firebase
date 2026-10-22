@@ -20,7 +20,3 @@ sentinel the server resolves.
 database, which is `serverTimestamp` for now. `firestore/FirestoreSchema` gains
 the `ServerTimestamp` codec that writes it, and `TimestampOrServer` for a field
 that takes either.
-
-`FirestoreEncoder` gains `serverTimestamp`, which the Admin SDK's implementation
-answers with its own `FieldValue`. An encoder written against the previous
-interface has to answer it as well.

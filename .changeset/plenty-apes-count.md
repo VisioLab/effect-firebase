@@ -22,7 +22,3 @@ balance: FirestoreModel.Number(Schema.Finite);
 
 What the number may be is the call site's to say, down to any check it cares to
 put on it, and the writes hold it as closely as the read does.
-
-`FirestoreEncoder` gains `increment`, which the Admin SDK's implementation
-answers with its own `FieldValue`. An encoder written against the previous
-interface has to answer it as well.

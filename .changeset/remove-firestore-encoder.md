@@ -4,12 +4,36 @@
 "@visiolab/effect-firebase-client": minor
 ---
 
-`FirestoreEncoder` is removed, along with everything that only existed to work
-around it. Encoding a model no longer asks for any service: derive a codec with
-`toCodecFirestore` and map its output with the SDK package's mapping function.
+`FirestoreEncoder` is removed. A model is a plain Effect schema, and encoding
+it asks for no service: the services derive a codec with `toCodecFirestore`
+and map its Firestore Values to their SDK's own values.
 
-- The core `FirestoreEncoder` module and service, and the Admin and client
-  `FirestoreEncoder` implementations, are removed.
+The `FirestoreSchema` schemas - `Timestamp`, `GeoPoint`,
+`DocumentReference(collection)`, `ServerTimestamp`/`ServerTimestampOr`,
+`Increment`/`IncrementOr`, `DeleteField`/`DeleteFieldOr` and
+`ArrayUnion`/`ArrayRemove`/`ArrayOr` - are plain schemas of the portable
+values. A model's `create`, `update` and `updateUnchecked` schemas have
+`EncodingServices` of `never`, and encoding one of these schemas gives the
+portable value rather than the SDK's. Decoding one accepts the portable value
+and refuses an SDK's own. `Schema.is(FirestoreSchema.DocumentReference(collection))`
+accepts only references built from `collection`; decoding re-homes a reference
+read back by its path.
+
+Breaking changes, and how to migrate:
+
+- `FirestoreSchema.DateTimeUtcFromTimestamp` is removed. `Schema.DateTimeUtc`
+  does its job, and is stored as a Firestore timestamp too:
+
+  ```ts
+  // Before
+  seenAt: FirestoreSchema.DateTimeUtcFromTimestamp,
+  lastSeenAt: FirestoreModel.Timestamp(FirestoreSchema.DateTimeUtcFromTimestamp),
+
+  // After
+  seenAt: Schema.DateTimeUtc,
+  lastSeenAt: FirestoreModel.Timestamp(Schema.DateTimeUtc),
+  ```
+
 - `AdminFirestore.layerWithEncoder` and `ClientFirestore.layerWithEncoder` are
   removed. `layer` is the only layer:
 
@@ -21,9 +45,10 @@ around it. Encoding a model no longer asks for any service: derive a codec with
   AdminFirestore.layer({ databaseId: "other" });
   ```
 
-- Encoding a document by hand for a write the service does not make (a raw SDK
-  write, a batch) takes `toCodecFirestore` plus the SDK's exported mapping
-  function instead of an encoder:
+- The core `FirestoreEncoder` module and service, and the Admin and client
+  `FirestoreEncoder.make`, are removed. Encoding a document by hand for a write
+  the service does not make (a raw SDK write, a batch) takes `toCodecFirestore`
+  plus the SDK package's mapping function:
 
   ```ts
   // Before: encoded through the FirestoreEncoder from layerWithEncoder
@@ -38,6 +63,10 @@ around it. Encoding a model no longer asks for any service: derive a codec with
   await setDoc(doc(firestore, "posts/hello"), ClientFirestoreValue.toClient(encoded, firestore));
   ```
 
+- `FirestoreModel.Timestamp` and `FirestoreSchema.ServerTimestampOr` take a
+  `FirestoreSchema.TimeSchema`, a schema whose encoded side is a `Timestamp`,
+  `DateTime.Utc` or `Date` (`FirestoreSchema.Timestamp`, `Schema.DateTimeUtc`,
+  `Schema.Date`), where they took one that encodes to a `TimestampLike`.
 - `Firestore.WriteServices` and `Firestore.UpdateServices` are removed. Write
   methods ask for the model's `create` or `update` schema's `EncodingServices`
   as they are.
@@ -47,10 +76,10 @@ around it. Encoding a model no longer asks for any service: derive a codec with
   Reads map the SDK's values to the portable ones before decoding, so nothing
   accepts SDK values structurally any more. `Timestamp.Order` orders
   `Timestamp`s.
-- `AdminFirestoreValue.toAdmin` and `ClientFirestoreValue.toClient` take
-  Firestore Values only. A value outside the union, such as the SDK's own
-  `Timestamp` or a class instance, throws instead of being handed to the SDK.
-- `toCodecFirestore` no longer lets `Schema.Any` through as an escape hatch:
-  like `Schema.Unknown`, it accepts Firestore Values only. Writing an SDK value
-  or a class instance through a `Schema.Any` field fails with a `SchemaError`
-  at its path instead of reaching the SDK.
+- `DocumentSnapshot.raw` holds Firestore Values - the portable `Timestamp`,
+  `GeoPoint`, document reference and `Uint8Array` - rather than the SDK's own
+  values, and `data` decodes it through `toCodecFirestore` of the collection's
+  model.
+- A `Schema.Any` field takes Firestore Values only, like `Schema.Unknown`.
+  Writing an SDK value or a class instance through one fails with a
+  `SchemaError` at its path instead of reaching the SDK.
