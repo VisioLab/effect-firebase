@@ -161,6 +161,14 @@ export declare namespace ClientFirestore {
  *   SDK's code, rather than fall back to the cache.
  * - `"cache"`: the local cache alone, without asking the server.
  *
+ * What the cache lacks is reported differently by the two reads, as the SDK
+ * does. A cached {@link ClientFirestore.getDoc} of a document the cache has
+ * never seen fails with a `FirestoreError` whose code is `unavailable`, and
+ * one the cache knows was deleted reads as `Missing`. A cached
+ * {@link ClientFirestore.getDocs} never fails for what the cache lacks: it
+ * hands back whatever the cache holds, which may be nothing, with
+ * `fromCache: true`.
+ *
  * @stability unstable
  * @category models
  * @since 0.2.0
@@ -175,7 +183,14 @@ export type ReadSource = "default" | "server" | "cache";
  * @since 0.2.0
  */
 export interface ReadOptions {
-  /** Where the read is served from. Left out, it is `"default"`. */
+  /**
+   * Where the read is served from. Left out, it is `"default"`.
+   *
+   * With `"cache"`, a {@link ClientFirestore.getDoc} of a document the cache
+   * has never seen fails with `unavailable`, while a
+   * {@link ClientFirestore.getDocs} that finds nothing cached comes back empty
+   * with `fromCache: true`: see {@link ReadSource}.
+   */
   readonly source?: ReadSource | undefined;
 }
 
