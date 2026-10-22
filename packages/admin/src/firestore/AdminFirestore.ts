@@ -206,6 +206,10 @@ export const make = Effect.fn("AdminFirestore.make")(function* (options?: Option
   return internalFirestore.fromDatabase(firestore, encoder, AdminTransaction);
 });
 
+/** The one service, under both its own tag and the portable one. */
+const both = (service: AdminFirestore) =>
+  Context.make(AdminFirestore, service).pipe(Context.add(Firestore, service));
+
 /**
  * A layer that provides {@link AdminFirestore} for the {@link App.App} in
  * context, and the same service as {@link Firestore} too.
@@ -227,11 +231,7 @@ export const make = Effect.fn("AdminFirestore.make")(function* (options?: Option
 export const layer = (
   options?: Options,
 ): Layer.Layer<AdminFirestore.Id | Firestore, never, App.App> =>
-  Layer.effectContext(
-    Effect.map(make(options), (service) =>
-      Context.make(AdminFirestore, service).pipe(Context.add(Firestore, service)),
-    ),
-  );
+  Layer.effectContext(Effect.map(make(options), both));
 
 /**
  * {@link layer}, providing the {@link FirestoreEncoder} the service writes
@@ -249,11 +249,9 @@ export const layerWithEncoder = (
   options?: Options,
 ): Layer.Layer<AdminFirestore.Id | Firestore | FirestoreEncoder, never, App.App> =>
   Layer.effectContext(
-    Effect.map(internalFirestore.openWithEncoder(options), ({ firestore, encoder }) => {
-      const service = internalFirestore.fromDatabase(firestore, encoder, AdminTransaction);
-      return Context.make(AdminFirestore, service).pipe(
-        Context.add(Firestore, service),
+    Effect.map(internalFirestore.openWithEncoder(options), ({ firestore, encoder }) =>
+      both(internalFirestore.fromDatabase(firestore, encoder, AdminTransaction)).pipe(
         Context.add(FirestoreEncoder, encoder),
-      );
-    }),
+      ),
+    ),
   );
