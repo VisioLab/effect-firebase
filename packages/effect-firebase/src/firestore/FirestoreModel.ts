@@ -381,7 +381,12 @@ type StructPaths<
  *   fields every member holds, with a value every member takes and stores the
  *   same way, and an {@link Optional} union is not patched at all.
  * - `unchecked` takes a patch into an {@link Optional} struct or union as
- *   well, which is only right where it is known to be there.
+ *   well, which is only right where it is known to be there. It also patches a
+ *   union at a key only some members hold, which is only right where the
+ *   document is known to hold one of those. Such a key is checked by the same
+ *   rule as a Shared Field, over just the members holding it: each must take
+ *   the value and store it the same way. `unchecked` relaxes only that every
+ *   member holds it, never the encoding.
  *
  * Firestore applies an update to whatever the document holds, without checking
  * it against anything, and the patch does not tell which member of a union the
@@ -392,9 +397,9 @@ type StructPaths<
  * holds a string.
  *
  * They differ only in which patches they take, and only at an
- * {@link Optional} struct or union: a patch both take is written the same by
- * both. What a field takes, and the paths it is written at, are the same in
- * both.
+ * {@link Optional} struct or union and at a key only some members of a union
+ * hold: a patch both take is written the same by both. The paths an update is
+ * written at are the same in both, each path `unchecked` writes at included.
  *
  * @stability unstable
  * @category models
@@ -616,7 +621,9 @@ type ValuePaths<F, Mode extends UpdateMode, Path extends string> = [RecordOf<F>]
  * the members are told apart by is never shared, and its value is encoded
  * through every member, each of which must take it and store it as the same
  * Firestore Value, compared through the canonical codec. Otherwise it fails
- * with a schema issue. A sentinel is taken where every member takes it.
+ * with a schema issue. A sentinel is taken where every member takes it. Under
+ * `unchecked`, a key only some members hold is patched too, by the same rule
+ * over just those members, and written at its path the same way.
  *
  * A struct holding a field that `set` or an update leaves out -
  * {@link Immutable}, or a field only ever read - is never replaced, since that
@@ -672,13 +679,13 @@ export interface Class<
   readonly update: Update<Fields, "checked">;
   /**
    * What `update` writes, taking a patch into an {@link Optional} struct as
-   * well. Every patch {@link Class.update} takes, it takes too, and writes the
-   * same.
+   * well, and into a key only some members of a {@link Union} hold. Every
+   * patch {@link Class.update} takes, it takes too, and writes the same.
    *
-   * Such a patch is only right where the struct is there, which the caller
-   * vouches for - with an earlier read, a query that only matches documents
-   * holding it, or a transaction. Where it is missing, Firestore creates it
-   * holding the patch alone, and the document no longer reads.
+   * Such a patch is only right where the struct is there, or the union holds
+   * a member with that key, which the caller vouches for - with an earlier
+   * read, a query that only matches documents holding it, or a transaction.
+   * Otherwise Firestore writes it anyway, and the document no longer reads.
    */
   readonly updateUnchecked: Update<Fields, "unchecked">;
 }
@@ -740,6 +747,25 @@ type HoldAll<
   Fs extends ReadonlyArray<VariantSchema.Struct.Fields>,
   K extends PropertyKey,
 > = false extends { [I in keyof Fs]: K extends keyof Fs[I] ? true : false }[number] ? false : true;
+
+/** The keys any of `Fs` holds. */
+type AllKeys<Fs extends ReadonlyArray<VariantSchema.Struct.Fields>> = {
+  [I in keyof Fs]: keyof Fs[I];
+}[number] &
+  string;
+
+/** Those of `Fs` that hold a field at `K`. */
+type Holders<
+  Fs extends ReadonlyArray<VariantSchema.Struct.Fields>,
+  K extends PropertyKey,
+> = Fs extends readonly [
+  infer Head extends VariantSchema.Struct.Fields,
+  ...infer Tail extends ReadonlyArray<VariantSchema.Struct.Fields>,
+]
+  ? K extends keyof Head
+    ? [Head, ...Holders<Tail, K>]
+    : Holders<Tail, K>
+  : [];
 
 /** The field each of `Fs` holds at `K`. */
 type HeldAt<Fs extends ReadonlyArray<VariantSchema.Struct.Fields>, K extends PropertyKey> = {
@@ -814,10 +840,10 @@ interface SharedSchema<T, E> extends Schema.Bottom<
  * member takes there, or a struct, patched at its own Shared Fields, or removed
  * where every member may go without it.
  */
-type SharedTakes<Vs extends ReadonlyArray<unknown>> =
+type SharedTakes<Vs extends ReadonlyArray<unknown>, Mode extends UpdateMode> =
   AllStructs<Vs> extends true
     ? Optionality<Vs> extends "none"
-      ? SharedPatch<StructsOf<Vs>>
+      ? SharedPatch<StructsOf<Vs>, Mode>
       : Optionality<Vs> extends "all"
         ? FirestoreSchema.DeleteField
         : never
@@ -827,36 +853,56 @@ type SharedTakes<Vs extends ReadonlyArray<unknown>> =
         : SharedSchema<MeetAll<UpdateTypes<Vs>>, UpdateSchema<Vs[0]>["Encoded"]>
       : never;
 
-/** The Shared Fields of members holding the fields `Fs`, as a patch holds them. */
-type SharedUpdateFields<Fs extends ReadonlyArray<VariantSchema.Struct.Fields>> = {
+/**
+ * The keys members holding the fields `Fs` are patched at in `Mode`, as a
+ * patch holds them: their Shared Fields, and under `unchecked` a key only some
+ * of them hold as well, by the same rule over just those.
+ */
+type SharedUpdateFields<
+  Fs extends ReadonlyArray<VariantSchema.Struct.Fields>,
+  Mode extends UpdateMode,
+> = {
   readonly [
-    K in keyof Fs[0] & string as HoldAll<Fs, K> extends true
-      ? [SharedTakes<HeldAt<Fs, K>>] extends [never]
+    K in AllKeys<Fs> as Mode extends "unchecked"
+      ? [SharedTakes<HeldAt<Holders<Fs, K>, K>, Mode>] extends [never]
         ? never
         : K
-      : never
-  ]: Schema.optionalKey<SharedTakes<HeldAt<Fs, K>>>;
+      : HoldAll<Fs, K> extends true
+        ? [SharedTakes<HeldAt<Fs, K>, Mode>] extends [never]
+          ? never
+          : K
+        : never
+  ]: Schema.optionalKey<SharedTakes<HeldAt<Holders<Fs, K>, K>, Mode>>;
 };
 
-/** The patch of the Shared Fields of members holding `Fs`, or `never` where they share none. */
-type SharedPatch<Fs extends ReadonlyArray<VariantSchema.Struct.Fields>> =
-  keyof SharedUpdateFields<Fs> extends never ? never : Schema.Struct<SharedUpdateFields<Fs>>;
+/** The patch of members holding `Fs` in `Mode`, or `never` where it takes no key. */
+type SharedPatch<
+  Fs extends ReadonlyArray<VariantSchema.Struct.Fields>,
+  Mode extends UpdateMode,
+> = keyof SharedUpdateFields<Fs, Mode> extends never
+  ? never
+  : Schema.Struct<SharedUpdateFields<Fs, Mode>>;
 
-/** Whether a union has any Shared Field. */
-type HasSharedFields<Members extends ReadonlyArray<VariantSchema.Struct<any>>> = [
-  SharedPatch<MemberFields<Members>>,
-] extends [never]
-  ? false
-  : true;
+/** Whether a union is patched at any key in `Mode`. */
+type HasSharedFields<
+  Members extends ReadonlyArray<VariantSchema.Struct<any>>,
+  Mode extends UpdateMode,
+> = [SharedPatch<MemberFields<Members>, Mode>] extends [never] ? false : true;
 
-/** The paths the Shared Fields of members holding `Fs` are written at. */
+/**
+ * The paths the keys of members holding `Fs` are written at: every key an
+ * `unchecked` update patches, in either mode.
+ */
 type SharedPaths<
   Fs extends ReadonlyArray<VariantSchema.Struct.Fields>,
   Prefix extends string,
 > = UnionToIntersection<
   {
-    [K in keyof SharedUpdateFields<Fs> & string]: SharedFieldPaths<HeldAt<Fs, K>, `${Prefix}${K}`>;
-  }[keyof SharedUpdateFields<Fs> & string]
+    [K in keyof SharedUpdateFields<Fs, "unchecked"> & string]: SharedFieldPaths<
+      HeldAt<Holders<Fs, K>, K>,
+      `${Prefix}${K}`
+    >;
+  }[keyof SharedUpdateFields<Fs, "unchecked"> & string]
 > & {};
 
 /** The paths a Shared Field at `Path`, held as `Vs`, is written at. */
@@ -865,7 +911,7 @@ type SharedFieldPaths<Vs extends ReadonlyArray<unknown>, Path extends string> =
     ? Optionality<Vs> extends "none"
       ? SharedPaths<StructsOf<Vs>, `${Path}.`>
       : { readonly [_ in Path]: Schema.optionalKey<FirestoreSchema.DeleteField> }
-    : { readonly [_ in Path]: Schema.optionalKey<SharedTakes<Vs>> };
+    : { readonly [_ in Path]: Schema.optionalKey<SharedTakes<Vs, "unchecked">> };
 
 /**
  * What a union takes in an update in `Mode`: a replacement with any member it
@@ -878,12 +924,12 @@ type UnionTakes<
   Mode extends UpdateMode,
 > = Schema.Union<
   readonly [
-    ...(HasSharedFields<Members> extends true
+    ...(HasSharedFields<Members, Mode> extends true
       ? Optional extends true
         ? Mode extends "unchecked"
-          ? [SharedPatch<MemberFields<Members>>]
+          ? [SharedPatch<MemberFields<Members>, Mode>]
           : []
-        : [SharedPatch<MemberFields<Members>>]
+        : [SharedPatch<MemberFields<Members>, Mode>]
       : []),
     ...(ReplaceableCreates<Members> extends readonly [] | readonly [never]
       ? []
@@ -899,7 +945,7 @@ type IsUnionWritable<
 > = Optional extends true
   ? true
   : ReplaceableCreates<Members> extends readonly []
-    ? HasSharedFields<Members>
+    ? HasSharedFields<Members, "unchecked">
     : true;
 
 /** What a union takes as a field of the struct it sits in, or `never` where it takes nothing. */
@@ -1000,6 +1046,11 @@ export interface Union<in out Members extends ReadonlyArray<VariantSchema.Struct
  * held by the members is not shared. An {@link Optional} union is only patched
  * by an `unchecked` update - see {@link UpdateMode} and {@link Update}.
  *
+ * An `unchecked` update also patches a key only some members hold, for a
+ * caller who knows the document holds one of them: `completedAt` on a done
+ * job, say. The value is checked against just those members, by the same rule,
+ * and written at its path, so it merges into the stored map.
+ *
  * ```ts
  * import { Schema } from "effect";
  * import { FieldValue, FirestoreModel, FirestoreSchema, Patch } from "@visiolab/effect-firebase/firestore";
@@ -1017,6 +1068,8 @@ export interface Union<in out Members extends ReadonlyArray<VariantSchema.Struct
  * Job.update.make({
  *   state: Patch.replace({ status: "done", completedAt: FieldValue.serverTimestamp }),
  * });
+ * // Where the job is known to be done: written at "state.completedAt".
+ * Job.updateUnchecked.make({ state: { completedAt: FieldValue.serverTimestamp } });
  * ```
  *
  * @stability unstable

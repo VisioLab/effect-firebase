@@ -366,7 +366,8 @@ const unionNode = (members: Members, optional: boolean): Node => ({
   writable:
     optional ||
     members.some(isMemberReplaceable) ||
-    buildShared(members.map(fields), [], { known: {}, patterns: new Map() }).keys.length > 0,
+    buildShared(members.map(fields), [], { known: {}, patterns: new Map() }, "unchecked").keys
+      .length > 0,
 });
 
 /**
@@ -508,8 +509,9 @@ const buildNode = (
  * Builds what a union at `path` takes in `mode`, gathering the paths it writes
  * at into `paths`. A union is replaced with any member it may be replaced
  * with, removed where it may be missing, and patched at its Shared Fields -
- * see {@link buildShared}. The patch is refused where it may be missing and
- * the patch is checked, as it is for a struct.
+ * and, unchecked, at a key only some members hold - see {@link buildShared}.
+ * The patch is refused where it may be missing and the patch is checked, as it
+ * is for a struct. One that takes none of these in `mode` takes nothing.
  */
 const buildUnion = (
   node: Node,
@@ -520,7 +522,7 @@ const buildUnion = (
 ): { readonly schema: Schema.Top; readonly shape: Shape } => {
   const replaceable = members.filter(isMemberReplaceable);
   const create = replaceable.length === 0 ? undefined : unionCreate(replaceable);
-  const shared = buildShared(members.map(fields), path, paths);
+  const shared = buildShared(members.map(fields), path, paths, mode);
   const takes: Array<Schema.Top> = [];
   if (shared.keys.length > 0 && (!node.optional || mode === "unchecked")) {
     takes.push(shared.patch);
@@ -548,37 +550,146 @@ const buildUnion = (
 /** What a field was made {@link FirestoreModel.Optional} of, or the field itself. */
 const unwrap = (field: unknown): unknown => (isOptional(field) ? field.field : field);
 
-/** The literals a schema is made of, where it is made of nothing else. */
-const literalsOf = (ast: SchemaAST.AST): ReadonlyArray<unknown> | undefined => {
-  if (SchemaAST.isLiteral(ast)) {
-    return [ast.literal];
+/** The types a type is a union of, or the type itself. */
+const constituents = (ast: SchemaAST.AST): ReadonlyArray<SchemaAST.AST> =>
+  SchemaAST.isUnion(ast) ? ast.types.flatMap(constituents) : [ast];
+
+/** What a declaration is told apart by, where it says. */
+const declarationId = (ast: SchemaAST.Declaration): unknown =>
+  (ast.annotations?.representation as { readonly id?: unknown } | undefined)?.id;
+
+/** The type of a literal a keyword is the type of. */
+const keywordOf = (literal: unknown): string =>
+  typeof literal === "string"
+    ? "String"
+    : typeof literal === "number"
+      ? "Number"
+      : typeof literal === "boolean"
+        ? "Boolean"
+        : "BigInt";
+
+/**
+ * Whether every value of `a` is one of `b`, the way TypeScript tells whether
+ * one type extends another, as far as the schemas say. Where they do not say -
+ * a declaration with nothing to tell it apart by, a suspended schema - it is
+ * taken to be, so the encoding decides.
+ */
+const isSubtype = (a: SchemaAST.AST, b: SchemaAST.AST): boolean => {
+  if (SchemaAST.isUnion(a)) {
+    return a.types.every((type) => isSubtype(type, b));
   }
-  if (SchemaAST.isUnion(ast)) {
-    const out: Array<unknown> = [];
-    for (const type of ast.types) {
-      const literals = literalsOf(type);
-      if (literals === undefined) {
-        return undefined;
-      }
-      out.push(...literals);
+  if (SchemaAST.isUnion(b)) {
+    return b.types.some((type) => isSubtype(a, type));
+  }
+  if (SchemaAST.isAny(b) || SchemaAST.isUnknown(b) || SchemaAST.isNever(a) || SchemaAST.isAny(a)) {
+    return true;
+  }
+  if (SchemaAST.isSuspend(a) || SchemaAST.isSuspend(b)) {
+    return true;
+  }
+  if (SchemaAST.isLiteral(a)) {
+    return SchemaAST.isLiteral(b)
+      ? a.literal === b.literal
+      : SchemaAST.isEnum(b)
+        ? b.enums.some(([, value]) => value === a.literal)
+        : SchemaAST.isTemplateLiteral(b)
+          ? typeof a.literal === "string"
+          : b._tag === keywordOf(a.literal);
+  }
+  if (SchemaAST.isEnum(a)) {
+    return a.enums.every(([, value]) => isSubtype(new SchemaAST.Literal(value), b));
+  }
+  if (SchemaAST.isTemplateLiteral(a)) {
+    return SchemaAST.isString(b) || SchemaAST.isTemplateLiteral(b);
+  }
+  if (SchemaAST.isUniqueSymbol(a)) {
+    return SchemaAST.isSymbol(b) || (SchemaAST.isUniqueSymbol(b) && a.symbol === b.symbol);
+  }
+  if (SchemaAST.isUndefined(a) && SchemaAST.isVoid(b)) {
+    return true;
+  }
+  if (SchemaAST.isObjectKeyword(b)) {
+    return (
+      SchemaAST.isObjectKeyword(a) ||
+      SchemaAST.isObjects(a) ||
+      SchemaAST.isArrays(a) ||
+      SchemaAST.isDeclaration(a)
+    );
+  }
+  if (SchemaAST.isDeclaration(a)) {
+    if (SchemaAST.isDeclaration(b)) {
+      const [ida, idb] = [declarationId(a), declarationId(b)];
+      return (
+        a === b ||
+        ida === undefined ||
+        idb === undefined ||
+        (ida === idb &&
+          a.typeParameters.length === b.typeParameters.length &&
+          a.typeParameters.every((p, i) => isSubtype(p, b.typeParameters[i])))
+      );
     }
-    return out;
+    // An instance may well have every property a struct asks for.
+    return SchemaAST.isObjects(b);
   }
-  return undefined;
+  if (SchemaAST.isObjects(a)) {
+    if (SchemaAST.isDeclaration(b)) {
+      return declarationId(b) === undefined;
+    }
+    if (!SchemaAST.isObjects(b)) {
+      return false;
+    }
+    const own = new Map(a.propertySignatures.map((p) => [p.name, p.type]));
+    return (
+      b.propertySignatures.every((p) => {
+        const type = own.get(p.name);
+        return type === undefined
+          ? SchemaAST.isOptional(p.type)
+          : (SchemaAST.isOptional(p.type) || !SchemaAST.isOptional(type)) &&
+              isSubtype(type, p.type);
+      }) &&
+      b.indexSignatures.every((index) =>
+        [...a.propertySignatures, ...a.indexSignatures].every((p) => isSubtype(p.type, index.type)),
+      )
+    );
+  }
+  if (SchemaAST.isArrays(a)) {
+    if (!SchemaAST.isArrays(b)) {
+      return false;
+    }
+    if (b.elements.length === 0 && b.rest.length === 1) {
+      return [...a.elements, ...a.rest].every((type) => isSubtype(type, b.rest[0]));
+    }
+    return (
+      a.elements.length !== b.elements.length ||
+      a.rest.length !== b.rest.length ||
+      [...a.elements, ...a.rest].every((type, i) => isSubtype(type, [...b.elements, ...b.rest][i]))
+    );
+  }
+  return a._tag === b._tag;
 };
 
 /**
- * Whether no value is taken by every one of `schemas`, as far as the literals
- * they are made of tell - which is what tells the members of a union apart.
+ * The values out of `a` and `b` that the other takes too: each type `a` is a
+ * union of that `b` takes whole, and the other way round, as `Meet` works it
+ * out in the types.
  */
-const areDisjoint = (schemas: ReadonlyArray<Schema.Top>): boolean => {
-  const sets = schemas.map((schema) => literalsOf(schema.ast));
-  if (sets.some((set) => set === undefined)) {
-    return false;
-  }
-  const [first, ...rest] = sets as ReadonlyArray<ReadonlyArray<unknown>>;
-  return !first.some((literal) => rest.every((set) => set.includes(literal)));
+const meet = (
+  a: ReadonlyArray<SchemaAST.AST>,
+  b: ReadonlyArray<SchemaAST.AST>,
+): ReadonlyArray<SchemaAST.AST> => {
+  const within = (types: ReadonlyArray<SchemaAST.AST>) => (type: SchemaAST.AST) =>
+    types.some((other) => isSubtype(type, other));
+  return [...a.filter(within(b)), ...b.filter(within(a))];
 };
+
+/**
+ * Whether some value is taken by every one of `schemas`, as `MeetAll` tells it
+ * in the types, so a key is shared, and has a path, exactly where its type
+ * says. The literal that tells members apart takes none.
+ */
+const meets = (schemas: ReadonlyArray<Schema.Top>): boolean =>
+  schemas.map((schema) => constituents(schema.ast)).reduceRight((acc, types) => meet(types, acc))
+    .length > 0;
 
 /**
  * What a Shared Field is patched through: the value is encoded through the
@@ -659,43 +770,59 @@ const SharedPatchSchema = (fields: Schema.Top, keys: ReadonlyArray<string>): Sch
  * patched at its own Shared Fields by the same rule one level down. A struct
  * every member may go without takes the removal alone, and one only some
  * members may go without takes nothing. A Record or a union is not shared.
+ * Where no value is taken by every member's type, as {@link meets} tells, the
+ * key is not shared either, which is what keeps it out of `paths` exactly
+ * where the type keeps it out.
+ *
+ * Under `unchecked`, a key only some members hold is patched by the same rule
+ * over just those members. Its path is gathered in either mode, so the paths
+ * are the same in both and only the patch tells them apart.
  */
 const buildShared = (
   memberFields: ReadonlyArray<VariantSchema.Struct.Fields>,
   path: Path,
   paths: Paths,
+  mode: FirestoreModel.UpdateMode,
 ): { readonly patch: Schema.Top; readonly shape: Shape; readonly keys: ReadonlyArray<string> } => {
   const schemas: Record<string, Schema.Top> = {};
   const shapes: Record<string, Shape> = {};
-  for (const key of Object.keys(memberFields[0] ?? {})) {
-    if (!memberFields.every((f) => Object.hasOwn(f, key))) {
-      continue;
-    }
+  const names = [...new Set(memberFields.flatMap((f) => Object.keys(f)))];
+  for (const key of names) {
+    // A key only some members hold is checked against just those, and only
+    // patched where the caller vouches for the member. It is written at its
+    // path in either mode, as a struct a document may go without is.
+    const holders = memberFields.filter((f) => Object.hasOwn(f, key));
+    const taken = holders.length === memberFields.length || mode === "unchecked";
     if (key.includes(".")) {
       throw new Error(`Invalid Firestore field name "${key}": it must not contain "."`);
     }
     const at = [...path, key];
-    const held = memberFields.map((f) => f[key]);
+    const held = holders.map((f) => f[key]);
     if (held.every((field) => VariantSchema.isStruct(unwrap(field)))) {
       if (held.every((field) => !isOptional(field))) {
         const inner = buildShared(
           held.map((field) => fields(field as VariantSchema.Struct<any>)),
           at,
           paths,
+          mode,
         );
-        if (inner.keys.length > 0) {
+        if (taken && inner.keys.length > 0) {
           schemas[key] = Schema.optionalKey(inner.patch);
           shapes[key] = inner.shape;
         }
       } else if (held.every(isOptional)) {
-        schemas[key] = Schema.optionalKey(firestoreSchema.DeleteField);
+        if (taken) {
+          schemas[key] = Schema.optionalKey(firestoreSchema.DeleteField);
+        }
         addPath(paths, at, firestoreSchema.DeleteField);
       }
     } else if (held.every((field) => nodeOf(field) === undefined)) {
       const updates = held.map(updateSchema);
-      if (updates.every((u) => u !== undefined) && !areDisjoint(updates)) {
+      if (updates.every((u) => u !== undefined) && meets(updates)) {
         const schema = SharedValueSchema(updates.map(withoutConstructorDefault));
-        schemas[key] = Schema.optionalKey(schema);
+        if (taken) {
+          schemas[key] = Schema.optionalKey(schema);
+        }
         addPath(paths, at, schema);
       }
     }

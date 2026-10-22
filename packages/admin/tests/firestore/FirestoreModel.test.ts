@@ -61,3 +61,46 @@ describe("an update reaching into a struct", () => {
     }),
   );
 });
+
+describe("an update into a union field", () => {
+  const Pending = FirestoreModel.Struct({
+    status: Schema.Literal("pending"),
+    title: Schema.String,
+  });
+  const Done = FirestoreModel.Struct({
+    status: Schema.Literal("done"),
+    title: Schema.String,
+    completedAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
+  });
+
+  class Job extends FirestoreModel.Class<Job>("Job")({
+    state: FirestoreModel.Union([Pending, Done]),
+  }) {}
+
+  it.effect("is one the Admin SDK applies at a Shared Field", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(FirestoreValue.toCodecFirestore(Job.update))(
+        Job.update.make({ state: { title: "t" } }),
+      ).pipe(Effect.map((encoded) => toAdmin(encoded, firestore)));
+      expect(encoded).toStrictEqual({ "state.title": "t" });
+      expect(applies(encoded)).not.toThrow();
+    }),
+  );
+
+  it.effect("is one the Admin SDK applies at a key one member holds, unchecked", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(
+        FirestoreValue.toCodecFirestore(Job.updateUnchecked),
+      )(
+        Job.updateUnchecked.make({
+          state: { title: "t", completedAt: FieldValue.serverTimestamp },
+        }),
+      ).pipe(Effect.map((encoded) => toAdmin(encoded, firestore)));
+      expect(encoded).toStrictEqual({
+        "state.title": "t",
+        "state.completedAt": NativeFieldValue.serverTimestamp(),
+      });
+      expect(applies(encoded)).not.toThrow();
+    }),
+  );
+});

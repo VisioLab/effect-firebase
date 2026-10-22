@@ -1926,7 +1926,7 @@ describe("a union field", () => {
     }),
   );
 
-  it("is a replacement where it is updated, in either mode", () => {
+  it("is a replacement where it is updated, and patched into one member under `unchecked`", () => {
     type Replacement = Patch.Replace<
       | { readonly status: "pending" }
       | {
@@ -1936,17 +1936,28 @@ describe("a union field", () => {
         }
     >;
     expectTypeOf<NonNullable<(typeof Job.update)["Type"]["state"]>>().toEqualTypeOf<Replacement>();
-    expectTypeOf<
-      NonNullable<(typeof Job.updateUnchecked)["Type"]["state"]>
-    >().toEqualTypeOf<Replacement>();
+    expectTypeOf<NonNullable<(typeof Job.updateUnchecked)["Type"]["state"]>>().toEqualTypeOf<
+      | {
+          readonly completedAt?: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+          readonly uri?: string;
+        }
+      | Replacement
+    >();
   });
 
-  it("is written at its own path alone", () => {
-    expectTypeOf<keyof (typeof Job.update)["Encoded"]>().toEqualTypeOf<"name" | "state">();
+  it("is written at its own path and at each key a member holds, in either mode", () => {
+    expectTypeOf<keyof (typeof Job.update)["Encoded"]>().toEqualTypeOf<
+      "name" | "state" | "state.completedAt" | "state.uri"
+    >();
     expectTypeOf<(typeof Job.updateUnchecked)["Encoded"]>().toEqualTypeOf<
       (typeof Job.update)["Encoded"]
     >();
-    expect(Object.keys(Job.update.from.fields).sort()).toEqual(["name", "state"]);
+    expect(Object.keys(Job.update.from.fields).sort()).toEqual([
+      "name",
+      "state",
+      "state.completedAt",
+      "state.uri",
+    ]);
   });
 
   it.effect.each(modes(Job))("writes a replacement whole, at its path ($mode)", ({ update }) =>
@@ -1979,19 +1990,17 @@ describe("a union field", () => {
     }),
   );
 
-  it.effect.each(modes(Job))(
-    "refuses a patch into it, in the type and the encoding ($mode)",
-    ({ update }) =>
-      Effect.gen(function* () {
-        expect(() =>
-          // @ts-expect-error a union is written whole
-          update.make({ state: { uri: "gs://y" } }),
-        ).toThrow();
-        const exit = yield* Schema.encodeUnknownEffect(update)({
-          state: { uri: "gs://y" },
-        }).pipe(Effect.exit);
-        expect(Exit.isFailure(exit)).toBe(true);
-      }),
+  it.effect("refuses a patch into one member under `checked`, in the type and the encoding", () =>
+    Effect.gen(function* () {
+      expect(() =>
+        // @ts-expect-error a pending job holds no `uri`
+        Job.update.make({ state: { uri: "gs://y" } }),
+      ).toThrow();
+      const exit = yield* Schema.encodeUnknownEffect(Job.update)({
+        state: { uri: "gs://y" },
+      }).pipe(Effect.exit);
+      expect(Exit.isFailure(exit)).toBe(true);
+    }),
   );
 
   it.effect.each(modes(Job))(
@@ -2027,16 +2036,16 @@ describe("a union field a document may go without", () => {
     >();
   });
 
-  it("is a replacement or a removal where it is updated, in either mode", () => {
+  it("is a replacement or a removal where it is updated, and patched only under `unchecked`", () => {
     type Takes =
       | Patch.Replace<
           { readonly status: "pending" } | { readonly status: "done"; readonly uri: string }
         >
       | FieldValue.DeleteField;
     expectTypeOf<NonNullable<(typeof Job.update)["Type"]["state"]>>().toEqualTypeOf<Takes>();
-    expectTypeOf<
-      NonNullable<(typeof Job.updateUnchecked)["Type"]["state"]>
-    >().toEqualTypeOf<Takes>();
+    expectTypeOf<NonNullable<(typeof Job.updateUnchecked)["Type"]["state"]>>().toEqualTypeOf<
+      { readonly uri?: string } | Takes
+    >();
   });
 
   it.effect.each(modes(Job))("removes it whole ($mode)", ({ update }) =>
@@ -2058,19 +2067,28 @@ describe("a union field a document may go without", () => {
     }),
   );
 
-  it.effect.each(modes(Job))(
-    "refuses a patch into it, which would create it holding only the patch ($mode)",
-    ({ update }) =>
+  it.effect(
+    "refuses a patch into it under `checked`, which would create it holding only the patch",
+    () =>
       Effect.gen(function* () {
         expect(() =>
-          // @ts-expect-error a union is written whole
-          update.make({ state: { uri: "gs://y" } }),
+          // @ts-expect-error a patch would create it holding only the `uri`
+          Job.update.make({ state: { uri: "gs://y" } }),
         ).toThrow();
-        const exit = yield* Schema.encodeUnknownEffect(update)({
+        const exit = yield* Schema.encodeUnknownEffect(Job.update)({
           state: { uri: "gs://y" },
         }).pipe(Effect.exit);
         expect(Exit.isFailure(exit)).toBe(true);
       }),
+  );
+
+  it.effect("takes a patch into one member under `unchecked`", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Job.updateUnchecked)(
+        Job.updateUnchecked.make({ state: { uri: "gs://y" } }),
+      );
+      expect(encoded).toStrictEqual({ "state.uri": "gs://y" });
+    }),
   );
 });
 
@@ -2167,6 +2185,42 @@ describe("a union field where no member may be replaced", () => {
     >().toEqualTypeOf<FieldValue.DeleteField>();
     expect(Object.keys(Post.update.from.fields).sort()).toEqual(["archived", "title"]);
   });
+
+  describe("but one member holds a key an update writes", () => {
+    const Noted = FirestoreModel.Struct({
+      status: Schema.Literal("noted"),
+      author: FirestoreModel.Immutable(Schema.String),
+      note: Schema.String,
+    });
+
+    class Doc extends FirestoreModel.Class<Doc>("Doc")({
+      state: FirestoreModel.Union([Draft, Noted]),
+    }) {}
+
+    it.effect("takes nothing under `checked`, in the type and the encoding", () =>
+      Effect.gen(function* () {
+        expectTypeOf<NonNullable<(typeof Doc.update)["Type"]["state"]>>().toEqualTypeOf<never>();
+        const exit = yield* Schema.encodeUnknownEffect(Doc.update)({
+          state: { note: "n" },
+        }).pipe(Effect.exit);
+        expect(Exit.isFailure(exit)).toBe(true);
+        expect(yield* Schema.encodeEffect(Doc.update)(Doc.update.make({}))).toStrictEqual({});
+      }),
+    );
+
+    it.effect("takes a patch into that member under `unchecked`, at the same paths", () =>
+      Effect.gen(function* () {
+        const encoded = yield* Schema.encodeEffect(Doc.updateUnchecked)(
+          Doc.updateUnchecked.make({ state: { note: "n" } }),
+        );
+        expect(encoded).toStrictEqual({ "state.note": "n" });
+        expectTypeOf<(typeof Doc.updateUnchecked)["Encoded"]>().toEqualTypeOf<
+          (typeof Doc.update)["Encoded"]
+        >();
+        expect(Object.keys(Doc.update.from.fields)).toEqual(["state.note"]);
+      }),
+    );
+  });
 });
 
 describe("a union field patched at its Shared Fields", () => {
@@ -2184,25 +2238,32 @@ describe("a union field patched at its Shared Fields", () => {
     state: FirestoreModel.Union([Pending, Done]),
   }) {}
 
-  it("takes a patch of its Shared Fields besides a replacement, in either mode", () => {
-    type Takes =
-      | { readonly title?: string }
-      | Patch.Replace<
-          | { readonly status: "pending"; readonly title: string }
-          | { readonly status: "done"; readonly title: string; readonly uri: string }
-        >;
-    expectTypeOf<NonNullable<(typeof Job.update)["Type"]["state"]>>().toEqualTypeOf<Takes>();
-    expectTypeOf<
-      NonNullable<(typeof Job.updateUnchecked)["Type"]["state"]>
-    >().toEqualTypeOf<Takes>();
+  it("takes a patch of its Shared Fields besides a replacement", () => {
+    type Replacement = Patch.Replace<
+      | { readonly status: "pending"; readonly title: string }
+      | { readonly status: "done"; readonly title: string; readonly uri: string }
+    >;
+    expectTypeOf<NonNullable<(typeof Job.update)["Type"]["state"]>>().toEqualTypeOf<
+      { readonly title?: string } | Replacement
+    >();
+    // Under `unchecked`, the key one member holds as well.
+    expectTypeOf<NonNullable<(typeof Job.updateUnchecked)["Type"]["state"]>>().toEqualTypeOf<
+      { readonly title?: string; readonly uri?: string } | Replacement
+    >();
   });
 
   it("is written at the path of each Shared Field, besides its own", () => {
-    expectTypeOf<keyof (typeof Job.update)["Encoded"]>().toEqualTypeOf<"state" | "state.title">();
+    expectTypeOf<keyof (typeof Job.update)["Encoded"]>().toEqualTypeOf<
+      "state" | "state.title" | "state.uri"
+    >();
     expectTypeOf<(typeof Job.update)["Encoded"]["state.title"]>().toEqualTypeOf<
       string | undefined
     >();
-    expect(Object.keys(Job.update.from.fields).sort()).toEqual(["state", "state.title"]);
+    expect(Object.keys(Job.update.from.fields).sort()).toEqual([
+      "state",
+      "state.title",
+      "state.uri",
+    ]);
   });
 
   it.effect.each(modes(Job))("writes a Shared Field at its dotted path ($mode)", ({ update }) =>
@@ -2297,10 +2358,36 @@ describe("a union field patched at its Shared Fields", () => {
         Extract<NonNullable<(typeof Order.update)["Type"]["state"]>, { readonly meta?: unknown }>
       >().toEqualTypeOf<{ readonly meta?: { readonly owner?: string } }>();
       expectTypeOf<keyof (typeof Order.update)["Encoded"]>().toEqualTypeOf<
-        "state" | "state.meta.owner"
+        "state" | "state.meta.owner" | "state.meta.carrier" | "state.meta.reason"
       >();
-      expect(Object.keys(Order.update.from.fields).sort()).toEqual(["state", "state.meta.owner"]);
+      expect(Object.keys(Order.update.from.fields).sort()).toEqual([
+        "state",
+        "state.meta.carrier",
+        "state.meta.owner",
+        "state.meta.reason",
+      ]);
     });
+
+    it.effect("takes a key one member's struct holds under `unchecked`, at its path", () =>
+      Effect.gen(function* () {
+        expectTypeOf<
+          Extract<
+            NonNullable<(typeof Order.updateUnchecked)["Type"]["state"]>,
+            { readonly meta?: unknown }
+          >
+        >().toEqualTypeOf<{
+          readonly meta?: {
+            readonly owner?: string;
+            readonly carrier?: string;
+            readonly reason?: string;
+          };
+        }>();
+        const encoded = yield* Schema.encodeEffect(Order.updateUnchecked)(
+          Order.updateUnchecked.make({ state: { meta: { carrier: "ups" } } }),
+        );
+        expect(encoded).toStrictEqual({ "state.meta.carrier": "ups" });
+      }),
+    );
 
     it.effect.each(modes(Order))("writes it at its dotted path ($mode)", ({ update }) =>
       Effect.gen(function* () {
@@ -2432,7 +2519,11 @@ describe("a union field patched at its Shared Fields", () => {
       expectTypeOf<(typeof Doc.updateUnchecked)["Encoded"]>().toEqualTypeOf<
         (typeof Doc.update)["Encoded"]
       >();
-      expect(Object.keys(Doc.update.from.fields).sort()).toEqual(["state", "state.title"]);
+      expect(Object.keys(Doc.update.from.fields).sort()).toEqual([
+        "state",
+        "state.title",
+        "state.uri",
+      ]);
     });
   });
 
@@ -2466,6 +2557,244 @@ describe("a union field patched at its Shared Fields", () => {
           }).pipe(Effect.flip);
           expect(Schema.isSchemaError(error)).toBe(true);
         }),
+    );
+  });
+});
+
+describe("a union field patched into one member, unchecked", () => {
+  const Pending = FirestoreModel.Struct({
+    status: Schema.Literal("pending"),
+    title: Schema.String,
+  });
+  const Done = FirestoreModel.Struct({
+    status: Schema.Literal("done"),
+    title: Schema.String,
+    completedAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
+  });
+
+  class Job extends FirestoreModel.Class<Job>("Job")({
+    state: FirestoreModel.Union([Pending, Done]),
+  }) {}
+
+  it.effect("writes a key one member holds at its dotted path, sentinel and all", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Job.updateUnchecked)(
+        Job.updateUnchecked.make({ state: { completedAt: FieldValue.serverTimestamp } }),
+      );
+      expect(encoded).toStrictEqual({ "state.completedAt": FieldValue.serverTimestamp });
+      const stamped = yield* Schema.encodeEffect(Job.updateUnchecked)(
+        Job.updateUnchecked.make({
+          state: { title: "t", completedAt: Timestamp.makeUnsafe(1, 0) },
+        }),
+      );
+      expect(stamped).toStrictEqual({
+        "state.title": "t",
+        "state.completedAt": Timestamp.makeUnsafe(1, 0),
+      });
+    }),
+  );
+
+  it.effect("refuses it under `checked`, in the type and the encoding", () =>
+    Effect.gen(function* () {
+      expect(() =>
+        Job.update.make({
+          // @ts-expect-error a pending job holds no `completedAt`
+          state: { completedAt: FieldValue.serverTimestamp },
+        }),
+      ).toThrow();
+      const exit = yield* Schema.encodeUnknownEffect(Job.update)({
+        state: { completedAt: FieldValue.serverTimestamp },
+      }).pipe(Effect.exit);
+      expect(Exit.isFailure(exit)).toBe(true);
+    }),
+  );
+
+  it("takes the key one member holds under `unchecked` alone", () => {
+    type Replacement = Patch.Replace<
+      | { readonly status: "pending"; readonly title: string }
+      | {
+          readonly status: "done";
+          readonly title: string;
+          readonly completedAt: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+        }
+    >;
+    expectTypeOf<NonNullable<(typeof Job.update)["Type"]["state"]>>().toEqualTypeOf<
+      { readonly title?: string } | Replacement
+    >();
+    expectTypeOf<NonNullable<(typeof Job.updateUnchecked)["Type"]["state"]>>().toEqualTypeOf<
+      | {
+          readonly title?: string;
+          readonly completedAt?: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+        }
+      | Replacement
+    >();
+  });
+
+  it("is written at the same paths in either mode", () => {
+    expectTypeOf<keyof (typeof Job.update)["Encoded"]>().toEqualTypeOf<
+      "state" | "state.title" | "state.completedAt"
+    >();
+    expectTypeOf<(typeof Job.updateUnchecked)["Encoded"]>().toEqualTypeOf<
+      (typeof Job.update)["Encoded"]
+    >();
+    expect(Object.keys(Job.update.from.fields).sort()).toEqual([
+      "state",
+      "state.completedAt",
+      "state.title",
+    ]);
+    expect(Object.keys(Job.updateUnchecked.from.fields).sort()).toEqual([
+      "state",
+      "state.completedAt",
+      "state.title",
+    ]);
+  });
+
+  it.effect.each(modes(Job))(
+    "writes a patch both modes take the same in both ($mode)",
+    ({ update }) =>
+      Effect.gen(function* () {
+        const encode = (schema: typeof Job.update | typeof Job.updateUnchecked) =>
+          Schema.encodeUnknownEffect(FirestoreValue.toCodecFirestore(schema))({
+            state: { title: "t" },
+          });
+        const encoded = yield* encode(update);
+        expect(encoded).toStrictEqual({ "state.title": "t" });
+        expect(encoded).toStrictEqual(yield* encode(Job.update));
+        expect(encoded).toStrictEqual(yield* encode(Job.updateUnchecked));
+      }),
+  );
+
+  describe("at a key several members hold, but not all", () => {
+    const Draft = FirestoreModel.Struct({ status: Schema.Literal("draft") });
+    const Short = FirestoreModel.Struct({
+      status: Schema.Literal("short"),
+      note: Schema.String.check(Schema.isMaxLength(3)),
+      at: Schema.Date,
+    });
+    const Long = FirestoreModel.Struct({
+      status: Schema.Literal("long"),
+      note: Schema.String,
+      at: Schema.DateFromString,
+    });
+
+    class Doc extends FirestoreModel.Class<Doc>("Doc")({
+      state: FirestoreModel.Union([Draft, Short, Long]),
+    }) {}
+
+    it("is typed as what every member holding it takes, under `unchecked` alone", () => {
+      expectTypeOf<
+        Exclude<NonNullable<(typeof Doc.updateUnchecked)["Type"]["state"]>, Patch.Replace<any>>
+      >().toEqualTypeOf<{ readonly note?: string; readonly at?: Date }>();
+      expectTypeOf<
+        Exclude<NonNullable<(typeof Doc.update)["Type"]["state"]>, Patch.Replace<any>>
+      >().toEqualTypeOf<never>();
+    });
+
+    it.effect("takes a value every member holding it takes and stores the same way", () =>
+      Effect.gen(function* () {
+        const encoded = yield* Schema.encodeEffect(Doc.updateUnchecked)(
+          Doc.updateUnchecked.make({ state: { note: "ok" } }),
+        );
+        expect(encoded).toStrictEqual({ "state.note": "ok" });
+      }),
+    );
+
+    it.effect("refuses a value one member holding it rejects, with a schema issue", () =>
+      Effect.gen(function* () {
+        const error = yield* Schema.encodeUnknownEffect(Doc.updateUnchecked)({
+          state: { note: "too long" },
+        }).pipe(Effect.flip);
+        expect(Schema.isSchemaError(error)).toBe(true);
+      }),
+    );
+
+    it.effect("refuses a value the members holding it store differently, with a schema issue", () =>
+      Effect.gen(function* () {
+        const error = yield* Schema.encodeUnknownEffect(Doc.updateUnchecked)({
+          state: { at: new Date(0) },
+        }).pipe(Effect.flip);
+        expect(Schema.isSchemaError(error)).toBe(true);
+      }),
+    );
+
+    it.effect("refuses it under `checked`, in the type and the encoding", () =>
+      Effect.gen(function* () {
+        expect(() =>
+          Doc.update.make({
+            // @ts-expect-error a draft holds no `note`
+            state: { note: "ok" },
+          }),
+        ).toThrow();
+        const exit = yield* Schema.encodeUnknownEffect(Doc.update)({
+          state: { note: "ok" },
+        }).pipe(Effect.exit);
+        expect(Exit.isFailure(exit)).toBe(true);
+      }),
+    );
+  });
+
+  describe("at a key whose members' types have nothing in common", () => {
+    const Small = FirestoreModel.Struct({
+      status: Schema.Literal("small"),
+      title: Schema.String,
+      kind: Schema.String,
+      size: Schema.String,
+      at: Schema.Date,
+      box: Schema.Struct({ width: Schema.Finite }),
+      tags: Schema.Array(Schema.String),
+    });
+    const Large = FirestoreModel.Struct({
+      status: Schema.Literal("large"),
+      title: Schema.String,
+      kind: Schema.Literals(["s", "m"]),
+      size: Schema.Finite,
+      at: FirestoreSchema.Timestamp,
+      box: Schema.Struct({ height: Schema.Finite }),
+      tags: Schema.Array(Schema.Finite),
+    });
+
+    class Doc extends FirestoreModel.Class<Doc>("Doc")({
+      state: FirestoreModel.Union([Small, Large]),
+    }) {}
+
+    it("is patched and written at just the keys its type has, in either mode", () => {
+      type Patchable = { readonly title?: string; readonly kind?: "s" | "m" };
+      expectTypeOf<
+        Exclude<NonNullable<(typeof Doc.update)["Type"]["state"]>, Patch.Replace<any>>
+      >().toEqualTypeOf<Patchable>();
+      expectTypeOf<
+        Exclude<NonNullable<(typeof Doc.updateUnchecked)["Type"]["state"]>, Patch.Replace<any>>
+      >().toEqualTypeOf<Patchable>();
+      expectTypeOf<keyof (typeof Doc.update)["Encoded"]>().toEqualTypeOf<
+        "state" | "state.title" | "state.kind"
+      >();
+      expect(Object.keys(Doc.update.from.fields).sort()).toEqual([
+        "state",
+        "state.kind",
+        "state.title",
+      ]);
+      expect(Object.keys(Doc.updateUnchecked.from.fields).sort()).toEqual([
+        "state",
+        "state.kind",
+        "state.title",
+      ]);
+    });
+
+    it.effect.each(modes(Doc))("refuses such a key in the encoding ($mode)", ({ update }) =>
+      Effect.gen(function* () {
+        for (const state of [
+          { size: "xl" },
+          { size: 1 },
+          { at: new Date(0) },
+          { box: { width: 1 } },
+          { tags: [] },
+        ]) {
+          const exit = yield* Schema.encodeUnknownEffect(update)({ state }).pipe(Effect.exit);
+          expect(Exit.isFailure(exit)).toBe(true);
+        }
+        const kind = yield* Schema.encodeEffect(update)(update.make({ state: { kind: "s" } }));
+        expect(kind).toStrictEqual({ "state.kind": "s" });
+      }),
     );
   });
 });
