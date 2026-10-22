@@ -11,13 +11,16 @@ import type {
 import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
-import { toCodecFirestore } from "@visiolab/effect-firebase/firestore/FirestoreValue";
+import {
+  type FirestoreValue,
+  toCodecFirestore,
+} from "@visiolab/effect-firebase/firestore/FirestoreValue";
 import type * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import { FirebaseError } from "firebase-admin/app";
 import * as Admin from "firebase-admin/firestore";
 import * as App from "../../App.ts";
 import type * as AdminFirestore from "../AdminFirestore.ts";
-import * as AdminFirestoreValue from "../AdminFirestoreValue.ts";
+import * as firestoreValue from "./firestoreValue.ts";
 
 /**
  * Opens the database the options name.
@@ -101,48 +104,47 @@ const thrownFor = (cause: Cause.Cause<unknown>): unknown => {
 };
 
 /**
- * What the Admin SDK read for the document at `path`, as Firestore Values, or
- * `undefined` for a document that is not there.
+ * Reads a document's data as Firestore Values.
+ *
+ * A document holding a value outside the Firestore Value union, such as a
+ * vector, fails to read: it could only ever be decoded as an untyped object.
+ * `data()` hands back `undefined` for a document that is not there, which is
+ * kept as it is.
  */
-const fromAdmin = (
+const dataOf = (
   path: string,
-  data: Admin.DocumentData | undefined,
-): Result.Result<unknown, FirestoreError> =>
-  data === undefined
-    ? Result.succeed(undefined)
-    : Result.mapError(
-        AdminFirestoreValue.fromAdmin(data),
-        (error) =>
-          new FirestoreError({
-            message: `Failed to read the document "${path}": ${error.message}`,
-            code: undefined,
-            cause: error.cause,
-          }),
-      );
+  snapshot: Admin.DocumentSnapshot,
+): Result.Result<FirestoreValue | undefined, FirestoreError> =>
+  firestoreValue.readDocument(path, snapshot.data());
 
-/** A snapshot of the document at `ref`, from what the Admin SDK read for it. */
+/**
+ * A snapshot of the document at `ref`, as `snapshot` read it.
+ *
+ * `data()` hands back `undefined` for a document that is not there, which is
+ * what tells the two apart.
+ */
 const documentSnapshotOf = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
   snapshot: Admin.DocumentSnapshot,
 ): Result.Result<DocumentSnapshot.DocumentSnapshot<C>, FirestoreError> =>
-  // `data()` hands back `undefined` for a document that is not there, which is
-  // what tells the two apart.
-  Result.map(fromAdmin(ref.path, snapshot.data()), (raw) => DocumentSnapshot.make(ref, raw));
+  Result.map(dataOf(ref.path, snapshot), (data) => DocumentSnapshot.make(ref, data));
 
 /** A snapshot of the documents `query` read from the collection at `ref`. */
 const querySnapshotOf = <C extends Collection.Any>(
   ref: Collection.CollectionReference<C>,
   query: Admin.QuerySnapshot,
-): Result.Result<QuerySnapshot.QuerySnapshot<C>, FirestoreError> => {
-  const docs: Array<DocumentSnapshot.Existing<C>> = [];
-  for (const snapshot of query.docs) {
-    const doc = ref.doc(ref.collection.id.make(snapshot.id));
-    const raw = fromAdmin(doc.path, snapshot.data());
-    if (Result.isFailure(raw)) return Result.fail(raw.failure);
-    docs.push(DocumentSnapshot.existing(doc, raw.success));
-  }
-  return Result.succeed(QuerySnapshot.make(docs));
-};
+): Result.Result<QuerySnapshot.QuerySnapshot<C>, FirestoreError> =>
+  Result.map(
+    Result.all(
+      query.docs.map((snapshot) => {
+        const doc = ref.doc(ref.collection.id.make(snapshot.id));
+        return Result.map(dataOf(doc.path, snapshot), (data) =>
+          DocumentSnapshot.existing(doc, data),
+        );
+      }),
+    ),
+    (docs) => QuerySnapshot.make(docs),
+  );
 
 /**
  * Where reads and writes go: straight to the database, or into a transaction.
@@ -200,7 +202,7 @@ const operations = (firestore: Admin.Firestore, target: Target) => {
    */
   const encode = <S extends Schema.Top>(schema: S, data: S["Type"]) =>
     Schema.encodeEffect(toCodecFirestore(schema))(data).pipe(
-      Effect.map((encoded) => AdminFirestoreValue.toAdmin(encoded, firestore)),
+      Effect.map((encoded) => firestoreValue.toAdmin(encoded, firestore)),
     );
 
   /** A document, in its model's `create` shape. */

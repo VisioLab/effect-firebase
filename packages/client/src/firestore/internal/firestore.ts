@@ -12,7 +12,10 @@ import type * as Collection from "@visiolab/effect-firebase/firestore/Collection
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import * as ClientQuerySnapshot from "../ClientQuerySnapshot.ts";
 import type * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
-import { toCodecFirestore } from "@visiolab/effect-firebase/firestore/FirestoreValue";
+import {
+  type FirestoreValue,
+  toCodecFirestore,
+} from "@visiolab/effect-firebase/firestore/FirestoreValue";
 import { FirebaseError } from "firebase/app";
 import * as Client from "firebase/firestore";
 import * as App from "../../App.ts";
@@ -64,19 +67,11 @@ const firestoreError = (message: string) => (cause: unknown) =>
  * `data()` hands back `undefined` for a document that is not there, which is
  * kept as it is.
  */
-const dataOf = (snapshot: Client.DocumentSnapshot): Result.Result<unknown, FirestoreError> => {
-  const data = snapshot.data({ serverTimestamps: "estimate" });
-  if (data === undefined) return Result.succeed(undefined);
-  return Result.mapError(
-    firestoreValue.fromClient(data),
-    (error) =>
-      new FirestoreError({
-        message: `Failed to read the document "${snapshot.ref.path}": ${error.message}`,
-        code: undefined,
-        cause: error.cause,
-      }),
-  );
-};
+const dataOf = (
+  path: string,
+  snapshot: Client.DocumentSnapshot,
+): Result.Result<FirestoreValue | undefined, FirestoreError> =>
+  firestoreValue.readDocument(path, snapshot.data({ serverTimestamps: "estimate" }));
 
 /**
  * A portable snapshot of the document at `ref`, as `snapshot` read it.
@@ -88,7 +83,7 @@ const portableSnapshotOf = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
   snapshot: Client.DocumentSnapshot,
 ): Result.Result<DocumentSnapshot.DocumentSnapshot<C>, FirestoreError> =>
-  Result.map(dataOf(snapshot), (data) => DocumentSnapshot.make(ref, data));
+  Result.map(dataOf(ref.path, snapshot), (data) => DocumentSnapshot.make(ref, data));
 
 /**
  * A snapshot of the document at `ref`, as `snapshot` read it, with the
@@ -98,7 +93,9 @@ const documentSnapshotOf = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
   snapshot: Client.DocumentSnapshot,
 ): Result.Result<ClientDocumentSnapshot.ClientDocumentSnapshot<C>, FirestoreError> =>
-  Result.map(dataOf(snapshot), (data) => ClientDocumentSnapshot.make(ref, data, snapshot.metadata));
+  Result.map(dataOf(ref.path, snapshot), (data) =>
+    ClientDocumentSnapshot.make(ref, data, snapshot.metadata),
+  );
 
 /** A snapshot of the documents `query` read from the collection at `ref`. */
 const querySnapshotOf = <C extends Collection.Any>(
@@ -107,15 +104,12 @@ const querySnapshotOf = <C extends Collection.Any>(
 ): Result.Result<ClientQuerySnapshot.ClientQuerySnapshot<C>, FirestoreError> =>
   Result.map(
     Result.all(
-      query.docs.map((snapshot) =>
-        Result.map(dataOf(snapshot), (data) =>
-          ClientDocumentSnapshot.existing(
-            ref.doc(ref.collection.id.make(snapshot.id)),
-            data,
-            snapshot.metadata,
-          ),
-        ),
-      ),
+      query.docs.map((snapshot) => {
+        const doc = ref.doc(ref.collection.id.make(snapshot.id));
+        return Result.map(dataOf(doc.path, snapshot), (data) =>
+          ClientDocumentSnapshot.existing(doc, data, snapshot.metadata),
+        );
+      }),
     ),
     (docs) => ClientQuerySnapshot.make(docs, query.metadata),
   );

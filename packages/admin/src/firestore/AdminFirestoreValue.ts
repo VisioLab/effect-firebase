@@ -15,44 +15,11 @@
  * @stability unstable
  * @since 0.2.0
  */
-import { Option, Predicate, Result } from "effect";
-import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
-import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
-import { FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
+import type { Result } from "effect";
+import type { FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
 import type { FirestoreValue } from "@visiolab/effect-firebase/firestore/FirestoreValue";
-import * as GeoPoint from "@visiolab/effect-firebase/firestore/GeoPoint";
-import * as Timestamp from "@visiolab/effect-firebase/firestore/Timestamp";
-import * as Admin from "firebase-admin/firestore";
-
-const isPlainObject = (u: object): u is Record<string, unknown> => {
-  const proto = Object.getPrototypeOf(u);
-  return proto === Object.prototype || proto === null;
-};
-
-const mapValues = (
-  u: Record<string, unknown>,
-  f: (value: unknown, key: string) => unknown,
-): Record<string, unknown> => {
-  const out: Record<string, unknown> = {};
-  for (const key of Object.keys(u)) out[key] = f(u[key], key);
-  return out;
-};
-
-const describe = (u: object): string => u.constructor?.name ?? "an object with no prototype";
-
-const formatPath = (path: ReadonlyArray<string | number>): string =>
-  path.length === 0
-    ? "the document"
-    : `"${path
-        .map((key, i) => (typeof key === "number" ? `[${key}]` : i === 0 ? key : `.${key}`))
-        .join("")}"`;
-
-/** A value handed to the mapping that is not a Firestore Value: a defect. */
-const outside = (kind: string, path: ReadonlyArray<string | number>): never => {
-  throw new globalThis.Error(
-    `Cannot write ${kind} at ${formatPath(path)}, which is not a Firestore Value`,
-  );
-};
+import type { Firestore } from "firebase-admin/firestore";
+import * as internal from "./internal/firestoreValue.ts";
 
 /**
  * Turns a Firestore Value into the value the Admin SDK writes into
@@ -72,53 +39,7 @@ const outside = (kind: string, path: ReadonlyArray<string | number>): never => {
  * @category conversions
  * @since 0.2.0
  */
-export const toAdmin = (value: FirestoreValue, firestore: Admin.Firestore): unknown => {
-  const path: Array<string | number> = [];
-  const within = <A>(key: string | number, f: () => A): A => {
-    path.push(key);
-    try {
-      return f();
-    } finally {
-      path.pop();
-    }
-  };
-  const go = (u: unknown): unknown => {
-    switch (typeof u) {
-      case "boolean":
-      case "number":
-      case "string":
-        return u;
-      case "object":
-        break;
-      default:
-        return outside(`a value of type ${typeof u}`, path);
-    }
-    if (u === null || u instanceof Uint8Array) return u;
-    if (Timestamp.isTimestamp(u)) return new Admin.Timestamp(u.seconds, u.nanoseconds);
-    if (GeoPoint.isGeoPoint(u)) return new Admin.GeoPoint(u.latitude, u.longitude);
-    if (Collection.isDocumentReference(u)) return firestore.doc(u.path);
-    if (FieldValue.isServerTimestamp(u)) return Admin.FieldValue.serverTimestamp();
-    if (FieldValue.isIncrement(u)) return Admin.FieldValue.increment(u.by);
-    if (FieldValue.isDeleteField(u)) return Admin.FieldValue.delete();
-    if (FieldValue.isArrayUnion(u))
-      return Admin.FieldValue.arrayUnion(...u.elements.map((e, i) => within(i, () => go(e))));
-    if (FieldValue.isArrayRemove(u))
-      return Admin.FieldValue.arrayRemove(...u.elements.map((e, i) => within(i, () => go(e))));
-    if (Array.isArray(u)) return u.map((e, i) => within(i, () => go(e)));
-    if (isPlainObject(u)) return mapValues(u, (v, key) => within(key, () => go(v)));
-    // Unreachable for a Firestore Value: the derived codec refuses anything
-    // else, so this only catches a value cast past the type.
-    return outside(`a ${describe(u)}`, path);
-  };
-  return go(value);
-};
-
-/** The sentinels' names, as the Admin SDK keeps them. */
-interface AdminSentinel {
-  readonly methodName?: string;
-  readonly operand?: number;
-  readonly elements?: ReadonlyArray<unknown>;
-}
+export const toAdmin: (value: FirestoreValue, firestore: Firestore) => unknown = internal.toAdmin;
 
 /**
  * Turns a value the Admin SDK read into a Firestore Value.
@@ -136,77 +57,5 @@ interface AdminSentinel {
  * @category conversions
  * @since 0.2.0
  */
-export const fromAdmin = (value: unknown): Result.Result<FirestoreValue, FirestoreError> => {
-  const path: Array<string | number> = [];
-  let failure: FirestoreError | undefined;
-  const fail = (u: unknown, kind: string): undefined => {
-    failure = new FirestoreError({
-      message: `Firestore holds ${kind} at ${formatPath(path)}, which is not a Firestore Value`,
-      code: undefined,
-      cause: u,
-    });
-    return undefined;
-  };
-  const within = <A>(key: string | number, f: () => A): A => {
-    path.push(key);
-    try {
-      return f();
-    } finally {
-      path.pop();
-    }
-  };
-  const go = (u: unknown): unknown => {
-    if (failure !== undefined) return undefined;
-    switch (typeof u) {
-      case "boolean":
-      case "number":
-      case "string":
-        return u;
-      case "object":
-        break;
-      default:
-        return fail(u, `a value of type ${typeof u}`);
-    }
-    if (u === null) return u;
-    if (u instanceof Uint8Array) {
-      // The Admin SDK reads bytes as a Node `Buffer`.
-      return u.constructor === Uint8Array ? u : new Uint8Array(u.buffer, u.byteOffset, u.length);
-    }
-    if (u instanceof Admin.Timestamp) return Timestamp.makeUnsafe(u.seconds, u.nanoseconds);
-    if (u instanceof Admin.GeoPoint) return GeoPoint.makeUnsafe(u.latitude, u.longitude);
-    if (u instanceof Admin.DocumentReference) {
-      const ref = Collection.fromPathUntyped(u.path);
-      return Option.isSome(ref) ? ref.value : fail(u, `a reference to "${u.path}"`);
-    }
-    if (u instanceof Admin.FieldValue) {
-      const sentinel = u as AdminSentinel;
-      switch (sentinel.methodName) {
-        case "FieldValue.serverTimestamp":
-          return FieldValue.serverTimestamp;
-        case "FieldValue.delete":
-          return FieldValue.deleteField;
-        case "FieldValue.increment":
-          if (Predicate.isNumber(sentinel.operand)) return FieldValue.increment(sentinel.operand);
-          break;
-        case "FieldValue.arrayUnion":
-          if (Array.isArray(sentinel.elements))
-            return FieldValue.arrayUnion(
-              ...sentinel.elements.map((e, i) => within(i, () => go(e))),
-            );
-          break;
-        case "FieldValue.arrayRemove":
-          if (Array.isArray(sentinel.elements))
-            return FieldValue.arrayRemove(
-              ...sentinel.elements.map((e, i) => within(i, () => go(e))),
-            );
-          break;
-      }
-      return fail(u, `the sentinel ${sentinel.methodName ?? describe(u)}`);
-    }
-    if (Array.isArray(u)) return u.map((e, i) => within(i, () => go(e)));
-    if (isPlainObject(u)) return mapValues(u, (v, key) => within(key, () => go(v)));
-    return fail(u, `a ${describe(u)}`);
-  };
-  const out = go(value);
-  return failure === undefined ? Result.succeed(out as FirestoreValue) : Result.fail(failure);
-};
+export const fromAdmin: (value: unknown) => Result.Result<FirestoreValue, FirestoreError> =
+  internal.fromAdmin;
