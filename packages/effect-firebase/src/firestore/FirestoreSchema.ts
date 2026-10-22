@@ -51,6 +51,14 @@ export const Timestamp: Timestamp = firestoreSchema.Timestamp;
  * {@link Timestamp}, `Schema.DateTimeUtc` or `Schema.Date`, or any schema
  * transformed into one of them.
  *
+ * The check is on the encoded type alone, so it takes any schema whose
+ * encoded side is a `Timestamp`, `DateTime.Utc` or `Date`. A declaration of
+ * its own, such as `Schema.declare<Date>(...)`, type-checks but is not
+ * stored as a timestamp: `toCodecFirestore` only stores `Schema.Date` and
+ * `Schema.DateTimeUtc` as one, so it fails to encode, or is written through
+ * its own `toCodecJson`. The types cannot tell the two apart, since
+ * `Schema.Date` is structurally the same as any `Schema.declare<Date>`.
+ *
  * @stability unstable
  * @category models
  * @since 0.2.0
