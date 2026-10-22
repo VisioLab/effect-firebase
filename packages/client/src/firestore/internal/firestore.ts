@@ -72,12 +72,12 @@ const dataOf = (snapshot: Client.DocumentSnapshot): Result.Result<unknown, Fires
   const data = snapshot.data({ serverTimestamps: "estimate" });
   if (data === undefined) return Result.succeed(undefined);
   return Result.mapError(
-    firestoreValue.fromSdkValue(data),
-    (cause) =>
+    firestoreValue.fromClient(data),
+    (error) =>
       new FirestoreError({
-        message: `Failed to read the document "${snapshot.ref.path}": ${cause.message}`,
+        message: `Failed to read the document "${snapshot.ref.path}": ${error.message}`,
         code: undefined,
-        cause,
+        cause: error.cause,
       }),
   );
 };
@@ -249,7 +249,7 @@ const operations = (firestore: Client.Firestore, encoder: FirestoreEncoder, targ
   const encode = <S extends Schema.Top>(schema: S, data: S["Type"]) =>
     Effect.provideService(
       Effect.map(Schema.encodeEffect(toCodecFirestore(schema))(data), (encoded) =>
-        firestoreValue.toSdkValue(firestore, encoded),
+        firestoreValue.toClient(encoded, firestore),
       ),
       FirestoreEncoder,
       encoder,

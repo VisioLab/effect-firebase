@@ -410,7 +410,7 @@ describe("ClientFirestore, Firestore Values", () => {
       const error = yield* Effect.flip(firestore.getDoc(Posts.doc(hello)));
       expect(error).toMatchObject({ _tag: "FirestoreError" });
       expect(error.message).toContain("posts/hello");
-      expect(error.message).toContain('"embedding.0"');
+      expect(error.message).toContain('"embedding[0]"');
       expect(error.message).toContain("VectorValue");
 
       const listed = yield* Effect.flip(firestore.getDocs(Posts.collection()));

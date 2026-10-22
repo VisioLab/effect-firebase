@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import { Result, Schema } from "effect";
 import {
   Collection,
@@ -22,15 +22,18 @@ const firestore = Client.getFirestore(
 
 describe("ClientFirestoreValue", () => {
   it("turns Firestore Values into the client SDK's own", () => {
-    const sdk = ClientFirestoreValue.toSdkValue(firestore, {
-      at: Timestamp.makeUnsafe(1, 2000),
-      where: GeoPoint.makeUnsafe(1, 2),
-      who: Users.doc(Users.id.make("ada")),
-      bytes: new Uint8Array([1, 2]),
-      nested: [{ n: 1, s: "s", b: true, z: null }],
-      createdAt: FieldValue.serverTimestamp,
-      tags: FieldValue.arrayUnion(Timestamp.makeUnsafe(3, 0)),
-    }) as Record<string, unknown>;
+    const sdk = ClientFirestoreValue.toClient(
+      {
+        at: Timestamp.makeUnsafe(1, 2000),
+        where: GeoPoint.makeUnsafe(1, 2),
+        who: Users.doc(Users.id.make("ada")),
+        bytes: new Uint8Array([1, 2]),
+        nested: [{ n: 1, s: "s", b: true, z: null }],
+        createdAt: FieldValue.serverTimestamp,
+        tags: FieldValue.arrayUnion(Timestamp.makeUnsafe(3, 0)),
+      },
+      firestore,
+    ) as Record<string, unknown>;
 
     expect(sdk["at"]).toEqual(new Client.Timestamp(1, 2000));
     expect(sdk["where"]).toEqual(new Client.GeoPoint(1, 2));
@@ -49,7 +52,7 @@ describe("ClientFirestoreValue", () => {
 
   it("turns the client SDK's values into Firestore Values", () => {
     const value = Result.getOrThrow(
-      ClientFirestoreValue.fromSdkValue({
+      ClientFirestoreValue.fromClient({
         at: new Client.Timestamp(1, 2000),
         where: new Client.GeoPoint(1, 2),
         who: Client.doc(firestore, "users/ada"),
@@ -69,12 +72,11 @@ describe("ClientFirestoreValue", () => {
   });
 
   it("refuses a client SDK value outside the Firestore Value union, naming where it is", () => {
-    const result = ClientFirestoreValue.fromSdkValue({ a: { b: Client.vector([1]) } });
+    const result = ClientFirestoreValue.fromClient({ a: { b: [Client.vector([1])] } });
 
-    expect(Result.isFailure(result)).toBe(true);
-    if (Result.isFailure(result)) {
-      expect(result.failure.path).toEqual(["a", "b"]);
-      expect(result.failure.message).toContain('"a.b"');
-    }
+    assert(Result.isFailure(result));
+    expect(result.failure._tag).toBe("FirestoreError");
+    expect(result.failure.message).toContain('"a.b[0]"');
+    expect(result.failure.message).toContain("VectorValue");
   });
 });

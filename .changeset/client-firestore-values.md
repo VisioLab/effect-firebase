@@ -1,40 +1,35 @@
 ---
 "@visiolab/effect-firebase-client": minor
-"@visiolab/effect-firebase": minor
 ---
 
-Client Firestore now writes and reads documents as Firestore Values. A write
-is encoded through `FirestoreValue.toCodecFirestore` on the collection's model,
-then mapped to the client SDK's own values. A read is mapped from the SDK's
-values, then decoded. So a plain model works as it is:
+`ClientFirestore` writes and reads documents through `toCodecFirestore`. A
+model can hold plain Effect schemas such as `Schema.DateTimeUtc`, `Schema.Date`,
+`Schema.Uint8Array` and `Schema.Option`. The first two are stored as Firestore
+timestamps and `Uint8Array` as bytes, and each reads back as what it was
+written as:
 
 ```ts
 class Event extends FirestoreModel.Class<Event>("Event")({
-  at: Schema.DateTimeUtc, // stored as a Firestore timestamp
-  on: Schema.Date, // stored as a Firestore timestamp
-  payload: Schema.Uint8Array, // stored as bytes
+  at: Schema.DateTimeUtc,
+  on: Schema.Date,
+  payload: Schema.Uint8Array,
   note: Schema.Option(Schema.String),
 }) {}
 ```
 
-`DocumentSnapshot`'s `data` now decodes through the derived codec as well.
+Reading a document that holds a value outside Firestore Values, such as a
+vector, fails with a `FirestoreError` naming the field.
 
-Reading a document that holds a value outside the Firestore Value union, such
-as a vector, fails with a `FirestoreError` that names the field.
-
-The new `ClientFirestoreValue` module exports the mapping, for writes made
-through the raw SDK:
+The new `firestore/ClientFirestoreValue` module exports the mapping the service
+applies, for writes made through the raw SDK:
 
 ```ts
-import { ClientFirestoreValue } from "@visiolab/effect-firebase-client/firestore";
-import { FirestoreValue } from "@visiolab/effect-firebase/firestore";
-import { doc, setDoc } from "firebase/firestore";
-
-const encoded = Schema.encodeSync(FirestoreValue.toCodecFirestore(Event))(event);
-await setDoc(doc(firestore, "events/e"), ClientFirestoreValue.toSdkValue(firestore, encoded));
+const encoded = Schema.encodeSync(toCodecFirestore(Event))(event);
+await setDoc(doc(firestore, "events/e"), ClientFirestoreValue.toClient(encoded, firestore));
 ```
 
-`ClientFirestoreValue.fromSdkValue` goes the other way. It returns a `Result`
-that fails with `UnsupportedSdkValue` for a value outside the union.
+`ClientFirestoreValue.fromClient` goes the other way, from what the client SDK
+read to Firestore Values. A document reference read back keeps its path, and
+`FirestoreSchema.DocumentReference(collection)` resolves it as before.
 
-Existing models that use `FirestoreSchema` codecs keep working unchanged.
+Models that use the `FirestoreSchema` codecs keep working unchanged.
