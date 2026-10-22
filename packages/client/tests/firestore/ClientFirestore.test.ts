@@ -1,5 +1,5 @@
 import { assert, describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { Effect, Fiber, Layer, Queue, Schema, Stream } from "effect";
+import { Effect, Fiber, Layer, Schema, Stream } from "effect";
 import { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
 import {
   Collection,
@@ -29,7 +29,7 @@ import * as App from "../../src/App.ts";
 import * as ClientDocumentSnapshot from "../../src/firestore/ClientDocumentSnapshot.ts";
 import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
 import * as ClientQuerySnapshot from "../../src/firestore/ClientQuerySnapshot.ts";
-import { clear, emulator } from "./emulator.ts";
+import { clear, emulator, fresh, holding, offline } from "./emulator.ts";
 
 const projectId = "demo-client-firestore";
 
@@ -110,11 +110,20 @@ describe("ClientFirestore", () => {
     expectTypeOf<ClientFirestore.ClientFirestore["instance"]>().toEqualTypeOf<SdkFirestore>();
     expectTypeOf<Firestore>().not.toHaveProperty("instance");
     expectTypeOf(ClientFirestore.layer()).toEqualTypeOf<
-      Layer.Layer<ClientFirestore.ClientFirestore | Firestore, never, App.App>
+      Layer.Layer<ClientFirestore.ClientFirestore.Id | Firestore, never, App.App>
     >();
     expectTypeOf(ClientFirestore.layerWithEncoder()).toEqualTypeOf<
-      Layer.Layer<ClientFirestore.ClientFirestore | Firestore | FirestoreEncoder, never, App.App>
+      Layer.Layer<ClientFirestore.ClientFirestore.Id | Firestore | FirestoreEncoder, never, App.App>
     >();
+  });
+
+  it("is still asked for once only the portable Firestore is provided", () => {
+    const program = Effect.asVoid(ClientFirestore.ClientFirestore);
+    const provided = (firestore: Firestore) => Effect.provideService(program, Firestore, firestore);
+
+    expectTypeOf<
+      Effect.Services<ReturnType<typeof provided>>
+    >().toEqualTypeOf<ClientFirestore.ClientFirestore.Id>();
   });
 
   // The SDK memoizes a database on the app and refuses to reopen one under
@@ -247,14 +256,14 @@ describe("ClientFirestore", () => {
 describe("ClientFirestore, against the emulator", () => {
   // Cleared before each test rather than after, so a failed test leaves its
   // documents behind to look at.
-  const fresh = clear(projectId).pipe(Effect.andThen(Firestore));
+  const freshFirestore = clear(projectId).pipe(Effect.andThen(Firestore));
 
   const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnapshot<C>) =>
     DocumentSnapshot.isExisting(snapshot) ? snapshot.data : Effect.die("missing");
 
   it.effect("reads back what it wrote", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* freshFirestore;
 
       yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
       const snapshot = yield* firestore.getDoc(Posts.doc(hello));
@@ -266,7 +275,7 @@ describe("ClientFirestore, against the emulator", () => {
 
   it.effect("hands back a missing snapshot for a document that is not there", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* freshFirestore;
 
       const snapshot = yield* firestore.getDoc(Posts.doc(hello));
 
@@ -277,7 +286,7 @@ describe("ClientFirestore, against the emulator", () => {
 
   it.effect("adds a document under an id Firestore picks, and reads it among the others", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* freshFirestore;
 
       yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
       const added = yield* firestore.addDoc(Posts.collection(), { title: "Added", views: 2 });
@@ -291,7 +300,7 @@ describe("ClientFirestore, against the emulator", () => {
 
   it.effect("updates the fields it is given, and leaves the others alone", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* freshFirestore;
 
       yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
       yield* firestore.updateDoc(Posts.doc(hello), { views: 2 });
@@ -305,7 +314,7 @@ describe("ClientFirestore, against the emulator", () => {
 
   it.effect("refuses to update a document that is not there, with the SDK's code", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* freshFirestore;
 
       const error = yield* Effect.flip(firestore.updateDoc(Posts.doc(hello), { views: 2 }));
 
@@ -319,7 +328,7 @@ describe("ClientFirestore, against the emulator", () => {
   // library does not wrap that.
   it.live("waits offline for the server, and reads a pending server timestamp as an estimate", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* freshFirestore;
       const sdk = (yield* ClientFirestore.ClientFirestore).instance;
       const note = Notes.doc(Notes.id.make("note"));
 
@@ -382,11 +391,9 @@ describe("ClientFirestore, Snapshot Metadata", () => {
     >();
   });
 
-  const fresh = clear(projectId).pipe(Effect.andThen(ClientFirestore.ClientFirestore));
-
   it.effect("reads a document the server acknowledged as from the server, nothing pending", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* fresh(projectId);
 
       yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
       const snapshot = yield* firestore.getDoc(Posts.doc(hello));
@@ -399,7 +406,7 @@ describe("ClientFirestore, Snapshot Metadata", () => {
   // the test clock. The network is toggled through `instance`.
   it.live("reads a write the server has not acknowledged as pending, from the cache", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* fresh(projectId);
 
       yield* Effect.promise(() => disableNetwork(firestore.instance));
       const write = yield* Effect.forkChild(
@@ -419,27 +426,11 @@ describe("ClientFirestore, Snapshot Metadata", () => {
     }).pipe(Effect.provide(layer)),
   );
 
-  /**
-   * Keeps a listener on what `stream` follows for the rest of the test, once it
-   * has heard from the server, so the SDK's cache keeps hold of it: without
-   * one, what a read has seen is dropped from the memory cache again.
-   */
-  const holding = <A, E>(stream: Stream.Stream<A, E>) =>
-    Stream.toQueue(stream, { capacity: "unbounded" }).pipe(Effect.flatMap(Queue.take));
-
-  /** Runs `effect` with the network off, toggled through `instance`. */
-  const offline = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-    Effect.gen(function* () {
-      const { instance } = yield* ClientFirestore.ClientFirestore;
-      yield* Effect.promise(() => disableNetwork(instance));
-      return yield* effect.pipe(Effect.ensuring(Effect.promise(() => enableNetwork(instance))));
-    });
-
   // A default read never hands back a missing document from the cache: offline,
   // the SDK fails it as unavailable rather than say it is gone.
   it.effect("reads a missing document with the metadata of the read", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* fresh(projectId);
 
       const snapshot = yield* firestore.getDoc(Posts.doc(hello));
 
@@ -450,7 +441,7 @@ describe("ClientFirestore, Snapshot Metadata", () => {
 
   it.live("reads a document while offline from the cache", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* fresh(projectId);
 
       yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
       yield* holding(firestore.streamDoc(Posts.doc(hello)));
@@ -463,7 +454,7 @@ describe("ClientFirestore, Snapshot Metadata", () => {
 
   it.live("reads a collection while offline from the cache, even where it finds nothing", () =>
     Effect.gen(function* () {
-      const firestore = yield* fresh;
+      const firestore = yield* fresh(projectId);
 
       yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
       const online = yield* firestore.getDocs(Posts.collection());

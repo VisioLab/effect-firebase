@@ -29,7 +29,7 @@ import * as internalFirestore from "./internal/firestore.ts";
  *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.1.0
  */
 export interface ClientFirestore extends Firestore {
   /**
@@ -102,7 +102,7 @@ export interface ClientFirestore extends Firestore {
  *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.1.0
  */
 export interface ListenOptions {
   /**
@@ -125,11 +125,32 @@ export interface ListenOptions {
  *
  * @stability unstable
  * @category services
- * @since 0.2.0
+ * @since 0.1.0
  */
-export const ClientFirestore = Context.Service<ClientFirestore>(
+export const ClientFirestore = Context.Service<ClientFirestore.Id, ClientFirestore>(
   "@visiolab/effect-firebase-client/firestore/ClientFirestore",
 );
+
+/**
+ * @stability unstable
+ * @since 0.1.0
+ */
+export declare namespace ClientFirestore {
+  /**
+   * What an effect that asks for {@link ClientFirestore} needs.
+   *
+   * Its own type rather than {@link ClientFirestore} itself: that one is a
+   * {@link Firestore}, so providing only the portable {@link Firestore} would
+   * drop the need for it as well.
+   *
+   * @stability unstable
+   * @category services
+   * @since 0.1.0
+   */
+  export interface Id {
+    readonly "~@visiolab/effect-firebase-client/firestore/ClientFirestore": unique symbol;
+  }
+}
 
 /**
  * Where a one-off read is served from.
@@ -140,9 +161,17 @@ export const ClientFirestore = Context.Service<ClientFirestore>(
  *   SDK's code, rather than fall back to the cache.
  * - `"cache"`: the local cache alone, without asking the server.
  *
+ * What the cache lacks is reported differently by the two reads, as the SDK
+ * does. A cached {@link ClientFirestore.getDoc} of a document the cache has
+ * never seen fails with a `FirestoreError` whose code is `unavailable`, and
+ * one the cache knows was deleted reads as `Missing`. A cached
+ * {@link ClientFirestore.getDocs} never fails for what the cache lacks: it
+ * hands back whatever the cache holds, which may be nothing, with
+ * `fromCache: true`.
+ *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.1.0
  */
 export type ReadSource = "default" | "server" | "cache";
 
@@ -151,10 +180,17 @@ export type ReadSource = "default" | "server" | "cache";
  *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.1.0
  */
 export interface ReadOptions {
-  /** Where the read is served from. Left out, it is `"default"`. */
+  /**
+   * Where the read is served from. Left out, it is `"default"`.
+   *
+   * With `"cache"`, a {@link ClientFirestore.getDoc} of a document the cache
+   * has never seen fails with `unavailable`, while a
+   * {@link ClientFirestore.getDocs} that finds nothing cached comes back empty
+   * with `fromCache: true`: see {@link ReadSource}.
+   */
   readonly source?: ReadSource | undefined;
 }
 
@@ -257,7 +293,7 @@ const both = (service: ClientFirestore) =>
  */
 export const layer = (
   options?: Options,
-): Layer.Layer<ClientFirestore | Firestore, never, App.App> =>
+): Layer.Layer<ClientFirestore.Id | Firestore, never, App.App> =>
   Layer.effectContext(Effect.map(make(options), both));
 
 /**
@@ -274,7 +310,7 @@ export const layer = (
  */
 export const layerWithEncoder = (
   options?: Options,
-): Layer.Layer<ClientFirestore | Firestore | FirestoreEncoder, never, App.App> =>
+): Layer.Layer<ClientFirestore.Id | Firestore | FirestoreEncoder, never, App.App> =>
   Layer.effectContext(
     Effect.map(internalFirestore.openWithEncoder(options), ({ firestore, encoder }) =>
       both(internalFirestore.fromDatabase(firestore, encoder)).pipe(

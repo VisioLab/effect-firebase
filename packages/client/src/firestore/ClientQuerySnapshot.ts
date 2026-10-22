@@ -18,7 +18,7 @@
  * ```
  *
  * @stability unstable
- * @since 0.2.0
+ * @since 0.1.0
  */
 import * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
 import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
@@ -31,7 +31,7 @@ import { withMetadata } from "./internal/snapshot.ts";
  *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.1.0
  */
 export interface ClientQuerySnapshot<
   C extends Collection.Any,
@@ -51,7 +51,7 @@ export interface ClientQuerySnapshot<
  *
  * @stability unstable
  * @category constructors
- * @since 0.2.0
+ * @since 0.1.0
  */
 export const make = <C extends Collection.Any>(
   docs: ReadonlyArray<ClientDocumentSnapshot.Existing<C>>,

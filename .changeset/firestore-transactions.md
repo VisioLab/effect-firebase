@@ -10,4 +10,4 @@ queued until the effect is done. The SDK runs the effect again, up to
 `maxAttempts`, when it fails with a `FirestoreError` the SDK would retry - a
 conflict, or an outage that passes; any other failure rolls the transaction
 back and fails with exactly what the effect failed with, without a retry. Interrupting it rolls the transaction back and waits for the rollback.
-The Admin SDK implements it in `firestore/Firestore.layer`.
+The Admin SDK implements it in `firestore/AdminFirestore.layer`.

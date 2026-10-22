@@ -51,11 +51,15 @@ export interface AdminFirestore extends Firestore {
    * Both are the same transaction, so portable transaction helpers and ones
    * that need the Admin SDK can run in the same body, and neither is left for
    * the caller to provide.
+   *
+   * The two are excluded one after the other rather than as one union so that
+   * the result stays provably narrower than {@link Firestore.runTransaction}'s,
+   * which keeps an {@link AdminFirestore} assignable to a {@link Firestore}.
    */
   readonly runTransaction: <A, E, R>(
     effect: Effect.Effect<A, E, R>,
     options?: TransactionOptions,
-  ) => Effect.Effect<A, E | FirestoreError, Exclude<R, AdminTransaction | Transaction>>;
+  ) => Effect.Effect<A, E | FirestoreError, Exclude<Exclude<R, Transaction>, AdminTransaction.Id>>;
 }
 
 /**
@@ -90,9 +94,30 @@ export interface AdminTransaction extends Transaction {
  * @category services
  * @since 0.2.0
  */
-export const AdminTransaction = Context.Service<AdminTransaction>(
+export const AdminTransaction = Context.Service<AdminTransaction.Id, AdminTransaction>(
   "@visiolab/effect-firebase-admin/firestore/AdminFirestore/AdminTransaction",
 );
+
+/**
+ * @stability unstable
+ * @since 0.2.0
+ */
+export declare namespace AdminTransaction {
+  /**
+   * What an effect that asks for {@link AdminTransaction} needs.
+   *
+   * Its own type rather than {@link AdminTransaction} itself: that one is a
+   * {@link Transaction}, so excluding or providing the portable
+   * {@link Transaction} would drop the need for it as well.
+   *
+   * @stability unstable
+   * @category services
+   * @since 0.2.0
+   */
+  export interface Id {
+    readonly "~@visiolab/effect-firebase-admin/firestore/AdminFirestore/AdminTransaction": unique symbol;
+  }
+}
 
 /**
  * Service key for {@link AdminFirestore}.
@@ -101,9 +126,30 @@ export const AdminTransaction = Context.Service<AdminTransaction>(
  * @category services
  * @since 0.2.0
  */
-export const AdminFirestore = Context.Service<AdminFirestore>(
+export const AdminFirestore = Context.Service<AdminFirestore.Id, AdminFirestore>(
   "@visiolab/effect-firebase-admin/firestore/AdminFirestore",
 );
+
+/**
+ * @stability unstable
+ * @since 0.2.0
+ */
+export declare namespace AdminFirestore {
+  /**
+   * What an effect that asks for {@link AdminFirestore} needs.
+   *
+   * Its own type rather than {@link AdminFirestore} itself: that one is a
+   * {@link Firestore}, so providing only the portable {@link Firestore} would
+   * drop the need for it as well.
+   *
+   * @stability unstable
+   * @category services
+   * @since 0.2.0
+   */
+  export interface Id {
+    readonly "~@visiolab/effect-firebase-admin/firestore/AdminFirestore": unique symbol;
+  }
+}
 
 /**
  * How to open a database.
@@ -157,8 +203,12 @@ export interface Options {
  */
 export const make = Effect.fn("AdminFirestore.make")(function* (options?: Options) {
   const { firestore, encoder } = yield* internalFirestore.openWithEncoder(options);
-  return internalFirestore.fromDatabase(firestore, encoder);
+  return internalFirestore.fromDatabase(firestore, encoder, AdminTransaction);
 });
+
+/** The one service, under both its own tag and the portable one. */
+const both = (service: AdminFirestore) =>
+  Context.make(AdminFirestore, service).pipe(Context.add(Firestore, service));
 
 /**
  * A layer that provides {@link AdminFirestore} for the {@link App.App} in
@@ -178,12 +228,10 @@ export const make = Effect.fn("AdminFirestore.make")(function* (options?: Option
  * @category layers
  * @since 0.2.0
  */
-export const layer = (options?: Options): Layer.Layer<AdminFirestore | Firestore, never, App.App> =>
-  Layer.effectContext(
-    Effect.map(make(options), (service) =>
-      Context.make(AdminFirestore, service).pipe(Context.add(Firestore, service)),
-    ),
-  );
+export const layer = (
+  options?: Options,
+): Layer.Layer<AdminFirestore.Id | Firestore, never, App.App> =>
+  Layer.effectContext(Effect.map(make(options), both));
 
 /**
  * {@link layer}, providing the {@link FirestoreEncoder} the service writes
@@ -199,13 +247,11 @@ export const layer = (options?: Options): Layer.Layer<AdminFirestore | Firestore
  */
 export const layerWithEncoder = (
   options?: Options,
-): Layer.Layer<AdminFirestore | Firestore | FirestoreEncoder, never, App.App> =>
+): Layer.Layer<AdminFirestore.Id | Firestore | FirestoreEncoder, never, App.App> =>
   Layer.effectContext(
-    Effect.map(internalFirestore.openWithEncoder(options), ({ firestore, encoder }) => {
-      const service = internalFirestore.fromDatabase(firestore, encoder);
-      return Context.make(AdminFirestore, service).pipe(
-        Context.add(Firestore, service),
+    Effect.map(internalFirestore.openWithEncoder(options), ({ firestore, encoder }) =>
+      both(internalFirestore.fromDatabase(firestore, encoder, AdminTransaction)).pipe(
         Context.add(FirestoreEncoder, encoder),
-      );
-    }),
+      ),
+    ),
   );

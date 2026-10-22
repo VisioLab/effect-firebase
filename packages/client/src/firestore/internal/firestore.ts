@@ -164,31 +164,25 @@ interface Target {
   ) => unknown;
 }
 
-/** Reads one document from where `source` names. */
-const getDocFrom = (
-  ref: Client.DocumentReference,
-  source: ClientFirestore.ReadSource | undefined,
-): Promise<Client.DocumentSnapshot> =>
-  source === "server"
-    ? Client.getDocFromServer(ref)
-    : source === "cache"
-      ? Client.getDocFromCache(ref)
-      : Client.getDoc(ref);
+/** The SDK's own reads, for one {@link ClientFirestore.ReadSource}. */
+interface Reads {
+  readonly getDoc: (ref: Client.DocumentReference) => Promise<Client.DocumentSnapshot>;
+  readonly getDocs: (query: Client.Query) => Promise<Client.QuerySnapshot>;
+}
 
-/** Reads the documents `query` matches from where `source` names. */
-const getDocsFrom = (
-  query: Client.Query,
-  source: ClientFirestore.ReadSource | undefined,
-): Promise<Client.QuerySnapshot> =>
-  source === "server"
-    ? Client.getDocsFromServer(query)
-    : source === "cache"
-      ? Client.getDocsFromCache(query)
-      : Client.getDocs(query);
+const reads: Record<ClientFirestore.ReadSource, Reads> = {
+  default: { getDoc: Client.getDoc, getDocs: Client.getDocs },
+  server: { getDoc: Client.getDocFromServer, getDocs: Client.getDocsFromServer },
+  cache: { getDoc: Client.getDocFromCache, getDocs: Client.getDocsFromCache },
+};
+
+/** The SDK's reads from where `source` names, `"default"` where it names none. */
+const readsFrom = (source: ClientFirestore.ReadSource | undefined): Reads =>
+  reads[source ?? "default"];
 
 const databaseTarget: Target = {
   name: "Firestore",
-  getDoc: getDocFrom,
+  getDoc: (ref, source) => readsFrom(source).getDoc(ref),
   setDoc: (ref, data) => Client.setDoc(ref, data),
   updateDoc: (ref, data) => Client.updateDoc(ref, data),
 };
@@ -388,7 +382,7 @@ export const fromDatabase = (
     ) =>
       Effect.gen(function* () {
         const query = yield* call("getDocs", `Failed to read the collection "${ref.path}"`, () =>
-          getDocsFrom(Client.collection(firestore, ref.path), options?.source),
+          readsFrom(options?.source).getDocs(Client.collection(firestore, ref.path)),
         );
 
         return querySnapshotOf(ref, query);
