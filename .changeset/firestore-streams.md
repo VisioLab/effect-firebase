@@ -10,5 +10,6 @@ hand back - each time it changes. Running the stream attaches a listener of its
 own, which is detached once the stream stops; a reader that falls behind sees
 the latest snapshot rather than every one in between, and the stream fails with
 a `FirestoreError` when Firestore drops the listener. The Admin and client SDKs
-implement them in `firestore/Firestore.layer`; the client SDK emits its own
+implement them in `firestore/AdminFirestore.layer` and
+`firestore/ClientFirestore.layer`; the client SDK emits its own
 writes as soon as it makes them, before the database acknowledges them.
