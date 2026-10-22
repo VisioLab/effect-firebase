@@ -16,6 +16,7 @@ import type {
 } from "@visiolab/effect-firebase/firestore/Firestore";
 import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
+import * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
 import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
 import type * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import { FirebaseError } from "firebase/app";
@@ -65,13 +66,15 @@ const firestoreError = (message: string) => (cause: unknown) =>
 const dataOf = (snapshot: Client.DocumentSnapshot) =>
   snapshot.data({ serverTimestamps: "estimate" });
 
-/** The documents `query` read from the collection at `ref`. */
-const existingIn = <C extends Collection.Any>(
+/** A snapshot of the documents `query` read from the collection at `ref`. */
+const querySnapshotOf = <C extends Collection.Any>(
   ref: Collection.CollectionReference<C>,
   query: Client.QuerySnapshot,
-): ReadonlyArray<DocumentSnapshot.Existing<C>> =>
-  query.docs.map((snapshot) =>
-    DocumentSnapshot.existing(ref.doc(ref.collection.id.make(snapshot.id)), dataOf(snapshot)),
+): QuerySnapshot.QuerySnapshot<C> =>
+  QuerySnapshot.make(
+    query.docs.map((snapshot) =>
+      DocumentSnapshot.existing(ref.doc(ref.collection.id.make(snapshot.id)), dataOf(snapshot)),
+    ),
   );
 
 /**
@@ -301,7 +304,7 @@ export const fromDatabase = (firestore: Client.Firestore, encoder: FirestoreEnco
           Client.getDocs(Client.collection(firestore, ref.path)),
         );
 
-        return existingIn(ref, query);
+        return querySnapshotOf(ref, query);
       }),
 
     addDoc: <C extends Collection.Any>(ref: Collection.CollectionReference<C>, data: Create<C>) =>
@@ -332,7 +335,7 @@ export const fromDatabase = (firestore: Client.Firestore, encoder: FirestoreEnco
         `Failed to listen to the collection "${ref.path}"`,
         (onNext, onError) =>
           Client.onSnapshot(Client.collection(firestore, ref.path), onNext, onError),
-        (query: Client.QuerySnapshot) => existingIn(ref, query),
+        (query: Client.QuerySnapshot) => querySnapshotOf(ref, query),
       ),
 
     runTransaction: Effect.fn("Firestore.runTransaction")(function* <A, E, R>(

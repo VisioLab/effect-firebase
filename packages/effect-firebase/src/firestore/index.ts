@@ -49,4 +49,9 @@ export * as Patch from "./Patch.ts";
  * @stability unstable
  * @since 0.2.0
  */
+export * as QuerySnapshot from "./QuerySnapshot.ts";
+/**
+ * @stability unstable
+ * @since 0.2.0
+ */
 export * as Timestamp from "./Timestamp.ts";

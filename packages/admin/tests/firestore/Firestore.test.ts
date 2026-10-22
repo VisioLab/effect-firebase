@@ -1,8 +1,9 @@
-import { describe, expect, expectTypeOf, it } from "@effect/vitest";
+import { assert, describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
 import { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
+import * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
 import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as Admin from "firebase-admin/app";
@@ -221,12 +222,11 @@ describe("Firestore, against the emulator", () => {
 
       yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
       const added = yield* firestore.addDoc(Posts.collection(), { title: "Added", views: 2 });
-      const snapshots = yield* firestore.getDocs(Posts.collection());
+      const snapshot = yield* firestore.getDocs(Posts.collection());
 
       expect(added.id).not.toBe(hello);
-      expect(snapshots.map((snapshot) => snapshot.id).toSorted()).toEqual(
-        [hello, added.id].toSorted(),
-      );
+      assert(QuerySnapshot.isQuerySnapshot(snapshot));
+      expect(snapshot.docs.map((doc) => doc.id).toSorted()).toEqual([hello, added.id].toSorted());
     }).pipe(Effect.provide(layer)),
   );
 

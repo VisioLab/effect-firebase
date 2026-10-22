@@ -1,8 +1,9 @@
-import { describe, expect, it, vi } from "@effect/vitest";
+import { assert, describe, expect, it, vi } from "@effect/vitest";
 import { Effect, Layer, Queue, Schema, Stream } from "effect";
 import { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
+import * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import { DocumentReference } from "firebase-admin/firestore";
 import * as App from "../../src/App.ts";
@@ -99,15 +100,17 @@ describe("Firestore.streamDocs", () => {
   it.effect("starts with the collection as it is, and follows each change to it", () =>
     Effect.gen(function* () {
       const firestore = yield* fresh;
-      const lists = yield* listening(firestore.streamDocs(Posts.collection()));
+      const snapshots = yield* listening(firestore.streamDocs(Posts.collection()));
 
-      expect(yield* Queue.take(lists)).toEqual([]);
+      const empty = yield* Queue.take(snapshots);
+      assert(QuerySnapshot.isQuerySnapshot(empty));
+      expect(empty.docs).toEqual([]);
 
       yield* firestore.setDoc(hello, { title: "Hello", views: 1 });
-      expect((yield* Queue.take(lists)).map((snapshot) => snapshot.id)).toEqual([hello.id]);
+      expect((yield* Queue.take(snapshots)).docs.map((doc) => doc.id)).toEqual([hello.id]);
 
       const added = yield* firestore.addDoc(Posts.collection(), { title: "Added", views: 2 });
-      expect((yield* Queue.take(lists)).map((snapshot) => snapshot.id).toSorted()).toEqual(
+      expect((yield* Queue.take(snapshots)).docs.map((doc) => doc.id).toSorted()).toEqual(
         [hello.id, added.id].toSorted(),
       );
     }).pipe(Effect.scoped, Effect.provide(layer)),
