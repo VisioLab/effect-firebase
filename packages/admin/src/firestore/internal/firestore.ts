@@ -18,7 +18,7 @@ import type * as FirestoreModel from "@visiolab/effect-firebase/firestore/Firest
 import { FirebaseError } from "firebase-admin/app";
 import * as Admin from "firebase-admin/firestore";
 import * as App from "../../App.ts";
-import type * as AdminFirestore from "../AdminFirestore.ts";
+import * as AdminFirestore from "../AdminFirestore.ts";
 import * as Encoder from "../FirestoreEncoder.ts";
 
 /**
@@ -124,6 +124,7 @@ const querySnapshotOf = <C extends Collection.Any>(
 interface Target {
   readonly name: string;
   readonly getDoc: (ref: Admin.DocumentReference) => Promise<Admin.DocumentSnapshot>;
+  readonly getDocs: (ref: Admin.CollectionReference) => Promise<Admin.QuerySnapshot>;
   readonly setDoc: (ref: Admin.DocumentReference, data: Admin.DocumentData) => unknown;
   readonly updateDoc: (
     ref: Admin.DocumentReference,
@@ -134,6 +135,7 @@ interface Target {
 const databaseTarget: Target = {
   name: "Firestore",
   getDoc: (ref) => ref.get(),
+  getDocs: (ref) => ref.get(),
   setDoc: (ref, data) => ref.set(data),
   updateDoc: (ref, data) => ref.update(data),
 };
@@ -141,6 +143,7 @@ const databaseTarget: Target = {
 const transactionTarget = (tx: Admin.Transaction): Target => ({
   name: "Firestore.Transaction",
   getDoc: (ref) => tx.get(ref),
+  getDocs: (ref) => tx.get(ref),
   // Writes into a transaction are queued rather than sent, so these return
   // straight away - or throw, where the transaction refuses them.
   setDoc: (ref, data) => tx.set(ref, data),
@@ -148,7 +151,8 @@ const transactionTarget = (tx: Admin.Transaction): Target => ({
 });
 
 /**
- * The reads and writes a {@link Firestore} and a {@link Transaction} share,
+ * The reads and writes a {@link Firestore} and an
+ * {@link AdminFirestore.AdminTransaction} share,
  * made against `target`.
  */
 const operations = (firestore: Admin.Firestore, encoder: FirestoreEncoder, target: Target) => {
@@ -219,6 +223,15 @@ const operations = (firestore: Admin.Firestore, encoder: FirestoreEncoder, targe
         return DocumentSnapshot.make(ref, snapshot.data());
       }),
 
+    getDocs: <C extends Collection.Any>(ref: Collection.CollectionReference<C>) =>
+      Effect.gen(function* () {
+        const query = yield* call("getDocs", `Failed to read the collection "${ref.path}"`, () =>
+          target.getDocs(firestore.collection(ref.path)),
+        );
+
+        return querySnapshotOf(ref, query);
+      }),
+
     setDoc: <C extends Collection.Any>(ref: Collection.DocumentReference<C>, data: Create<C>) =>
       Effect.gen(function* () {
         const encoded = yield* encodeCreate(ref.collection, data);
@@ -286,24 +299,19 @@ export const fromDatabase = (
 ): AdminFirestore.AdminFirestore => {
   const { call, encodeCreate, ...database } = operations(firestore, encoder, databaseTarget);
 
-  const makeTransaction = (tx: Admin.Transaction): Transaction => {
-    const { getDoc, setDoc, updateDoc } = operations(firestore, encoder, transactionTarget(tx));
-    return Transaction.of({ getDoc, setDoc, updateDoc });
+  const makeTransaction = (tx: Admin.Transaction): AdminFirestore.AdminTransaction => {
+    const { getDoc, getDocs, setDoc, updateDoc } = operations(
+      firestore,
+      encoder,
+      transactionTarget(tx),
+    );
+    return AdminFirestore.AdminTransaction.of({ getDoc, getDocs, setDoc, updateDoc });
   };
 
   return {
     instance: firestore,
 
     ...database,
-
-    getDocs: <C extends Collection.Any>(ref: Collection.CollectionReference<C>) =>
-      Effect.gen(function* () {
-        const query = yield* call("getDocs", `Failed to read the collection "${ref.path}"`, () =>
-          firestore.collection(ref.path).get(),
-        );
-
-        return querySnapshotOf(ref, query);
-      }),
 
     addDoc: <C extends Collection.Any>(ref: Collection.CollectionReference<C>, data: Create<C>) =>
       Effect.gen(function* () {
@@ -337,7 +345,8 @@ export const fromDatabase = (
       options?: TransactionOptions,
     ) {
       // Captured inside the span, so the body's own spans hang off it.
-      const context = yield* Effect.context<Exclude<R, Transaction>>();
+      const context =
+        yield* Effect.context<Exclude<R, AdminFirestore.AdminTransaction | Transaction>>();
 
       return yield* Effect.uninterruptibleMask((restore) => {
         const controller = new AbortController();
@@ -347,8 +356,14 @@ export const fromDatabase = (
         let failure: { readonly thrown: unknown; readonly cause: Cause.Cause<unknown> } | undefined;
         const running = firestore.runTransaction(
           async (tx) => {
+            // One transaction, under both tags, so portable helpers and
+            // admin ones in the same body read and write through it alike.
+            const transaction = makeTransaction(tx);
             const exit = await Effect.runPromiseExitWith(
-              Context.add(context, Transaction, makeTransaction(tx)) as Context.Context<R>,
+              context.pipe(
+                Context.add(Transaction, transaction),
+                Context.add(AdminFirestore.AdminTransaction, transaction),
+              ) as Context.Context<R>,
             )(effect, { signal: controller.signal });
             if (Exit.isSuccess(exit)) return exit.value;
             const thrown = thrownFor(exit.cause);
