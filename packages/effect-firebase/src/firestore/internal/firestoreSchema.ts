@@ -16,21 +16,63 @@ import type * as GeoPoint_ from "../GeoPoint.ts";
 import type * as Timestamp_ from "../Timestamp.ts";
 import * as collection_ from "./collection.ts";
 import * as fieldValue from "./fieldValue.ts";
+import * as firestoreValueAnnotations from "./firestoreValueAnnotations.ts";
 import * as geoPoint from "./geoPoint.ts";
 import * as timestamp from "./timestamp.ts";
+
+/**
+ * Marks what an encoder-backed codec hands over as already in Firestore form,
+ * so `toCodecFirestore` passes the SDK value it built through untouched.
+ *
+ * Temporary: it goes once these codecs stop going through `FirestoreEncoder`
+ * (#75, #76).
+ */
+const sdkValue = (): undefined => undefined;
+
+/**
+ * The encoded side of a sentinel: whatever the encoder built. Still
+ * `Schema.Unknown`, but marked so `toCodecFirestore` passes it through rather
+ * than asking for a Firestore Value. Temporary, as {@link sdkValue} is.
+ */
+const SdkSentinel = Schema.Unknown.annotate({ [firestoreValueAnnotations.sdkValue]: true });
 
 /** Accepts a timestamp in the shape Firestore hands back, whichever SDK read it. */
 const TimestampLikeValue = Schema.declare<Timestamp_.TimestampLike>(timestamp.isTimestampLike, {
   representation: { id: "@visiolab/effect-firebase/firestore/Timestamp/Like", payload: null },
   expected: "a Firestore timestamp",
+  toCodecFirestore: sdkValue,
   toEquivalence: () => (self, that) =>
     self.seconds === that.seconds && self.nanoseconds === that.nanoseconds,
 });
 
-const TimestampValue = Schema.declare<Timestamp_.Timestamp>(timestamp.isTimestamp, {
+/** Writes a timestamp as JSON without losing the digits finer than a millisecond. */
+const TimestampJson = Schema.Struct({ seconds: Schema.Int, nanoseconds: Schema.Int });
+
+/** @internal */
+export const TimestampValue = Schema.declare<Timestamp_.Timestamp>(timestamp.isTimestamp, {
   representation: { id: "@visiolab/effect-firebase/firestore/Timestamp", payload: null },
   expected: "a Firestore Timestamp",
   toEquivalence: () => Equal.equals,
+  toCodecFirestore: () => undefined,
+  toCodecJson: () =>
+    Schema.link<Timestamp_.Timestamp>()(TimestampJson, {
+      decode: SchemaGetter.transformEffect((json: typeof TimestampJson.Type, options) =>
+        Effect.fromOption(timestamp.make(json.seconds, json.nanoseconds)).pipe(
+          Effect.mapError(
+            () =>
+              new SchemaIssue.InvalidValue(
+                { message: "Expected an instant Firestore can store" },
+                json,
+                options,
+              ),
+          ),
+        ),
+      ),
+      encode: SchemaGetter.transform((value: Timestamp_.Timestamp) => ({
+        seconds: value.seconds,
+        nanoseconds: value.nanoseconds,
+      })),
+    }),
 });
 
 /** @internal */
@@ -62,6 +104,7 @@ export const DateTimeUtcFromTimestamp: FirestoreSchema.DateTimeUtcFromTimestamp 
 const GeoPointLikeValue = Schema.declare<GeoPoint_.GeoPointLike>(geoPoint.isGeoPointLike, {
   representation: { id: "@visiolab/effect-firebase/firestore/GeoPoint/Like", payload: null },
   expected: "a Firestore geopoint",
+  toCodecFirestore: sdkValue,
   toEquivalence: () => (self, that) =>
     self.latitude === that.latitude && self.longitude === that.longitude,
 });
@@ -70,6 +113,7 @@ const GeoPointValue = Schema.declare<GeoPoint_.GeoPoint>(geoPoint.isGeoPoint, {
   representation: { id: "@visiolab/effect-firebase/firestore/GeoPoint", payload: null },
   expected: "a Firestore GeoPoint",
   toEquivalence: () => Equal.equals,
+  toCodecFirestore: () => undefined,
 });
 
 /** @internal */
@@ -91,6 +135,7 @@ const DocumentReferenceLikeValue = Schema.declare<Collection.DocumentReferenceLi
       payload: null,
     },
     expected: "a Firestore document reference",
+    toCodecFirestore: sdkValue,
     toEquivalence: () => (self, that) => self.path === that.path,
   },
 );
@@ -110,6 +155,7 @@ export const DocumentReference = <C extends Collection.Any>(
       },
       expected: `a reference to a document in ${pattern}`,
       toEquivalence: () => Equal.equals,
+      toCodecFirestore: () => undefined,
     },
   );
   return DocumentReferenceLikeValue.pipe(
@@ -141,10 +187,11 @@ const ServerTimestampValue = Schema.declare<FieldValue.ServerTimestamp>(
       payload: null,
     },
     expected: "a server timestamp",
+    toCodecFirestore: () => undefined,
   },
 );
 
-const ServerTimestampSentinel = Schema.Unknown.pipe(
+const ServerTimestampSentinel = SdkSentinel.pipe(
   Schema.decodeTo(ServerTimestampValue, {
     decode: SchemaGetter.forbidden(
       () => "A server timestamp is only ever written, never read back",
@@ -174,10 +221,11 @@ const IncrementValue = Schema.declare<FieldValue.Increment>(fieldValue.isIncreme
   },
   expected: "an increment",
   toEquivalence: () => Equal.equals,
+  toCodecFirestore: () => undefined,
 });
 
 /** @internal */
-export const Increment: FirestoreSchema.Increment = Schema.Unknown.pipe(
+export const Increment: FirestoreSchema.Increment = SdkSentinel.pipe(
   Schema.decodeTo(IncrementValue, {
     decode: SchemaGetter.forbidden(() => "An increment is only ever written, never read back"),
     encode: SchemaGetter.transformEffect((value: FieldValue.Increment) =>
@@ -197,10 +245,11 @@ const DeleteFieldValue = Schema.declare<FieldValue.DeleteField>(fieldValue.isDel
     payload: null,
   },
   expected: "a field deletion",
+  toCodecFirestore: () => undefined,
 });
 
 /** @internal */
-export const DeleteField: FirestoreSchema.DeleteField = Schema.Unknown.pipe(
+export const DeleteField: FirestoreSchema.DeleteField = SdkSentinel.pipe(
   Schema.decodeTo(DeleteFieldValue, {
     decode: SchemaGetter.forbidden(() => "A field deletion is only ever written, never read back"),
     encode: SchemaGetter.transformEffect(() =>
@@ -246,6 +295,7 @@ const elementsValue =
           payload: null,
         },
         expected: `an ${name}`,
+        toCodecFirestore: () => undefined,
         toEquivalence: ([item]) => {
           const elements = Array.makeEquivalence(item);
           return (self, that) => elements(self.elements, that.elements);
@@ -257,7 +307,7 @@ const ArrayUnionValue = elementsValue("ArrayUnion", fieldValue.isArrayUnion, fie
 
 /** @internal */
 export const ArrayUnion = <S extends Schema.Top>(item: S): FirestoreSchema.ArrayUnion<S> =>
-  Schema.Unknown.pipe(
+  SdkSentinel.pipe(
     Schema.decodeTo(ArrayUnionValue(item), {
       decode: SchemaGetter.forbidden(() => "An array union is only ever written, never read back"),
       encode: SchemaGetter.transformEffect((value: FieldValue.ArrayUnion<unknown>) =>
@@ -274,7 +324,7 @@ const ArrayRemoveValue = elementsValue(
 
 /** @internal */
 export const ArrayRemove = <S extends Schema.Top>(item: S): FirestoreSchema.ArrayRemove<S> =>
-  Schema.Unknown.pipe(
+  SdkSentinel.pipe(
     Schema.decodeTo(ArrayRemoveValue(item), {
       decode: SchemaGetter.forbidden(
         () => "An array removal is only ever written, never read back",

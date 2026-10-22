@@ -215,7 +215,7 @@ catalogs:
       specifier: ^4.0.4
       version: 4.0.4
     effect:
-      specifier: ^4.0.4
+      specifier: 4.0.4
       version: 4.0.4
     firebase:
       specifier: ^13.0.0
