@@ -203,7 +203,7 @@ export interface Options {
  */
 export const make = Effect.fn("AdminFirestore.make")(function* (options?: Options) {
   const { firestore, encoder } = yield* internalFirestore.openWithEncoder(options);
-  return internalFirestore.fromDatabase(firestore, encoder);
+  return internalFirestore.fromDatabase(firestore, encoder, AdminTransaction);
 });
 
 /**
@@ -250,7 +250,7 @@ export const layerWithEncoder = (
 ): Layer.Layer<AdminFirestore.Id | Firestore | FirestoreEncoder, never, App.App> =>
   Layer.effectContext(
     Effect.map(internalFirestore.openWithEncoder(options), ({ firestore, encoder }) => {
-      const service = internalFirestore.fromDatabase(firestore, encoder);
+      const service = internalFirestore.fromDatabase(firestore, encoder, AdminTransaction);
       return Context.make(AdminFirestore, service).pipe(
         Context.add(Firestore, service),
         Context.add(FirestoreEncoder, encoder),

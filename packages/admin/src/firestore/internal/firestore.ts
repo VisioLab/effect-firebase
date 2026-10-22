@@ -18,7 +18,7 @@ import type * as FirestoreModel from "@visiolab/effect-firebase/firestore/Firest
 import { FirebaseError } from "firebase-admin/app";
 import * as Admin from "firebase-admin/firestore";
 import * as App from "../../App.ts";
-import * as AdminFirestore from "../AdminFirestore.ts";
+import type * as AdminFirestore from "../AdminFirestore.ts";
 import * as Encoder from "../FirestoreEncoder.ts";
 
 /**
@@ -289,13 +289,17 @@ const listen = <S, A>(
  * The service over a database already opened, writing through `encoder`.
  *
  * The encoder is handed in rather than built here so that `layerWithEncoder`
- * can put the very same one into context.
+ * can put the very same one into context. The key a transaction body finds its
+ * {@link AdminFirestore.AdminTransaction} under is handed in by the public
+ * module that defines it, so that this one only imports it as a type and the
+ * two do not import each other.
  *
  * @internal
  */
 export const fromDatabase = (
   firestore: Admin.Firestore,
   encoder: FirestoreEncoder,
+  AdminTransaction: typeof AdminFirestore.AdminTransaction,
 ): AdminFirestore.AdminFirestore => {
   const { call, encodeCreate, ...database } = operations(firestore, encoder, databaseTarget);
 
@@ -305,7 +309,7 @@ export const fromDatabase = (
       encoder,
       transactionTarget(tx),
     );
-    return AdminFirestore.AdminTransaction.of({ getDoc, getDocs, setDoc, updateDoc });
+    return AdminTransaction.of({ getDoc, getDocs, setDoc, updateDoc });
   };
 
   return {
@@ -364,7 +368,7 @@ export const fromDatabase = (
             const exit = await Effect.runPromiseExitWith(
               context.pipe(
                 Context.add(Transaction, transaction),
-                Context.add(AdminFirestore.AdminTransaction, transaction),
+                Context.add(AdminTransaction, transaction),
               ) as Context.Context<R>,
             )(effect, { signal: controller.signal });
             if (Exit.isSuccess(exit)) return exit.value;
