@@ -1,5 +1,5 @@
 import { assert, describe, expect, expectTypeOf, it } from "@effect/vitest";
-import { Effect, Fiber, Layer, Schema, Stream } from "effect";
+import { DateTime, Effect, Fiber, Layer, Option, Schema, Stream } from "effect";
 import { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
 import {
   Collection,
@@ -13,6 +13,7 @@ import {
 import { FirestoreEncoder } from "@visiolab/effect-firebase/firestore/FirestoreEncoder";
 import * as Client from "firebase/app";
 import {
+  Bytes,
   connectFirestoreEmulator,
   disableNetwork,
   DocumentReference,
@@ -24,6 +25,9 @@ import {
   initializeFirestore,
   memoryLocalCache,
   persistentLocalCache,
+  setDoc,
+  Timestamp as SdkTimestamp,
+  vector,
 } from "firebase/firestore";
 import * as App from "../../src/App.ts";
 import * as ClientDocumentSnapshot from "../../src/firestore/ClientDocumentSnapshot.ts";
@@ -341,6 +345,76 @@ describe("ClientFirestore, against the emulator", () => {
 
       const settled = yield* read(yield* firestore.getDoc(note));
       expect(settled.body).toBe("offline");
+    }).pipe(Effect.provide(layer)),
+  );
+});
+
+class Event extends FirestoreModel.Class<Event>("Event")({
+  at: Schema.DateTimeUtc,
+  on: Schema.Date,
+  payload: Schema.Uint8Array,
+  note: Schema.Option(Schema.String),
+}) {}
+
+const Events = Collection.make("events", Event);
+
+describe("ClientFirestore, Firestore Values", () => {
+  const freshFirestore = clear(projectId).pipe(Effect.andThen(Firestore));
+
+  const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnapshot<C>) =>
+    DocumentSnapshot.isExisting(snapshot) ? snapshot.data : Effect.die("missing");
+
+  const event = new Event({
+    at: DateTime.makeUnsafe("2026-10-22T12:34:56.789Z"),
+    on: new Date("2001-02-03T04:05:06.007Z"),
+    payload: new Uint8Array([1, 2, 3]),
+    note: Option.some("hello"),
+  });
+
+  it.effect("reads back a plain model it wrote", () =>
+    Effect.gen(function* () {
+      const firestore = yield* freshFirestore;
+      const ref = Events.doc(Events.id.make("e"));
+
+      yield* firestore.setDoc(ref, event);
+
+      expect(yield* read(yield* firestore.getDoc(ref))).toEqual(event);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("stores times and bytes as the SDK's own types", () =>
+    Effect.gen(function* () {
+      const firestore = yield* freshFirestore;
+      const { instance } = yield* ClientFirestore.ClientFirestore;
+
+      yield* firestore.setDoc(Events.doc(Events.id.make("e")), event);
+      const raw = (yield* Effect.promise(() => getDoc(doc(instance, "events/e")))).data();
+
+      assert(raw !== undefined);
+      expect(raw["at"]).toBeInstanceOf(SdkTimestamp);
+      expect((raw["at"] as SdkTimestamp).toMillis()).toBe(Date.parse("2026-10-22T12:34:56.789Z"));
+      expect(raw["on"]).toBeInstanceOf(SdkTimestamp);
+      expect(raw["payload"]).toBeInstanceOf(Bytes);
+      expect((raw["payload"] as Bytes).toUint8Array()).toEqual(new Uint8Array([1, 2, 3]));
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("fails to read a document holding a value outside the Firestore Value union", () =>
+    Effect.gen(function* () {
+      const firestore = yield* freshFirestore;
+      const { instance } = yield* ClientFirestore.ClientFirestore;
+      yield* Effect.promise(() =>
+        setDoc(doc(instance, "posts/hello"), { title: "Hello", embedding: [vector([1, 2])] }),
+      );
+
+      const error = yield* Effect.flip(firestore.getDoc(Posts.doc(hello)));
+      expect(error).toMatchObject({ _tag: "FirestoreError" });
+      expect(error.message).toContain("posts/hello");
+      expect(error.message).toContain('"embedding.0"');
+      expect(error.message).toContain("VectorValue");
+
+      const listed = yield* Effect.flip(firestore.getDocs(Posts.collection()));
+      expect(listed.message).toContain("VectorValue");
     }).pipe(Effect.provide(layer)),
   );
 });

@@ -1,6 +1,7 @@
 import { Effect, Inspectable, Predicate, Schema } from "effect";
 import type * as Collection from "../Collection.ts";
 import type * as DocumentSnapshot from "../DocumentSnapshot.ts";
+import * as firestoreValue from "./firestoreValue.ts";
 
 /** @internal */
 export const TypeId = "~@visiolab/effect-firebase/firestore/DocumentSnapshot";
@@ -56,10 +57,15 @@ const ExistingProto = {
   // A getter rather than a field, so that nothing is built until it is asked
   // for. It suspends as well, because a schema that decodes synchronously
   // decodes when it is called rather than when it is run, which would decode
-  // on reading `data` and replay that one result on every run.
+  // on reading `data` and replay that one result on every run. The raw data
+  // is Firestore Values, so it decodes through the codec derived to them.
   get data(): Effect.Effect<unknown, Schema.SchemaError> {
     const self = this as unknown as ExistingImpl;
-    return Effect.suspend(() => Schema.decodeUnknownEffect(self.ref.collection.schema)(self.raw));
+    return Effect.suspend(() =>
+      Schema.decodeUnknownEffect(firestoreValue.toCodecFirestore(self.ref.collection.schema))(
+        self.raw,
+      ),
+    );
   },
 };
 
