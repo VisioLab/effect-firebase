@@ -4,7 +4,7 @@
 ---
 
 Add `Firestore.runTransaction`, which runs an effect in a transaction with a
-`Transaction` service provided: `getDoc`, `getDocs`, `setDoc` and `updateDoc`,
+`Transaction` service provided: `getDoc`, `setDoc` and `updateDoc`,
 as the service has them, with every read before every write and the writes
 queued until the effect is done. The SDK runs the effect again, up to
 `maxAttempts`, when it fails with a `FirestoreError` the SDK would retry - a
