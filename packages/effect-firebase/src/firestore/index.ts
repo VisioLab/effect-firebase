@@ -9,6 +9,11 @@ export * as Collection from "./Collection.ts";
  * @stability unstable
  * @since 0.2.0
  */
+export * as CollectionGroup from "./CollectionGroup.ts";
+/**
+ * @stability unstable
+ * @since 0.2.0
+ */
 export * as DocumentPath from "./DocumentPath.ts";
 /**
  * @stability unstable
