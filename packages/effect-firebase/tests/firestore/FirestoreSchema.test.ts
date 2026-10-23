@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from "@effect/vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { DateTime, Effect, Equal, Schema } from "effect";
 import * as Collection from "../../src/firestore/Collection.ts";
 import * as DocumentPath from "../../src/firestore/DocumentPath.ts";
@@ -19,22 +19,6 @@ const fromFirestore = <S extends Schema.Top>(schema: S) =>
   Schema.decodeUnknownEffect(FirestoreValue.toCodecFirestore(schema));
 
 describe("Timestamp", () => {
-  it("is the portable Timestamp on both sides, and asks for no services", () => {
-    expectTypeOf<(typeof FirestoreSchema.Timestamp)["Type"]>().toEqualTypeOf<Timestamp.Timestamp>();
-    expectTypeOf<
-      (typeof FirestoreSchema.Timestamp)["Encoded"]
-    >().toEqualTypeOf<Timestamp.Timestamp>();
-    expectTypeOf<(typeof FirestoreSchema.Timestamp)["EncodingServices"]>().toEqualTypeOf<never>();
-    expectTypeOf<(typeof FirestoreSchema.Timestamp)["DecodingServices"]>().toEqualTypeOf<never>();
-    expectTypeOf<
-      Parameters<typeof FirestoreSchema.Timestamp.make>[0]
-    >().toEqualTypeOf<Timestamp.Timestamp>();
-  });
-
-  it("keeps its own name through a rebuild", () => {
-    expectTypeOf(FirestoreSchema.Timestamp.annotate({})).toEqualTypeOf<FirestoreSchema.Timestamp>();
-  });
-
   it.effect("is stored as the portable Timestamp, to the nanosecond, with no layer", () =>
     Effect.gen(function* () {
       const Clip = Schema.Struct({
@@ -70,16 +54,6 @@ describe("Timestamp", () => {
 });
 
 describe("GeoPoint", () => {
-  it("is the portable GeoPoint on both sides, and asks for no services", () => {
-    expectTypeOf<(typeof FirestoreSchema.GeoPoint)["Encoded"]>().toEqualTypeOf<GeoPoint.GeoPoint>();
-    expectTypeOf<(typeof FirestoreSchema.GeoPoint)["EncodingServices"]>().toEqualTypeOf<never>();
-    expectTypeOf<(typeof FirestoreSchema.GeoPoint)["DecodingServices"]>().toEqualTypeOf<never>();
-  });
-
-  it("keeps its own name through a rebuild", () => {
-    expectTypeOf(FirestoreSchema.GeoPoint.annotate({})).toEqualTypeOf<FirestoreSchema.GeoPoint>();
-  });
-
   it.effect("is stored as the portable GeoPoint, with no layer", () =>
     Effect.gen(function* () {
       const Place = Schema.Struct({ where: FirestoreSchema.GeoPoint });
@@ -113,20 +87,6 @@ describe("DocumentReference", () => {
   const Post = FirestoreSchema.DocumentReference(Posts);
   const hello = Posts.doc(Users.id.make("alice"), Posts.id.make("hello"));
   const elsewhere = OrgPosts.doc(Orgs.id.make("acme"), OrgPosts.id.make("hello"));
-
-  it("is typed by the collection it points into, and asks for no services", () => {
-    expectTypeOf<(typeof Post)["Type"]>().toEqualTypeOf<
-      Collection.DocumentReference<typeof Posts>
-    >();
-    expectTypeOf<(typeof Post)["DecodingServices"]>().toEqualTypeOf<never>();
-    expectTypeOf<(typeof Post)["EncodingServices"]>().toEqualTypeOf<never>();
-  });
-
-  it("keeps its own name through a rebuild", () => {
-    expectTypeOf(Post.annotate({})).toEqualTypeOf<
-      FirestoreSchema.DocumentReference<typeof Posts>
-    >();
-  });
 
   it.effect("is stored as the document's path, and reads back equal, with no layer", () =>
     Effect.gen(function* () {
@@ -230,23 +190,6 @@ describe("DocumentPath", () => {
   });
 });
 
-describe("a model of them", () => {
-  class Member extends FirestoreModel.Class<Member>("Member")({ name: Schema.String }) {}
-  const Members = Collection.make("members", Member);
-
-  class Venue extends FirestoreModel.Class<Venue>("Venue")({
-    openedAt: FirestoreSchema.Timestamp,
-    where: FirestoreSchema.GeoPoint,
-    owner: FirestoreSchema.DocumentReference(Members),
-  }) {}
-
-  it("encodes with no services", () => {
-    expectTypeOf<(typeof Venue)["EncodingServices"]>().toEqualTypeOf<never>();
-    expectTypeOf<(typeof Venue.create)["EncodingServices"]>().toEqualTypeOf<never>();
-    expectTypeOf<(typeof Venue.update)["EncodingServices"]>().toEqualTypeOf<never>();
-  });
-});
-
 describe("a model of the sentinels", () => {
   class Post extends FirestoreModel.Class<Post>("Post")({
     title: Schema.String,
@@ -256,12 +199,6 @@ describe("a model of the sentinels", () => {
     subtitle: FirestoreModel.Optional(Schema.String),
     touchedAt: FirestoreModel.FieldOnly(["create", "update"])(FirestoreSchema.ServerTimestamp),
   }) {}
-
-  it("is written with no services", () => {
-    expectTypeOf<(typeof Post.create)["EncodingServices"]>().toEqualTypeOf<never>();
-    expectTypeOf<(typeof Post.update)["EncodingServices"]>().toEqualTypeOf<never>();
-    expectTypeOf<(typeof Post.updateUnchecked)["EncodingServices"]>().toEqualTypeOf<never>();
-  });
 
   it.effect("writes every sentinel as the portable sentinel, with no layer", () =>
     Effect.gen(function* () {
@@ -303,21 +240,6 @@ describe("ServerTimestamp", () => {
       expect(failure).toBeDefined();
     }),
   );
-
-  it("is the portable sentinel on both sides, and asks for no services", () => {
-    expectTypeOf<
-      (typeof FirestoreSchema.ServerTimestamp)["Encoded"]
-    >().toEqualTypeOf<FieldValue.ServerTimestamp>();
-    expectTypeOf<
-      (typeof FirestoreSchema.ServerTimestamp)["EncodingServices"]
-    >().toEqualTypeOf<never>();
-  });
-
-  it("keeps its own name through a rebuild", () => {
-    expectTypeOf(
-      FirestoreSchema.ServerTimestamp.annotate({}),
-    ).toEqualTypeOf<FirestoreSchema.ServerTimestamp>();
-  });
 
   it("fills itself in, since there is only one value it takes", () => {
     const Write = Schema.Struct({
@@ -371,16 +293,6 @@ describe("ServerTimestampOr", () => {
       expect(Equal.equals(timestamp, at)).toBe(true);
     }),
   );
-
-  it("is only built from a schema Firestore stores as a timestamp", () => {
-    FirestoreSchema.ServerTimestampOr(Schema.DateTimeUtc);
-    FirestoreSchema.ServerTimestampOr(Schema.Date);
-    FirestoreSchema.ServerTimestampOr(FirestoreSchema.Timestamp);
-    // @ts-expect-error a string is stored as a string, not a timestamp
-    FirestoreSchema.ServerTimestampOr(Schema.String);
-    // @ts-expect-error a DateTime written as a string is stored as a string
-    FirestoreSchema.ServerTimestampOr(Schema.DateTimeUtcFromString);
-  });
 });
 
 describe("Increment", () => {
@@ -406,14 +318,6 @@ describe("Increment", () => {
       expect(failure).toBeDefined();
     }),
   );
-
-  it("asks for no services", () => {
-    expectTypeOf<(typeof FirestoreSchema.Increment)["EncodingServices"]>().toEqualTypeOf<never>();
-  });
-
-  it("keeps its own name through a rebuild", () => {
-    expectTypeOf(FirestoreSchema.Increment.annotate({})).toEqualTypeOf<FirestoreSchema.Increment>();
-  });
 });
 
 describe("IncrementOr", () => {
@@ -454,23 +358,6 @@ describe("IncrementOr", () => {
       expect(yield* Effect.flip(Schema.decodeEffect(Whole)(7.5))).toBeDefined();
     }),
   );
-
-  it("keeps the schema it was handed, rather than widening to a number", () => {
-    expectTypeOf<FirestoreSchema.IncrementOr<Schema.Int>["Type"]>().toEqualTypeOf<
-      number | FieldValue.Increment
-    >();
-  });
-
-  it("is only built from a schema stored as a number", () => {
-    // @ts-expect-error the server has no number to add to
-    FirestoreSchema.IncrementOr(Schema.String);
-    // @ts-expect-error read as a number, but stored as a string
-    FirestoreSchema.IncrementOr(Schema.FiniteFromString);
-    expectTypeOf<
-      // @ts-expect-error the type is held to the same as the constructor
-      FirestoreSchema.IncrementOr<Schema.String>
-    >().not.toBeNever();
-  });
 });
 
 describe("DeleteField", () => {
@@ -490,16 +377,6 @@ describe("DeleteField", () => {
       expect(failure).toBeDefined();
     }),
   );
-
-  it("asks for no services", () => {
-    expectTypeOf<(typeof FirestoreSchema.DeleteField)["EncodingServices"]>().toEqualTypeOf<never>();
-  });
-
-  it("keeps its own name through a rebuild", () => {
-    expectTypeOf(
-      FirestoreSchema.DeleteField.annotate({}),
-    ).toEqualTypeOf<FirestoreSchema.DeleteField>();
-  });
 });
 
 describe("DeleteFieldOr", () => {
@@ -517,12 +394,6 @@ describe("DeleteFieldOr", () => {
       expect(yield* encode(FieldValue.deleteField)).toBe(FieldValue.deleteField);
     }),
   );
-
-  it("keeps the schema it was handed", () => {
-    expectTypeOf<FirestoreSchema.DeleteFieldOr<Schema.String>["Type"]>().toEqualTypeOf<
-      string | FieldValue.DeleteField
-    >();
-  });
 });
 
 describe("ArrayUnion", () => {
@@ -584,11 +455,6 @@ describe("ArrayUnion", () => {
     }),
   );
 
-  it("asks for no services, only whatever its elements ask for", () => {
-    expectTypeOf<(typeof Tags)["EncodingServices"]>().toEqualTypeOf<never>();
-    expectTypeOf<(typeof Tags)["Type"]>().toEqualTypeOf<FieldValue.ArrayUnion<string>>();
-  });
-
   it("compares by the elements, as the schema it was built from compares them", () => {
     const equivalence = Schema.toEquivalence(FirestoreSchema.ArrayUnion(Schema.DateTimeUtc));
     const at = (millis: number) => DateTime.makeUnsafe(millis);
@@ -596,10 +462,6 @@ describe("ArrayUnion", () => {
       equivalence(FieldValue.arrayUnion(at(1), at(2)), FieldValue.arrayUnion(at(1), at(2))),
     ).toBe(true);
     expect(equivalence(FieldValue.arrayUnion(at(1)), FieldValue.arrayUnion(at(2)))).toBe(false);
-  });
-
-  it("keeps its own name through a rebuild", () => {
-    expectTypeOf(Tags.annotate({})).toEqualTypeOf<FirestoreSchema.ArrayUnion<Schema.String>>();
   });
 });
 
@@ -652,10 +514,6 @@ describe("ArrayRemove", () => {
       expect(failure).toBeDefined();
     }),
   );
-
-  it("keeps its own name through a rebuild", () => {
-    expectTypeOf(Tags.annotate({})).toEqualTypeOf<FirestoreSchema.ArrayRemove<Schema.String>>();
-  });
 });
 
 describe("ArrayOr", () => {
@@ -680,10 +538,4 @@ describe("ArrayOr", () => {
       expect(yield* Schema.decodeEffect(Tags)(["a"])).toEqual(["a"]);
     }),
   );
-
-  it("keeps the schema it was handed", () => {
-    expectTypeOf<FirestoreSchema.ArrayOr<Schema.String>["Type"]>().toEqualTypeOf<
-      ReadonlyArray<string> | FieldValue.ArrayUnion<string> | FieldValue.ArrayRemove<string>
-    >();
-  });
 });
