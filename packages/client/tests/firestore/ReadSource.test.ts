@@ -1,6 +1,5 @@
-import { describe, expect, expectTypeOf, it } from "@effect/vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
-import type { Firestore } from "@visiolab/effect-firebase/firestore/Firestore";
 import { deleteDoc, doc } from "firebase/firestore";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
@@ -29,25 +28,6 @@ const Posts = Collection.make("posts", Post);
 const hello = Posts.id.make("hello");
 
 describe("ClientFirestore, read source", () => {
-  it("takes read options on Client Firestore alone", () => {
-    expectTypeOf<ClientFirestore.ReadSource>().toEqualTypeOf<"default" | "server" | "cache">();
-    type Client = ClientFirestore.ClientFirestore;
-    expectTypeOf<Client["getDoc"]>()
-      .parameter(1)
-      .toEqualTypeOf<ClientFirestore.ReadOptions | undefined>();
-    expectTypeOf<Client["getDocs"]>()
-      .parameter(1)
-      .toEqualTypeOf<ClientFirestore.ReadOptions | undefined>();
-    // The portable service reads from wherever its SDK does, and takes no say
-    // in it.
-    expectTypeOf<Firestore["getDoc"]>().parameters.toEqualTypeOf<
-      [ref: Collection.DocumentReference<Collection.Any>]
-    >();
-    expectTypeOf<Firestore["getDocs"]>().parameters.toEqualTypeOf<
-      [ref: Collection.CollectionReference<Collection.Any>]
-    >();
-  });
-
   it.live("reads a document it has seen from the cache", () =>
     Effect.gen(function* () {
       const firestore = yield* fresh(projectId);

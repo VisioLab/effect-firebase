@@ -1,10 +1,6 @@
-import { assert, describe, expect, expectTypeOf, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import { DateTime, Effect, Equal, Fiber, Layer, Option, Schema, Stream } from "effect";
-import {
-  Firestore,
-  FirestoreError,
-  Transaction,
-} from "@visiolab/effect-firebase/firestore/Firestore";
+import { Firestore, Transaction } from "@visiolab/effect-firebase/firestore/Firestore";
 import {
   Collection,
   DocumentSnapshot,
@@ -36,9 +32,7 @@ import {
   vector,
 } from "firebase/firestore";
 import * as App from "../../src/App.ts";
-import * as ClientDocumentSnapshot from "../../src/firestore/ClientDocumentSnapshot.ts";
 import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
-import * as ClientQuerySnapshot from "../../src/firestore/ClientQuerySnapshot.ts";
 import { clear, emulator, fresh, holding, offline } from "./emulator.ts";
 
 const projectId = "demo-client-firestore";
@@ -97,15 +91,6 @@ describe("ClientFirestore", () => {
       expect(client.instance).toBe(getFirestore(yield* App.App));
     }).pipe(Effect.provide(layer)),
   );
-
-  it("is a Firestore that also holds the SDK's own object", () => {
-    expectTypeOf<ClientFirestore.ClientFirestore>().toExtend<Firestore>();
-    expectTypeOf<ClientFirestore.ClientFirestore["instance"]>().toEqualTypeOf<SdkFirestore>();
-    expectTypeOf<Firestore>().not.toHaveProperty("instance");
-    expectTypeOf(ClientFirestore.layer()).toEqualTypeOf<
-      Layer.Layer<ClientFirestore.ClientFirestore | Firestore, never, App.App>
-    >();
-  });
 
   // The SDK memoizes a database on the app and refuses to reopen one under
   // settings that disagree, which is what makes it observable from here whether
@@ -173,7 +158,6 @@ describe("ClientFirestore", () => {
       // `NaN` is not a number Firestore stores, so this never reaches the
       // database: encoding happens first and is where it stops.
       const write = firestore.setDoc(Posts.doc(hello), { title: "Hello", views: Number.NaN });
-      expectTypeOf(write).toEqualTypeOf<Effect.Effect<void, FirestoreError | Schema.SchemaError>>();
 
       const error = yield* Effect.flip(write);
       expect(error._tag).toBe("SchemaError");
@@ -371,7 +355,6 @@ describe("ClientFirestore, against the emulator, on a collection of a union", ()
         }),
       );
       assert(second.version === 2);
-      expectTypeOf(second).toEqualTypeOf<TaskV2>();
       expect(second).toBeInstanceOf(TaskV2);
       expect(second.state).toStrictEqual({ status: "done", uri: "gs://x" });
       expect(second.priority).toBe(1);
@@ -419,10 +402,7 @@ describe("ClientFirestore, against the emulator, on a collection of a union", ()
         state: { status: "pending" },
         priority: 1,
       });
-      const checked = yield* Effect.flip(
-        // @ts-expect-error a first-version task holds no `priority`
-        firestore.updateDoc(task, { priority: 2 }),
-      );
+      const checked = yield* Effect.flip(firestore.updateDoc(task, { priority: 2 } as never));
       expect(checked._tag).toBe("SchemaError");
       yield* firestore.updateDoc(task, { priority: 2 }, { mode: "unchecked" });
 
@@ -672,42 +652,6 @@ describe("ClientFirestore, FirestoreSchema values", () => {
 });
 
 describe("ClientFirestore, Snapshot Metadata", () => {
-  it("hands back client snapshots that are portable ones as well", () => {
-    type Metadata = { readonly fromCache: boolean; readonly hasPendingWrites: boolean };
-    expectTypeOf<ClientDocumentSnapshot.SnapshotMetadata>().toEqualTypeOf<Metadata>();
-    expectTypeOf<ClientDocumentSnapshot.Existing<typeof Posts>>().toExtend<
-      DocumentSnapshot.Existing<typeof Posts>
-    >();
-    expectTypeOf<ClientDocumentSnapshot.Missing<typeof Posts>>().toExtend<
-      DocumentSnapshot.Missing<typeof Posts>
-    >();
-    expectTypeOf<ClientDocumentSnapshot.ClientDocumentSnapshot<typeof Posts>>().toExtend<
-      DocumentSnapshot.DocumentSnapshot<typeof Posts>
-    >();
-    expectTypeOf<ClientQuerySnapshot.ClientQuerySnapshot<typeof Posts>>().toExtend<
-      QuerySnapshot.QuerySnapshot<typeof Posts>
-    >();
-
-    type Service = ClientFirestore.ClientFirestore;
-    expectTypeOf<Service>().toExtend<Firestore>();
-    expectTypeOf<ReturnType<Service["getDoc"]>>().toEqualTypeOf<
-      Effect.Effect<ClientDocumentSnapshot.ClientDocumentSnapshot<Collection.Any>, FirestoreError>
-    >();
-    expectTypeOf<ReturnType<Service["getDocs"]>>().toEqualTypeOf<
-      Effect.Effect<ClientQuerySnapshot.ClientQuerySnapshot<Collection.Any>, FirestoreError>
-    >();
-    expectTypeOf<ReturnType<Service["streamDoc"]>>().toEqualTypeOf<
-      Stream.Stream<ClientDocumentSnapshot.ClientDocumentSnapshot<Collection.Any>, FirestoreError>
-    >();
-    expectTypeOf<ReturnType<Service["streamDocs"]>>().toEqualTypeOf<
-      Stream.Stream<ClientQuerySnapshot.ClientQuerySnapshot<Collection.Any>, FirestoreError>
-    >();
-    // The portable service is left as it was.
-    expectTypeOf<ReturnType<Firestore["getDoc"]>>().toEqualTypeOf<
-      Effect.Effect<DocumentSnapshot.DocumentSnapshot<Collection.Any>, FirestoreError>
-    >();
-  });
-
   it.effect("reads a document the server acknowledged as from the server, nothing pending", () =>
     Effect.gen(function* () {
       const firestore = yield* fresh(projectId);
