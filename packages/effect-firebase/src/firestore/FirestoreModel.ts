@@ -31,7 +31,7 @@
  * @stability unstable
  * @since 0.2.0
  */
-import type { Schema, SchemaAST, Struct as Struct_ } from "effect";
+import type { Schema, SchemaAST, Struct as Struct_, Types } from "effect";
 import type { VariantSchema } from "effect/schema";
 import type * as FirestoreSchema from "./FirestoreSchema.ts";
 import * as firestoreModel from "./internal/firestoreModel.ts";
@@ -168,12 +168,6 @@ type VariantSchemaOf<F, V extends "create" | "update"> =
 
 /** The schema a field is updated through, or `never` where it cannot be. */
 type UpdateSchema<F> = VariantSchemaOf<F, "update">;
-
-type UnionToIntersection<U> = (U extends unknown ? (u: U) => void : never) extends (
-  u: infer I,
-) => void
-  ? I
-  : never;
 
 /** The schema `S` is made from, where it is made an optional key. */
 type WithoutOptionalKey<S extends Schema.Top> =
@@ -570,7 +564,7 @@ export type UpdatePaths<
   Mode extends UpdateMode = "checked",
   Prefix extends string = "",
 > = Struct_.Simplify<
-  UnionToIntersection<
+  Types.UnionToIntersection<
     {
       [K in keyof Fields & string]: Unwrap<Fields[K]> extends VariantSchema.Struct<infer G>
         ? StructPaths<G, IsOptional<Fields[K]>, Mode, `${Prefix}${K}`>
@@ -1002,7 +996,7 @@ type HasSharedFields<
 type SharedPaths<
   Fs extends ReadonlyArray<VariantSchema.Struct.Fields>,
   Prefix extends string,
-> = UnionToIntersection<
+> = Types.UnionToIntersection<
   {
     [K in keyof SharedUpdateFields<Fs, "unchecked"> & string]: SharedFieldPaths<
       FieldsAt<HoldingMembers<Fs, K>, K>,
