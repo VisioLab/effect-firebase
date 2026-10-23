@@ -12,8 +12,12 @@
 import { Context, Effect, Layer } from "effect";
 import type { Stream } from "effect";
 import { Firestore } from "@visiolab/effect-firebase/firestore/Firestore";
-import type { FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
+import type {
+  FirestoreError,
+  UndefinedCollectionError,
+} from "@visiolab/effect-firebase/firestore/Firestore";
 import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import type * as CollectionGroup from "@visiolab/effect-firebase/firestore/CollectionGroup";
 import type { Firestore as SdkFirestore, FirestoreLocalCache } from "firebase/firestore";
 import type * as App from "../App.ts";
 import type * as ClientDocumentSnapshot from "./ClientDocumentSnapshot.ts";
@@ -55,9 +59,10 @@ export interface ClientFirestore extends Firestore {
   ) => Effect.Effect<ClientDocumentSnapshot.ClientDocumentSnapshot<C>, FirestoreError>;
 
   /**
-   * Reads every document in one collection, as {@link Firestore.getDocs}
-   * does, with the {@link ClientDocumentSnapshot.SnapshotMetadata} of the read
-   * as a whole and of each document.
+   * Reads every document in one collection, or in a Collection Group, as
+   * {@link Firestore.getDocs} does, with the
+   * {@link ClientDocumentSnapshot.SnapshotMetadata} of the read as a whole and
+   * of each document.
    *
    * With `source: "cache"`, it never fails for what the cache lacks: it hands
    * back whatever the cache holds, which may be nothing, with `fromCache:
@@ -66,10 +71,26 @@ export interface ClientFirestore extends Firestore {
    *
    * @see {@link ReadOptions} for where a read can be served from.
    */
-  readonly getDocs: <C extends Collection.Any>(
-    ref: Collection.CollectionReference<C>,
-    options?: ReadOptions,
-  ) => Effect.Effect<ClientQuerySnapshot.ClientQuerySnapshot<C>, FirestoreError>;
+  readonly getDocs: {
+    /** Reads every document in the collection at `ref`. */
+    <C extends Collection.Any>(
+      ref: Collection.CollectionReference<C>,
+      options?: ReadOptions,
+    ): Effect.Effect<ClientQuerySnapshot.ClientQuerySnapshot<C>, FirestoreError>;
+    /**
+     * Reads every document of a {@link CollectionGroup.CollectionGroup}, as
+     * {@link Firestore.getDocs} does, failing with an
+     * {@link UndefinedCollectionError} on a document at a path none of its
+     * collections define.
+     */
+    <G extends CollectionGroup.Any>(
+      group: G,
+      options?: ReadOptions,
+    ): Effect.Effect<
+      ClientQuerySnapshot.ClientQuerySnapshot<CollectionGroup.Members<G>>,
+      FirestoreError | UndefinedCollectionError
+    >;
+  };
 
   /**
    * Listens to one document, as {@link Firestore.streamDoc} does, each
@@ -82,14 +103,31 @@ export interface ClientFirestore extends Firestore {
   ) => Stream.Stream<ClientDocumentSnapshot.ClientDocumentSnapshot<C>, FirestoreError>;
 
   /**
-   * Listens to one collection, as {@link Firestore.streamDocs} does, each
-   * snapshot with the {@link ClientDocumentSnapshot.SnapshotMetadata} it
-   * arrived with, listening as `options` says.
+   * Listens to one collection, or to a Collection Group, as
+   * {@link Firestore.streamDocs} does, each snapshot with the
+   * {@link ClientDocumentSnapshot.SnapshotMetadata} it arrived with, listening
+   * as `options` says.
    */
-  readonly streamDocs: <C extends Collection.Any>(
-    ref: Collection.CollectionReference<C>,
-    options?: ListenOptions,
-  ) => Stream.Stream<ClientQuerySnapshot.ClientQuerySnapshot<C>, FirestoreError>;
+  readonly streamDocs: {
+    /** Listens to every document in the collection at `ref`. */
+    <C extends Collection.Any>(
+      ref: Collection.CollectionReference<C>,
+      options?: ListenOptions,
+    ): Stream.Stream<ClientQuerySnapshot.ClientQuerySnapshot<C>, FirestoreError>;
+    /**
+     * Listens to every document of a {@link CollectionGroup.CollectionGroup},
+     * as {@link Firestore.streamDocs} does, failing with an
+     * {@link UndefinedCollectionError} at the first snapshot holding a
+     * document at a path none of its collections define.
+     */
+    <G extends CollectionGroup.Any>(
+      group: G,
+      options?: ListenOptions,
+    ): Stream.Stream<
+      ClientQuerySnapshot.ClientQuerySnapshot<CollectionGroup.Members<G>>,
+      FirestoreError | UndefinedCollectionError
+    >;
+  };
 }
 
 /**

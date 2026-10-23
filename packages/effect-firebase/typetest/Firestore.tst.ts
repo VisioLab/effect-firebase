@@ -1,11 +1,13 @@
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import * as CollectionGroup from "@visiolab/effect-firebase/firestore/CollectionGroup";
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
 import * as Firestore from "@visiolab/effect-firebase/firestore/Firestore";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as FirestoreSchema from "@visiolab/effect-firebase/firestore/FirestoreSchema";
 import * as Patch from "@visiolab/effect-firebase/firestore/Patch";
-import { Context, Effect, Schema, SchemaGetter } from "effect";
+import type * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
+import { Context, Effect, Schema, SchemaGetter, type Stream } from "effect";
 import { describe, expect, test } from "tstyche";
 
 /** A service a document schema might encode through. */
@@ -100,6 +102,98 @@ const unionRun = firestore.runTransaction(
   }),
 );
 declare const readBack: Effect.Success<typeof unionRun>;
+
+class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
+
+const UserPosts = Collection.make("users", User).subcollection("posts", Post);
+const AllUserPosts = CollectionGroup.make(UserPosts);
+const groupRead = firestore.getDocs(AllUserPosts);
+
+class Org extends FirestoreModel.Class<Org>("Org")({ name: Schema.String }) {}
+class OrgPost extends FirestoreModel.Class<OrgPost>("OrgPost")({ headline: Schema.String }) {}
+
+const OrgPosts = Collection.make("orgs", Org).subcollection("posts", OrgPost);
+const AllPosts = CollectionGroup.make(UserPosts, OrgPosts);
+const bothRead = firestore.getDocs(AllPosts);
+declare const bothDocs: Effect.Success<typeof bothRead>["docs"];
+
+describe("getDocs", () => {
+  test("reads a collection, failing with a Firestore error alone", () => {
+    expect(firestore.getDocs(Posts.collection())).type.toBe<
+      Effect.Effect<QuerySnapshot.QuerySnapshot<typeof Posts>, Firestore.FirestoreError>
+    >();
+  });
+
+  test("reads a Collection Group into the documents of its collection", () => {
+    expect(firestore.getDocs(AllUserPosts)).type.toBe<
+      Effect.Effect<
+        QuerySnapshot.QuerySnapshot<typeof UserPosts>,
+        Firestore.FirestoreError | Firestore.UndefinedCollectionError
+      >
+    >();
+  });
+
+  test("addresses each document of a Collection Group by its collection", () => {
+    expect<Effect.Success<typeof groupRead>["docs"][number]>().type.toBe<
+      DocumentSnapshot.Existing<typeof UserPosts>
+    >();
+  });
+
+  test("reads a group of several collections, failing as any group read does", () => {
+    expect<Effect.Error<typeof bothRead>>().type.toBe<
+      Firestore.FirestoreError | Firestore.UndefinedCollectionError
+    >();
+  });
+
+  test("addresses each document of a group of several by the one collection it is in", () => {
+    expect<Effect.Success<typeof bothRead>["docs"][number]>().type.toBe<
+      DocumentSnapshot.Existing<typeof UserPosts> | DocumentSnapshot.Existing<typeof OrgPosts>
+    >();
+  });
+
+  test("filters the documents of one collection out of a group of several", () => {
+    expect(bothDocs.filter(OrgPosts.contains)).type.toBe<
+      Array<DocumentSnapshot.Existing<typeof OrgPosts>>
+    >();
+  });
+
+  test("narrows a document of a group of several to its collection's id, ancestors and data", () => {
+    const [doc] = bothDocs;
+    if (OrgPosts.contains(doc)) {
+      expect(doc).type.toBe<DocumentSnapshot.Existing<typeof OrgPosts>>();
+      expect(doc.id).type.toBe<Collection.Id<typeof OrgPosts>>();
+      expect(doc.ref.ancestors).type.toBe<Readonly<Collection.Ancestors<typeof OrgPosts>>>();
+      expect(doc.data).type.toBe<Effect.Effect<OrgPost, Schema.SchemaError>>();
+    } else {
+      expect(doc).type.toBe<DocumentSnapshot.Existing<typeof UserPosts>>();
+    }
+  });
+});
+
+const groupStream = firestore.streamDocs(AllUserPosts);
+
+describe("streamDocs", () => {
+  test("streams a collection, failing with a Firestore error alone", () => {
+    expect(firestore.streamDocs(Posts.collection())).type.toBe<
+      Stream.Stream<QuerySnapshot.QuerySnapshot<typeof Posts>, Firestore.FirestoreError>
+    >();
+  });
+
+  test("streams a Collection Group as the documents of its collection", () => {
+    expect(groupStream).type.toBe<
+      Stream.Stream<
+        QuerySnapshot.QuerySnapshot<typeof UserPosts>,
+        Firestore.FirestoreError | Firestore.UndefinedCollectionError
+      >
+    >();
+  });
+
+  test("addresses each document of a streamed Collection Group by its collection", () => {
+    expect<Stream.Success<typeof groupStream>["docs"][number]>().type.toBe<
+      DocumentSnapshot.Existing<typeof UserPosts>
+    >();
+  });
+});
 
 describe("DocumentSchema", () => {
   test("encodes a sentinel in the `create` shape without asking for a service", () => {

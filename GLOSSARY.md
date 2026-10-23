@@ -26,7 +26,13 @@ _Avoid_: generic code, shared code
 The portable reads and writes a single Firestore transaction is made of, as handed to its body.
 
 **Admin Transaction**:
-A **Transaction** that can also read every document in a collection.
+A **Transaction** that can also read every document in a collection or a **Collection Group**.
+
+### Collections
+
+**Collection Group**:
+The collections the model defines under one collection id, wherever each sits, read together as one. Each document read through it still belongs to the one collection it lives in.
+_Avoid_: group query, all collections named X
 
 ### Reads
 

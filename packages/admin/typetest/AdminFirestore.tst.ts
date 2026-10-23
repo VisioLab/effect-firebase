@@ -1,11 +1,24 @@
 import * as App from "@visiolab/effect-firebase-admin/App";
 import * as AdminFirestore from "@visiolab/effect-firebase-admin/firestore/AdminFirestore";
+import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import * as CollectionGroup from "@visiolab/effect-firebase/firestore/CollectionGroup";
 import * as Firestore from "@visiolab/effect-firebase/firestore/Firestore";
-import { Context, Effect, type Layer } from "effect";
+import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
+import type * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
+import { Context, Effect, type Layer, Schema } from "effect";
 import type * as AdminSdk from "firebase-admin/firestore";
 import { describe, expect, test } from "tstyche";
 
 declare const firestore: Firestore.Firestore;
+declare const adminTx: AdminFirestore.AdminTransaction;
+declare const portableTx: Firestore.Transaction;
+
+class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
+class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
+
+const Users = Collection.make("users", User);
+const UserPosts = Users.subcollection("posts", Post);
+const AllUserPosts = CollectionGroup.make(UserPosts);
 
 interface Step {
   readonly by: number;
@@ -33,6 +46,26 @@ describe("AdminTransaction", () => {
 
   test("reads a whole collection on Admin Transaction and not on Transaction", () => {
     expect<Firestore.Transaction>().type.not.toHaveProperty("getDocs");
+  });
+
+  test("reads a collection, failing with a Firestore error alone", () => {
+    expect(adminTx.getDocs(Users.collection())).type.toBe<
+      Effect.Effect<QuerySnapshot.QuerySnapshot<typeof Users>, Firestore.FirestoreError>
+    >();
+  });
+
+  test("reads a Collection Group, failing with an Undefined Collection error too", () => {
+    expect(adminTx.getDocs(AllUserPosts)).type.toBe<
+      Effect.Effect<
+        QuerySnapshot.QuerySnapshot<typeof UserPosts>,
+        Firestore.FirestoreError | Firestore.UndefinedCollectionError
+      >
+    >();
+  });
+
+  test("has no Collection Group read on Transaction", () => {
+    // @ts-expect-error Property 'getDocs' does not exist
+    void portableTx.getDocs(AllUserPosts);
   });
 });
 

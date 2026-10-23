@@ -25,3 +25,26 @@ describe("make", () => {
     >();
   });
 });
+
+class Org extends FirestoreModel.Class<Org>("Org")({ name: Schema.String }) {}
+class UserPost extends FirestoreModel.Class<UserPost>("UserPost")({ title: Schema.String }) {}
+class OrgPost extends FirestoreModel.Class<OrgPost>("OrgPost")({ headline: Schema.String }) {}
+
+const UserPosts = Users.subcollection("posts", UserPost);
+const OrgPosts = Collection.make("orgs", Org).subcollection("posts", OrgPost);
+
+describe("QuerySnapshot", () => {
+  test("holds each document as a snapshot of the one collection it is in", () => {
+    expect<QuerySnapshot.QuerySnapshot<typeof UserPosts | typeof OrgPosts>["docs"]>().type.toBe<
+      ReadonlyArray<
+        DocumentSnapshot.Existing<typeof UserPosts> | DocumentSnapshot.Existing<typeof OrgPosts>
+      >
+    >();
+  });
+
+  test("of one collection is a Query Snapshot of that collection and others", () => {
+    expect<QuerySnapshot.QuerySnapshot<typeof UserPosts>>().type.toBeAssignableTo<
+      QuerySnapshot.QuerySnapshot<typeof UserPosts | typeof OrgPosts>
+    >();
+  });
+});

@@ -7,6 +7,7 @@
 import { Context, Schema } from "effect";
 import type { Effect, Stream } from "effect";
 import type * as Collection from "./Collection.ts";
+import type * as CollectionGroup from "./CollectionGroup.ts";
 import type * as DocumentSnapshot from "./DocumentSnapshot.ts";
 import type * as FirestoreModel from "./FirestoreModel.ts";
 import type * as QuerySnapshot from "./QuerySnapshot.ts";
@@ -31,6 +32,32 @@ export class FirestoreError extends Schema.TaggedError<FirestoreError>()("Firest
   code: Schema.optional(Schema.String),
   cause: Schema.optional(Schema.Defect()),
 }) {}
+
+/**
+ * Raised when a read of a {@link CollectionGroup.CollectionGroup} finds a
+ * document under the group's collection id at a path none of its collections
+ * define, such as a root-level `posts` when the group is made of
+ * `users/{id}/posts`.
+ *
+ * It is apart from {@link FirestoreError} because the call to Firestore
+ * succeeded: it is the data that contradicts the model. It is an error rather
+ * than a defect because what is in the database decides whether it happens, so
+ * correct code cannot rule it out. A caller who treats it as a bug can `orDie`
+ * it.
+ *
+ * @stability unstable
+ * @category errors
+ * @since 0.2.0
+ */
+export class UndefinedCollectionError extends Schema.TaggedError<UndefinedCollectionError>()(
+  "UndefinedCollectionError",
+  {
+    /** The full path of the document no collection of the group defines. */
+    path: Schema.String,
+    /** The collection id of the group that was read. */
+    collectionId: Schema.String,
+  },
+) {}
 
 /**
  * What writing a whole document in `C` takes: the `create` shape of the
@@ -197,17 +224,40 @@ export interface Firestore {
   ) => Effect.Effect<DocumentSnapshot.DocumentSnapshot<C>, FirestoreError>;
 
   /**
-   * Reads every document in one collection.
+   * Reads every document in one collection, or in a Collection Group.
    *
    * Named for what it hands back rather than for what it is given, since what
    * comes back is a {@link QuerySnapshot.QuerySnapshot} of documents and not a
    * collection. Its `docs` are every document the read found, each of one that
    * was there, which is why these are {@link DocumentSnapshot.Existing}. A
-   * collection with nothing in it reads as a snapshot with no `docs`.
+   * collection or group with nothing in it reads as a snapshot with no `docs`.
+   *
+   * Two overloads rather than one with a conditional error, so that reading a
+   * collection says in its type that it fails with {@link FirestoreError}
+   * alone.
    */
-  readonly getDocs: <C extends Collection.Any>(
-    ref: Collection.CollectionReference<C>,
-  ) => Effect.Effect<QuerySnapshot.QuerySnapshot<C>, FirestoreError>;
+  readonly getDocs: {
+    /** Reads every document in the collection at `ref`. */
+    <C extends Collection.Any>(
+      ref: Collection.CollectionReference<C>,
+    ): Effect.Effect<QuerySnapshot.QuerySnapshot<C>, FirestoreError>;
+    /**
+     * Reads every document of a {@link CollectionGroup.CollectionGroup}: every
+     * document in each of its collections, under every parent.
+     *
+     * Each document is matched by its path to the one collection of the group
+     * it lives in, and comes back addressed, with its ancestors, and decoded
+     * as that collection's. A document under the group's collection id at a
+     * path none of its collections define fails the read with an
+     * {@link UndefinedCollectionError}.
+     */
+    <G extends CollectionGroup.Any>(
+      group: G,
+    ): Effect.Effect<
+      QuerySnapshot.QuerySnapshot<CollectionGroup.Members<G>>,
+      FirestoreError | UndefinedCollectionError
+    >;
+  };
 
   /**
    * Listens to one document, emitting a snapshot of it each time it changes.
@@ -230,17 +280,38 @@ export interface Firestore {
   ) => Stream.Stream<DocumentSnapshot.DocumentSnapshot<C>, FirestoreError>;
 
   /**
-   * Listens to every document in one collection, emitting all of them each
-   * time any of them changes.
+   * Listens to every document in one collection, or in a Collection Group,
+   * emitting all of them each time any of them changes.
    *
    * Each element is a {@link QuerySnapshot.QuerySnapshot} of every document
    * there at that moment, as {@link getDocs} would have handed it back, and as
    * with {@link streamDoc}, one that is not pulled before the next arrives is
    * dropped.
+   *
+   * Two overloads, as for {@link getDocs}, so that listening to a collection
+   * says in its type that it fails with {@link FirestoreError} alone.
    */
-  readonly streamDocs: <C extends Collection.Any>(
-    ref: Collection.CollectionReference<C>,
-  ) => Stream.Stream<QuerySnapshot.QuerySnapshot<C>, FirestoreError>;
+  readonly streamDocs: {
+    /** Listens to every document in the collection at `ref`. */
+    <C extends Collection.Any>(
+      ref: Collection.CollectionReference<C>,
+    ): Stream.Stream<QuerySnapshot.QuerySnapshot<C>, FirestoreError>;
+    /**
+     * Listens to every document of a {@link CollectionGroup.CollectionGroup},
+     * emitting the whole group each time a document in any of its collections,
+     * under any parent, changes.
+     *
+     * Each document is matched to its collection as {@link getDocs} does. The
+     * stream fails with an {@link UndefinedCollectionError} at the first
+     * snapshot holding a document at a path none of its collections define.
+     */
+    <G extends CollectionGroup.Any>(
+      group: G,
+    ): Stream.Stream<
+      QuerySnapshot.QuerySnapshot<CollectionGroup.Members<G>>,
+      FirestoreError | UndefinedCollectionError
+    >;
+  };
 
   /**
    * Writes one document, replacing whatever was there.

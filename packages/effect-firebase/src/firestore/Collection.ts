@@ -10,6 +10,7 @@
  * @since 0.1.0
  */
 import type { Brand, Equal, Inspectable, Option, Schema } from "effect";
+import type * as DocumentSnapshot from "./DocumentSnapshot.ts";
 import type * as FirestoreModel from "./FirestoreModel.ts";
 import * as collection from "./internal/collection.ts";
 
@@ -79,6 +80,38 @@ type AncestorsOf<L extends Levels> = L extends readonly [...infer I, Level]
   : [];
 
 /**
+ * What {@link Collection.contains} narrows each member of `V` to: the members
+ * already in `C` are kept, the ones in another collection are dropped, and one
+ * whose collection is left open is narrowed to `C`.
+ *
+ * Every branch is `V` or an intersection with it, which is what lets the
+ * compiler see the result is assignable to `V`, as a type predicate must be.
+ */
+type Contained<V, C extends Any> =
+  V extends DocumentReference<Any>
+    ? NarrowTo<V, DocumentReference<C>>
+    : V extends DocumentSnapshot.Existing<Any>
+      ? NarrowTo<V, DocumentSnapshot.Existing<C>>
+      : V extends DocumentSnapshot.Missing<Any>
+        ? NarrowTo<V, DocumentSnapshot.Missing<C>>
+        : never;
+
+/**
+ * `V` when it is `T`, and `never` when it is not. A `V` whose collection is
+ * `any` passes the check without saying anything about it, so it is narrowed
+ * by intersecting it with `T` instead.
+ */
+type NarrowTo<V, T> = V extends T ? (0 extends 1 & LevelsOf<V> ? V & T : V) : never;
+
+/** The chain of the collection a reference or snapshot is in. */
+type LevelsOf<V> =
+  V extends DocumentReference<Collection<infer L>>
+    ? L
+    : V extends { readonly ref: DocumentReference<Collection<infer L>> }
+      ? L
+      : never;
+
+/**
  * The schema of a document id: decodes a string, and brands it so it cannot
  * address anything else.
  *
@@ -128,6 +161,21 @@ export interface Collection<L extends Levels> extends Inspectable.Inspectable {
    * {@link FirestoreModel.Class.update} they are written through.
    */
   readonly schema: Leaf<L>[1];
+
+  /**
+   * Whether a Document Reference or Document Snapshot belongs to this
+   * collection, narrowing it to this collection's types when it does.
+   *
+   * Two definitions are the same collection only when they are the same
+   * object, so one built separately with the same path is another collection.
+   * It does not depend on `this`, so it can be passed on as it is, as in
+   * `snapshot.docs.filter(Posts.contains)`.
+   *
+   * @category guards
+   */
+  readonly contains: <V extends DocumentReference<Any> | DocumentSnapshot.DocumentSnapshot<Any>>(
+    value: V,
+  ) => value is Contained<V, Collection<L>>;
 
   /**
    * Defines a subcollection of the documents in this collection.

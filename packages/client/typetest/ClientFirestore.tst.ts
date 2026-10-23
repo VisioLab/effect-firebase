@@ -3,6 +3,7 @@ import type * as ClientDocumentSnapshot from "@visiolab/effect-firebase-client/f
 import * as ClientFirestore from "@visiolab/effect-firebase-client/firestore/ClientFirestore";
 import type * as ClientQuerySnapshot from "@visiolab/effect-firebase-client/firestore/ClientQuerySnapshot";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import * as CollectionGroup from "@visiolab/effect-firebase/firestore/CollectionGroup";
 import type * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import type * as Firestore from "@visiolab/effect-firebase/firestore/Firestore";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
@@ -18,8 +19,20 @@ class Post extends FirestoreModel.Class<Post>("Post")({
 const Posts = Collection.make("posts", Post);
 const hello = Posts.doc(Posts.id.make("hello"));
 
+class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
+
+const UserPosts = Collection.make("users", User).subcollection("posts", Post);
+const AllUserPosts = CollectionGroup.make(UserPosts);
+
+class Org extends FirestoreModel.Class<Org>("Org")({ name: Schema.String }) {}
+
+const OrgPosts = Collection.make("orgs", Org).subcollection("posts", Post);
+const AllPosts = CollectionGroup.make(UserPosts, OrgPosts);
+
 declare const client: ClientFirestore.ClientFirestore;
 declare const portable: Firestore.Firestore;
+
+const allPostsRead = client.getDocs(AllPosts);
 
 describe("ClientFirestore", () => {
   test("is a Firestore", () => {
@@ -44,12 +57,29 @@ describe("ClientFirestore", () => {
   });
 
   test("reads a collection into a Query Snapshot carrying Snapshot Metadata", () => {
-    expect<ReturnType<ClientFirestore.ClientFirestore["getDocs"]>>().type.toBe<
+    expect(client.getDocs(Posts.collection())).type.toBe<
+      Effect.Effect<ClientQuerySnapshot.ClientQuerySnapshot<typeof Posts>, Firestore.FirestoreError>
+    >();
+  });
+
+  test("reads a Collection Group into a Query Snapshot carrying Snapshot Metadata", () => {
+    expect(client.getDocs(AllUserPosts)).type.toBe<
       Effect.Effect<
-        ClientQuerySnapshot.ClientQuerySnapshot<Collection.Any>,
-        Firestore.FirestoreError
+        ClientQuerySnapshot.ClientQuerySnapshot<typeof UserPosts>,
+        Firestore.FirestoreError | Firestore.UndefinedCollectionError
       >
     >();
+  });
+
+  test("reads each document of a group of several with metadata, as the collection it is in", () => {
+    expect<Effect.Success<typeof allPostsRead>["docs"][number]>().type.toBe<
+      | ClientDocumentSnapshot.Existing<typeof UserPosts>
+      | ClientDocumentSnapshot.Existing<typeof OrgPosts>
+    >();
+  });
+
+  test("takes read options when reading a Collection Group", () => {
+    expect(client.getDocs).type.toBeCallableWith(AllUserPosts, { source: "cache" });
   });
 
   test("streams a document as Document Snapshots carrying Snapshot Metadata", () => {
@@ -62,10 +92,16 @@ describe("ClientFirestore", () => {
   });
 
   test("streams a collection as Query Snapshots carrying Snapshot Metadata", () => {
-    expect<ReturnType<ClientFirestore.ClientFirestore["streamDocs"]>>().type.toBe<
+    expect(client.streamDocs(Posts.collection())).type.toBe<
+      Stream.Stream<ClientQuerySnapshot.ClientQuerySnapshot<typeof Posts>, Firestore.FirestoreError>
+    >();
+  });
+
+  test("streams a Collection Group as Query Snapshots carrying Snapshot Metadata", () => {
+    expect(client.streamDocs(AllUserPosts)).type.toBe<
       Stream.Stream<
-        ClientQuerySnapshot.ClientQuerySnapshot<Collection.Any>,
-        Firestore.FirestoreError
+        ClientQuerySnapshot.ClientQuerySnapshot<typeof UserPosts>,
+        Firestore.FirestoreError | Firestore.UndefinedCollectionError
       >
     >();
   });
@@ -83,9 +119,7 @@ describe("ClientFirestore", () => {
   });
 
   test("takes read options when reading a collection", () => {
-    expect<Parameters<ClientFirestore.ClientFirestore["getDocs"]>[1]>().type.toBe<
-      ClientFirestore.ReadOptions | undefined
-    >();
+    expect(client.getDocs).type.toBeCallableWith(Posts.collection(), { source: "cache" });
   });
 
   test("leaves Firestore reading a document without read options", () => {
@@ -95,9 +129,8 @@ describe("ClientFirestore", () => {
   });
 
   test("leaves Firestore reading a collection without read options", () => {
-    expect<Parameters<Firestore.Firestore["getDocs"]>>().type.toBe<
-      [ref: Collection.CollectionReference<Collection.Any>]
-    >();
+    // @ts-expect-error Expected 1 arguments, but got 2
+    void portable.getDocs(Posts.collection(), { source: "cache" });
   });
 
   test("takes listen options when streaming a document", () => {
@@ -109,6 +142,13 @@ describe("ClientFirestore", () => {
 
   test("takes listen options when streaming a collection", () => {
     expect(client.streamDocs).type.toBeCallableWith(Posts.collection(), {
+      includeMetadataChanges: true,
+      source: "cache",
+    });
+  });
+
+  test("takes listen options when streaming a Collection Group", () => {
+    expect(client.streamDocs).type.toBeCallableWith(AllUserPosts, {
       includeMetadataChanges: true,
       source: "cache",
     });

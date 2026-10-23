@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Equal, Option, Schema } from "effect";
 import * as Collection from "../../src/firestore/Collection.ts";
+import * as DocumentSnapshot from "../../src/firestore/DocumentSnapshot.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
 
 class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
@@ -94,5 +95,46 @@ describe("fromPath", () => {
   it("refuses an empty id", () => {
     expect(Option.isNone(Collection.fromPath(Posts, "users//posts/hello"))).toBe(true);
     expect(Option.isNone(Collection.fromPath(Users, "users/"))).toBe(true);
+  });
+});
+
+describe("contains", () => {
+  it("is true for a reference into the collection", () => {
+    expect(Posts.contains(Posts.doc(alice, hello))).toBe(true);
+  });
+
+  it("is false for a reference into another collection, one sharing its segment included", () => {
+    expect(Posts.contains(Users.doc(alice))).toBe(false);
+    expect(Posts.contains(Comments.doc(alice, hello, first))).toBe(false);
+    expect(Posts.contains(OrgPosts.doc(Orgs.id.make("acme"), OrgPosts.id.make("hello")))).toBe(
+      false,
+    );
+  });
+
+  it("is false for a separately built definition with the same path", () => {
+    const OtherPosts = Collection.make("users", User).subcollection("posts", Post);
+    expect(OtherPosts.contains(Posts.doc(alice, hello))).toBe(false);
+  });
+
+  it("is true for an existing or missing snapshot of a document in the collection", () => {
+    const ref = Posts.doc(alice, hello);
+    expect(Posts.contains(DocumentSnapshot.existing(ref, { title: "Hello" }))).toBe(true);
+    expect(Posts.contains(DocumentSnapshot.missing(ref))).toBe(true);
+  });
+
+  it("is false for a snapshot of a document in another collection", () => {
+    const ref = Users.doc(alice);
+    expect(Posts.contains(DocumentSnapshot.existing(ref, { name: "Alice" }))).toBe(false);
+    expect(Posts.contains(DocumentSnapshot.missing(ref))).toBe(false);
+  });
+
+  it("does not depend on `this`, so it can be passed on as it is", () => {
+    const docs = [
+      DocumentSnapshot.existing(Users.doc(alice), { name: "Alice" }),
+      DocumentSnapshot.missing(Posts.doc(alice, hello)),
+    ];
+    expect(docs.filter(Posts.contains).map((doc) => doc.ref.path)).toEqual([
+      "users/alice/posts/hello",
+    ]);
   });
 });
