@@ -52,3 +52,9 @@ A reference to a document in a collection the model defines, and so typed by wha
 **Document Path**:
 A reference to a document as Firestore stores it: the document's path and nothing else, saying nothing of what the document holds.
 _Avoid_: untyped reference, reference value, raw reference
+
+### Writes
+
+**Shared Field**:
+A field every member of a union holds, and so one a document holding the union can be patched at without knowing which member it holds, with a value every member accepts and stores the same way.
+_Avoid_: common field

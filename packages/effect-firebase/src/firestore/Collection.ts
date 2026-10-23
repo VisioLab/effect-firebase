@@ -272,7 +272,8 @@ export const isDocumentReference: (u: unknown) => u is DocumentReference<Any> =
  *
  * Its documents are described by a {@link FirestoreModel.Class} rather than a
  * plain schema, since a document is written in other shapes than it is read
- * in, and a model is what carries them.
+ * in, and a model is what carries them. A {@link FirestoreModel.Union} of
+ * classes lets one collection hold several document shapes.
  *
  * Throws when the segment is not one Firestore can address, because a path that
  * cannot be built is a mistake in the definition rather than something a caller

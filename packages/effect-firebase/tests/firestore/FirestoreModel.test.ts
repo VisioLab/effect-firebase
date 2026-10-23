@@ -1841,3 +1841,1390 @@ describe("a Record of a value no update writes", () => {
     }),
   );
 });
+
+describe("a union field", () => {
+  const Pending = FirestoreModel.Struct({
+    status: Schema.Literal("pending"),
+  });
+
+  const Done = FirestoreModel.Struct({
+    status: Schema.Literal("done"),
+    completedAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
+    uri: Schema.String,
+  });
+
+  class Job extends FirestoreModel.Class<Job>("Job")({
+    name: Schema.String,
+    state: FirestoreModel.Union([Pending, Done]),
+  }) {}
+
+  it.effect("creates a member with the sentinels its fields take", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Job.create)(
+        Job.create.make({
+          name: "a",
+          state: { status: "done", completedAt: FieldValue.serverTimestamp, uri: "gs://x" },
+        }),
+      );
+      expect(encoded).toStrictEqual({
+        name: "a",
+        state: { status: "done", completedAt: FieldValue.serverTimestamp, uri: "gs://x" },
+      });
+    }),
+  );
+
+  it("creates any member in the shape `set` writes it", () => {
+    expectTypeOf<(typeof Job.create)["Type"]["state"]>().toEqualTypeOf<
+      | { readonly status: "pending" }
+      | {
+          readonly status: "done";
+          readonly completedAt: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+          readonly uri: string;
+        }
+    >();
+  });
+
+  it.effect("fills in a member's constructor defaults where it is created", () =>
+    Effect.gen(function* () {
+      const Draft = FirestoreModel.Struct({
+        status: Schema.Literal("draft"),
+        revision: Schema.Finite.pipe(Schema.withConstructorDefault(Effect.succeed(0))),
+      });
+      class Doc extends FirestoreModel.Class<Doc>("Doc")({
+        state: FirestoreModel.Union([Draft, Pending]),
+      }) {}
+      const encoded = yield* Schema.encodeEffect(Doc.create)(
+        Doc.create.make({ state: { status: "draft" } }),
+      );
+      expect(encoded).toStrictEqual({ state: { status: "draft", revision: 0 } });
+    }),
+  );
+
+  it.effect("reads into the member the data matches, narrowed by its literal", () =>
+    Effect.gen(function* () {
+      const job = yield* Schema.decodeUnknownEffect(Job)({
+        name: "a",
+        state: { status: "done", completedAt: Timestamp.makeUnsafe(1, 2), uri: "gs://x" },
+      } as unknown);
+      if (job.state.status !== "done") {
+        return expect.unreachable();
+      }
+      expectTypeOf(job.state.uri).toEqualTypeOf<string>();
+      expect(job.state.uri).toBe("gs://x");
+      expect(job.state.completedAt).toStrictEqual(Timestamp.makeUnsafe(1, 2));
+    }),
+  );
+
+  it.effect("fails to read data matching no member, with a schema issue", () =>
+    Effect.gen(function* () {
+      const error = yield* Schema.decodeUnknownEffect(Job)({
+        name: "a",
+        // `done` without what a done job holds.
+        state: { status: "done" },
+      } as unknown).pipe(Effect.flip);
+      expect(Schema.isSchemaError(error)).toBe(true);
+    }),
+  );
+
+  it("is a replacement where it is updated, and patched into one member under `unchecked`", () => {
+    type Replacement = Patch.Replace<
+      | { readonly status: "pending" }
+      | {
+          readonly status: "done";
+          readonly completedAt: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+          readonly uri: string;
+        }
+    >;
+    expectTypeOf<NonNullable<(typeof Job.update)["Type"]["state"]>>().toEqualTypeOf<Replacement>();
+    expectTypeOf<NonNullable<(typeof Job.updateUnchecked)["Type"]["state"]>>().toEqualTypeOf<
+      | {
+          readonly completedAt?: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+          readonly uri?: string;
+        }
+      | Replacement
+    >();
+  });
+
+  it("is written at its own path and at each key a member holds, in either mode", () => {
+    expectTypeOf<keyof (typeof Job.update)["Encoded"]>().toEqualTypeOf<
+      "name" | "state" | "state.completedAt" | "state.uri"
+    >();
+    expectTypeOf<(typeof Job.updateUnchecked)["Encoded"]>().toEqualTypeOf<
+      (typeof Job.update)["Encoded"]
+    >();
+    expect(Object.keys(Job.update.from.fields).sort()).toEqual([
+      "name",
+      "state",
+      "state.completedAt",
+      "state.uri",
+    ]);
+  });
+
+  it.effect.each(modes(Job))("writes a replacement whole, at its path ($mode)", ({ update }) =>
+    Effect.gen(function* () {
+      const done = yield* Schema.encodeEffect(update)(
+        update.make({
+          state: Patch.replace({
+            status: "done",
+            completedAt: FieldValue.serverTimestamp,
+            uri: "gs://x",
+          }),
+        }),
+      );
+      expect(done).toStrictEqual({
+        state: { status: "done", completedAt: FieldValue.serverTimestamp, uri: "gs://x" },
+      });
+      const pending = yield* Schema.encodeEffect(update)(
+        update.make({ state: Patch.replace({ status: "pending" }) }),
+      );
+      expect(pending).toStrictEqual({ state: { status: "pending" } });
+    }),
+  );
+
+  it.effect.each(modes(Job))("refuses a replacement matching no member ($mode)", ({ update }) =>
+    Effect.gen(function* () {
+      const exit = yield* Schema.encodeUnknownEffect(update)({
+        state: Patch.replace({ status: "done" }),
+      }).pipe(Effect.exit);
+      expect(Exit.isFailure(exit)).toBe(true);
+    }),
+  );
+
+  it.effect("refuses a patch into one member under `checked`, in the type and the encoding", () =>
+    Effect.gen(function* () {
+      expect(() =>
+        // @ts-expect-error a pending job holds no `uri`
+        Job.update.make({ state: { uri: "gs://y" } }),
+      ).toThrow();
+      const exit = yield* Schema.encodeUnknownEffect(Job.update)({
+        state: { uri: "gs://y" },
+      }).pipe(Effect.exit);
+      expect(Exit.isFailure(exit)).toBe(true);
+    }),
+  );
+
+  it.effect.each(modes(Job))(
+    "refuses the removal where every document holds it ($mode)",
+    ({ update }) =>
+      Effect.gen(function* () {
+        expect(() =>
+          // @ts-expect-error every document holds the state
+          update.make({ state: FieldValue.deleteField }),
+        ).toThrow();
+        const exit = yield* Schema.encodeUnknownEffect(update)({
+          state: FieldValue.deleteField,
+        }).pipe(Effect.exit);
+        expect(Exit.isFailure(exit)).toBe(true);
+      }),
+  );
+});
+
+describe("a union field a document may go without", () => {
+  const Pending = FirestoreModel.Struct({ status: Schema.Literal("pending") });
+  const Done = FirestoreModel.Struct({ status: Schema.Literal("done"), uri: Schema.String });
+
+  class Job extends FirestoreModel.Class<Job>("Job")({
+    state: FirestoreModel.Optional(FirestoreModel.Union([Pending, Done])),
+  }) {}
+
+  it("is an optional key where it is read and created", () => {
+    expectTypeOf<(typeof Job)["Type"]["state"]>().toEqualTypeOf<
+      { readonly status: "pending" } | { readonly status: "done"; readonly uri: string } | undefined
+    >();
+    expectTypeOf<(typeof Job.create)["Type"]["state"]>().toEqualTypeOf<
+      { readonly status: "pending" } | { readonly status: "done"; readonly uri: string } | undefined
+    >();
+  });
+
+  it("is a replacement or a removal where it is updated, and patched only under `unchecked`", () => {
+    type Takes =
+      | Patch.Replace<
+          { readonly status: "pending" } | { readonly status: "done"; readonly uri: string }
+        >
+      | FieldValue.DeleteField;
+    expectTypeOf<NonNullable<(typeof Job.update)["Type"]["state"]>>().toEqualTypeOf<Takes>();
+    expectTypeOf<NonNullable<(typeof Job.updateUnchecked)["Type"]["state"]>>().toEqualTypeOf<
+      { readonly uri?: string } | Takes
+    >();
+  });
+
+  it.effect.each(modes(Job))("removes it whole ($mode)", ({ update }) =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(update)(
+        update.make({ state: FieldValue.deleteField }),
+      );
+      expect(Object.keys(encoded)).toEqual(["state"]);
+      expect(encoded.state).toBe(FieldValue.deleteField);
+    }),
+  );
+
+  it.effect.each(modes(Job))("writes a replacement whole ($mode)", ({ update }) =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(update)(
+        update.make({ state: Patch.replace({ status: "done", uri: "gs://x" }) }),
+      );
+      expect(encoded).toStrictEqual({ state: { status: "done", uri: "gs://x" } });
+    }),
+  );
+
+  it.effect(
+    "refuses a patch into it under `checked`, which would create it holding only the patch",
+    () =>
+      Effect.gen(function* () {
+        expect(() =>
+          // @ts-expect-error a patch would create it holding only the `uri`
+          Job.update.make({ state: { uri: "gs://y" } }),
+        ).toThrow();
+        const exit = yield* Schema.encodeUnknownEffect(Job.update)({
+          state: { uri: "gs://y" },
+        }).pipe(Effect.exit);
+        expect(Exit.isFailure(exit)).toBe(true);
+      }),
+  );
+
+  it.effect("takes a patch into one member under `unchecked`", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Job.updateUnchecked)(
+        Job.updateUnchecked.make({ state: { uri: "gs://y" } }),
+      );
+      expect(encoded).toStrictEqual({ "state.uri": "gs://y" });
+    }),
+  );
+});
+
+describe("a union field with a member holding a field no update writes", () => {
+  const Draft = FirestoreModel.Struct({
+    status: Schema.Literal("draft"),
+    author: FirestoreModel.Immutable(Schema.String),
+  });
+  const Published = FirestoreModel.Struct({
+    status: Schema.Literal("published"),
+    url: Schema.String,
+  });
+
+  class Post extends FirestoreModel.Class<Post>("Post")({
+    state: FirestoreModel.Union([Draft, Published]),
+  }) {}
+
+  it.effect("creates that member, the field and all", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Post.create)(
+        Post.create.make({ state: { status: "draft", author: "alice" } }),
+      );
+      expect(encoded).toStrictEqual({ state: { status: "draft", author: "alice" } });
+    }),
+  );
+
+  it("is replaced with the other members alone", () => {
+    expectTypeOf<NonNullable<(typeof Post.update)["Type"]["state"]>>().toEqualTypeOf<
+      Patch.Replace<{ readonly status: "published"; readonly url: string }>
+    >();
+  });
+
+  it.effect.each(modes(Post))(
+    "refuses a replacement with that member, in the type and the encoding ($mode)",
+    ({ update }) =>
+      Effect.gen(function* () {
+        expect(() =>
+          // @ts-expect-error `author` is written once
+          update.make({ state: Patch.replace({ status: "draft", author: "bob" }) }),
+        ).toThrow();
+        const exit = yield* Schema.encodeUnknownEffect(update)({
+          state: Patch.replace({ status: "draft", author: "bob" }),
+        }).pipe(Effect.exit);
+        expect(Exit.isFailure(exit)).toBe(true);
+      }),
+  );
+
+  it.effect.each(modes(Post))("still replaces it with another member ($mode)", ({ update }) =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(update)(
+        update.make({ state: Patch.replace({ status: "published", url: "/p" }) }),
+      );
+      expect(encoded).toStrictEqual({ state: { status: "published", url: "/p" } });
+    }),
+  );
+
+  it("keeps the struct holding it from being replaced", () => {
+    class Doc extends FirestoreModel.Class<Doc>("Doc")({
+      post: FirestoreModel.Struct({
+        title: Schema.String,
+        state: FirestoreModel.Union([Draft, Published]),
+      }),
+    }) {}
+    expect(() =>
+      Doc.update.make({
+        // @ts-expect-error a replacement could rewrite a draft's `author`
+        post: Patch.replace({ title: "t", state: { status: "published", url: "/p" } }),
+      }),
+    ).toThrow();
+  });
+});
+
+describe("a union field where no member may be replaced", () => {
+  const Draft = FirestoreModel.Struct({
+    status: Schema.Literal("draft"),
+    author: FirestoreModel.Immutable(Schema.String),
+  });
+  const Locked = FirestoreModel.Struct({
+    status: Schema.Literal("locked"),
+    author: FirestoreModel.Immutable(Schema.String),
+  });
+
+  // Nor is either patched: the members share no field an update writes.
+  class Post extends FirestoreModel.Class<Post>("Post")({
+    title: Schema.String,
+    state: FirestoreModel.Union([Draft, Locked]),
+    archived: FirestoreModel.Optional(FirestoreModel.Union([Draft, Locked])),
+  }) {}
+
+  it("is left out of the update, unless a document may go without it", () => {
+    expectTypeOf<keyof (typeof Post.update)["Type"]>().toEqualTypeOf<"title" | "archived">();
+    expectTypeOf<
+      NonNullable<(typeof Post.update)["Type"]["archived"]>
+    >().toEqualTypeOf<FieldValue.DeleteField>();
+    expect(Object.keys(Post.update.from.fields).sort()).toEqual(["archived", "title"]);
+  });
+
+  describe("but one member holds a key an update writes", () => {
+    const Noted = FirestoreModel.Struct({
+      status: Schema.Literal("noted"),
+      author: FirestoreModel.Immutable(Schema.String),
+      note: Schema.String,
+    });
+
+    class Doc extends FirestoreModel.Class<Doc>("Doc")({
+      state: FirestoreModel.Union([Draft, Noted]),
+    }) {}
+
+    it.effect("takes nothing under `checked`, in the type and the encoding", () =>
+      Effect.gen(function* () {
+        expectTypeOf<NonNullable<(typeof Doc.update)["Type"]["state"]>>().toEqualTypeOf<never>();
+        const exit = yield* Schema.encodeUnknownEffect(Doc.update)({
+          state: { note: "n" },
+        }).pipe(Effect.exit);
+        expect(Exit.isFailure(exit)).toBe(true);
+        expect(yield* Schema.encodeEffect(Doc.update)(Doc.update.make({}))).toStrictEqual({});
+      }),
+    );
+
+    it.effect("takes a patch into that member under `unchecked`, at the same paths", () =>
+      Effect.gen(function* () {
+        const encoded = yield* Schema.encodeEffect(Doc.updateUnchecked)(
+          Doc.updateUnchecked.make({ state: { note: "n" } }),
+        );
+        expect(encoded).toStrictEqual({ "state.note": "n" });
+        expectTypeOf<(typeof Doc.updateUnchecked)["Encoded"]>().toEqualTypeOf<
+          (typeof Doc.update)["Encoded"]
+        >();
+        expect(Object.keys(Doc.update.from.fields)).toEqual(["state.note"]);
+      }),
+    );
+  });
+});
+
+describe("a union field patched at its Shared Fields", () => {
+  const Pending = FirestoreModel.Struct({
+    status: Schema.Literal("pending"),
+    title: Schema.String,
+  });
+  const Done = FirestoreModel.Struct({
+    status: Schema.Literal("done"),
+    title: Schema.String,
+    uri: Schema.String,
+  });
+
+  class Job extends FirestoreModel.Class<Job>("Job")({
+    state: FirestoreModel.Union([Pending, Done]),
+  }) {}
+
+  it("takes a patch of its Shared Fields besides a replacement", () => {
+    type Replacement = Patch.Replace<
+      | { readonly status: "pending"; readonly title: string }
+      | { readonly status: "done"; readonly title: string; readonly uri: string }
+    >;
+    expectTypeOf<NonNullable<(typeof Job.update)["Type"]["state"]>>().toEqualTypeOf<
+      { readonly title?: string } | Replacement
+    >();
+    // Under `unchecked`, the key one member holds as well.
+    expectTypeOf<NonNullable<(typeof Job.updateUnchecked)["Type"]["state"]>>().toEqualTypeOf<
+      { readonly title?: string; readonly uri?: string } | Replacement
+    >();
+  });
+
+  it("is written at the path of each Shared Field, besides its own", () => {
+    expectTypeOf<keyof (typeof Job.update)["Encoded"]>().toEqualTypeOf<
+      "state" | "state.title" | "state.uri"
+    >();
+    expectTypeOf<(typeof Job.update)["Encoded"]["state.title"]>().toEqualTypeOf<
+      string | undefined
+    >();
+    expect(Object.keys(Job.update.from.fields).sort()).toEqual([
+      "state",
+      "state.title",
+      "state.uri",
+    ]);
+  });
+
+  it.effect.each(modes(Job))("writes a Shared Field at its dotted path ($mode)", ({ update }) =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(update)(update.make({ state: { title: "t" } }));
+      expect(encoded).toStrictEqual({ "state.title": "t" });
+    }),
+  );
+
+  it.effect.each(modes(Job))(
+    "writes a Shared Field through the canonical codec as every member stores it ($mode)",
+    ({ update }) =>
+      Effect.gen(function* () {
+        const encoded = yield* Schema.encodeEffect(FirestoreValue.toCodecFirestore(update))(
+          update.make({ state: { title: "t" } }),
+        );
+        expect(encoded).toStrictEqual({ "state.title": "t" });
+      }),
+  );
+
+  it.effect("refuses the literal the members are told apart by, in the type and the encoding", () =>
+    Effect.gen(function* () {
+      expect(() =>
+        Job.update.make({
+          // @ts-expect-error the members hold no `status` in common
+          state: { status: "done" },
+        }),
+      ).toThrow();
+      const exit = yield* Schema.encodeUnknownEffect(Job.update)({
+        state: { status: "done" },
+      }).pipe(Effect.exit);
+      expect(Exit.isFailure(exit)).toBe(true);
+    }),
+  );
+
+  it.effect("refuses a key some member goes without, in the type and the encoding", () =>
+    Effect.gen(function* () {
+      expect(() =>
+        Job.update.make({
+          // @ts-expect-error a pending job holds no `uri`
+          state: { uri: "gs://x" },
+        }),
+      ).toThrow();
+      const exit = yield* Schema.encodeUnknownEffect(Job.update)({
+        state: { title: "t", uri: "gs://x" },
+      }).pipe(Effect.exit);
+      expect(Exit.isFailure(exit)).toBe(true);
+    }),
+  );
+
+  describe("where one member validates it further", () => {
+    const Short = FirestoreModel.Struct({
+      status: Schema.Literal("short"),
+      title: Schema.String.check(Schema.isMaxLength(3)),
+    });
+    const Long = FirestoreModel.Struct({ status: Schema.Literal("long"), title: Schema.String });
+
+    class Doc extends FirestoreModel.Class<Doc>("Doc")({
+      state: FirestoreModel.Union([Long, Short]),
+    }) {}
+
+    it.effect.each(modes(Doc))(
+      "refuses a value that member rejects, with a schema issue ($mode)",
+      ({ update }) =>
+        Effect.gen(function* () {
+          const error = yield* Schema.encodeUnknownEffect(update)({
+            state: { title: "too long" },
+          }).pipe(Effect.flip);
+          expect(Schema.isSchemaError(error)).toBe(true);
+          const fits = yield* Schema.encodeEffect(update)(update.make({ state: { title: "ok" } }));
+          expect(fits).toStrictEqual({ "state.title": "ok" });
+        }),
+    );
+  });
+
+  describe("where it is a struct in every member", () => {
+    const Shipped = FirestoreModel.Struct({
+      status: Schema.Literal("shipped"),
+      meta: FirestoreModel.Struct({ owner: Schema.String, carrier: Schema.String }),
+    });
+    const Returned = FirestoreModel.Struct({
+      status: Schema.Literal("returned"),
+      meta: FirestoreModel.Struct({ owner: Schema.String, reason: Schema.String }),
+    });
+
+    class Order extends FirestoreModel.Class<Order>("Order")({
+      state: FirestoreModel.Union([Shipped, Returned]),
+    }) {}
+
+    it("takes a patch of its own Shared Fields, written at their paths", () => {
+      expectTypeOf<
+        Extract<NonNullable<(typeof Order.update)["Type"]["state"]>, { readonly meta?: unknown }>
+      >().toEqualTypeOf<{ readonly meta?: { readonly owner?: string } }>();
+      expectTypeOf<keyof (typeof Order.update)["Encoded"]>().toEqualTypeOf<
+        "state" | "state.meta.owner" | "state.meta.carrier" | "state.meta.reason"
+      >();
+      expect(Object.keys(Order.update.from.fields).sort()).toEqual([
+        "state",
+        "state.meta.carrier",
+        "state.meta.owner",
+        "state.meta.reason",
+      ]);
+    });
+
+    it.effect("takes a key one member's struct holds under `unchecked`, at its path", () =>
+      Effect.gen(function* () {
+        expectTypeOf<
+          Extract<
+            NonNullable<(typeof Order.updateUnchecked)["Type"]["state"]>,
+            { readonly meta?: unknown }
+          >
+        >().toEqualTypeOf<{
+          readonly meta?: {
+            readonly owner?: string;
+            readonly carrier?: string;
+            readonly reason?: string;
+          };
+        }>();
+        const encoded = yield* Schema.encodeEffect(Order.updateUnchecked)(
+          Order.updateUnchecked.make({ state: { meta: { carrier: "ups" } } }),
+        );
+        expect(encoded).toStrictEqual({ "state.meta.carrier": "ups" });
+      }),
+    );
+
+    it.effect.each(modes(Order))("writes it at its dotted path ($mode)", ({ update }) =>
+      Effect.gen(function* () {
+        const encoded = yield* Schema.encodeEffect(update)(
+          update.make({ state: { meta: { owner: "alice" } } }),
+        );
+        expect(encoded).toStrictEqual({ "state.meta.owner": "alice" });
+      }),
+    );
+
+    it.effect("refuses a key some member's struct goes without, in the type and the encoding", () =>
+      Effect.gen(function* () {
+        expect(() =>
+          Order.update.make({
+            // @ts-expect-error a returned order holds no `carrier`
+            state: { meta: { carrier: "ups" } },
+          }),
+        ).toThrow();
+        const exit = yield* Schema.encodeUnknownEffect(Order.update)({
+          state: { meta: { carrier: "ups" } },
+        }).pipe(Effect.exit);
+        expect(Exit.isFailure(exit)).toBe(true);
+      }),
+    );
+  });
+
+  describe("taking a sentinel", () => {
+    const Live = FirestoreModel.Struct({
+      status: Schema.Literal("live"),
+      seenAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
+      visits: FirestoreModel.Number(Schema.Int),
+      tags: FirestoreModel.Array(Schema.String),
+      nickname: FirestoreModel.Optional(Schema.String),
+      motto: FirestoreModel.Optional(Schema.String),
+    });
+    const Frozen = FirestoreModel.Struct({
+      status: Schema.Literal("frozen"),
+      seenAt: FirestoreSchema.Timestamp,
+      visits: FirestoreModel.Number(Schema.Int),
+      tags: FirestoreModel.Array(Schema.String),
+      nickname: FirestoreModel.Optional(Schema.String),
+      motto: Schema.String,
+    });
+
+    class Profile extends FirestoreModel.Class<Profile>("Profile")({
+      state: FirestoreModel.Union([Live, Frozen]),
+    }) {}
+
+    it.effect.each(modes(Profile))("takes one every member takes ($mode)", ({ update }) =>
+      Effect.gen(function* () {
+        const encoded = yield* Schema.encodeEffect(update)(
+          update.make({
+            state: {
+              visits: FieldValue.increment(1),
+              tags: FieldValue.arrayUnion("new"),
+              nickname: FieldValue.deleteField,
+            },
+          }),
+        );
+        expect(encoded).toStrictEqual({
+          "state.visits": FieldValue.increment(1),
+          "state.tags": FieldValue.arrayUnion("new"),
+          "state.nickname": FieldValue.deleteField,
+        });
+      }),
+    );
+
+    it.effect.each(modes(Profile))(
+      "refuses one some member does not take, in the type and the encoding ($mode)",
+      ({ update }) =>
+        Effect.gen(function* () {
+          expect(() =>
+            update.make({
+              // @ts-expect-error a frozen profile's `seenAt` is no server timestamp
+              state: { seenAt: FieldValue.serverTimestamp },
+            }),
+          ).toThrow();
+          expect(() =>
+            update.make({
+              // @ts-expect-error a frozen profile always holds a `motto`
+              state: { motto: FieldValue.deleteField },
+            }),
+          ).toThrow();
+          const exit = yield* Schema.encodeUnknownEffect(update)({
+            state: { seenAt: FieldValue.serverTimestamp },
+          }).pipe(Effect.exit);
+          expect(Exit.isFailure(exit)).toBe(true);
+          const stamped = yield* Schema.encodeEffect(update)(
+            update.make({ state: { seenAt: Timestamp.makeUnsafe(1, 0), motto: "carpe" } }),
+          );
+          expect(stamped).toStrictEqual({
+            "state.seenAt": Timestamp.makeUnsafe(1, 0),
+            "state.motto": "carpe",
+          });
+        }),
+    );
+  });
+
+  describe("where a document may go without it", () => {
+    class Doc extends FirestoreModel.Class<Doc>("Doc")({
+      state: FirestoreModel.Optional(FirestoreModel.Union([Pending, Done])),
+    }) {}
+
+    it.effect("refuses any patch under `checked`, in the type and the encoding", () =>
+      Effect.gen(function* () {
+        expect(() =>
+          Doc.update.make({
+            // @ts-expect-error the patch would create it holding only the title
+            state: { title: "t" },
+          }),
+        ).toThrow();
+        const exit = yield* Schema.encodeUnknownEffect(Doc.update)({
+          state: { title: "t" },
+        }).pipe(Effect.exit);
+        expect(Exit.isFailure(exit)).toBe(true);
+      }),
+    );
+
+    it.effect("takes it under `unchecked`, as an Optional struct does", () =>
+      Effect.gen(function* () {
+        const encoded = yield* Schema.encodeEffect(Doc.updateUnchecked)(
+          Doc.updateUnchecked.make({ state: { title: "t" } }),
+        );
+        expect(encoded).toStrictEqual({ "state.title": "t" });
+      }),
+    );
+
+    it("is written at the same paths in either mode", () => {
+      expectTypeOf<(typeof Doc.updateUnchecked)["Encoded"]>().toEqualTypeOf<
+        (typeof Doc.update)["Encoded"]
+      >();
+      expect(Object.keys(Doc.update.from.fields).sort()).toEqual([
+        "state",
+        "state.title",
+        "state.uri",
+      ]);
+    });
+  });
+
+  describe("where the members store it differently", () => {
+    const Stamped = FirestoreModel.Struct({ status: Schema.Literal("stamped"), at: Schema.Date });
+    const Written = FirestoreModel.Struct({
+      status: Schema.Literal("written"),
+      at: Schema.DateFromString,
+    });
+
+    class Doc extends FirestoreModel.Class<Doc>("Doc")({
+      state: FirestoreModel.Union([Stamped, Written]),
+    }) {}
+
+    it("is typed as what every member takes", () => {
+      expectTypeOf<NonNullable<(typeof Doc.update)["Type"]["state"]>>().toEqualTypeOf<
+        | { readonly at?: Date }
+        | Patch.Replace<
+            | { readonly status: "stamped"; readonly at: Date }
+            | { readonly status: "written"; readonly at: Date }
+          >
+      >();
+    });
+
+    it.effect.each(modes(Doc))(
+      "refuses a value the members would store differently, with a schema issue ($mode)",
+      ({ update }) =>
+        Effect.gen(function* () {
+          const error = yield* Schema.encodeUnknownEffect(update)({
+            state: { at: new Date(0) },
+          }).pipe(Effect.flip);
+          expect(Schema.isSchemaError(error)).toBe(true);
+        }),
+    );
+  });
+});
+
+describe("a union field patched into one member, unchecked", () => {
+  const Pending = FirestoreModel.Struct({
+    status: Schema.Literal("pending"),
+    title: Schema.String,
+  });
+  const Done = FirestoreModel.Struct({
+    status: Schema.Literal("done"),
+    title: Schema.String,
+    completedAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
+  });
+
+  class Job extends FirestoreModel.Class<Job>("Job")({
+    state: FirestoreModel.Union([Pending, Done]),
+  }) {}
+
+  it.effect("writes a key one member holds at its dotted path, sentinel and all", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Job.updateUnchecked)(
+        Job.updateUnchecked.make({ state: { completedAt: FieldValue.serverTimestamp } }),
+      );
+      expect(encoded).toStrictEqual({ "state.completedAt": FieldValue.serverTimestamp });
+      const stamped = yield* Schema.encodeEffect(Job.updateUnchecked)(
+        Job.updateUnchecked.make({
+          state: { title: "t", completedAt: Timestamp.makeUnsafe(1, 0) },
+        }),
+      );
+      expect(stamped).toStrictEqual({
+        "state.title": "t",
+        "state.completedAt": Timestamp.makeUnsafe(1, 0),
+      });
+    }),
+  );
+
+  it.effect("refuses it under `checked`, in the type and the encoding", () =>
+    Effect.gen(function* () {
+      expect(() =>
+        Job.update.make({
+          // @ts-expect-error a pending job holds no `completedAt`
+          state: { completedAt: FieldValue.serverTimestamp },
+        }),
+      ).toThrow();
+      const exit = yield* Schema.encodeUnknownEffect(Job.update)({
+        state: { completedAt: FieldValue.serverTimestamp },
+      }).pipe(Effect.exit);
+      expect(Exit.isFailure(exit)).toBe(true);
+    }),
+  );
+
+  it("takes the key one member holds under `unchecked` alone", () => {
+    type Replacement = Patch.Replace<
+      | { readonly status: "pending"; readonly title: string }
+      | {
+          readonly status: "done";
+          readonly title: string;
+          readonly completedAt: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+        }
+    >;
+    expectTypeOf<NonNullable<(typeof Job.update)["Type"]["state"]>>().toEqualTypeOf<
+      { readonly title?: string } | Replacement
+    >();
+    expectTypeOf<NonNullable<(typeof Job.updateUnchecked)["Type"]["state"]>>().toEqualTypeOf<
+      | {
+          readonly title?: string;
+          readonly completedAt?: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+        }
+      | Replacement
+    >();
+  });
+
+  it("is written at the same paths in either mode", () => {
+    expectTypeOf<keyof (typeof Job.update)["Encoded"]>().toEqualTypeOf<
+      "state" | "state.title" | "state.completedAt"
+    >();
+    expectTypeOf<(typeof Job.updateUnchecked)["Encoded"]>().toEqualTypeOf<
+      (typeof Job.update)["Encoded"]
+    >();
+    expect(Object.keys(Job.update.from.fields).sort()).toEqual([
+      "state",
+      "state.completedAt",
+      "state.title",
+    ]);
+    expect(Object.keys(Job.updateUnchecked.from.fields).sort()).toEqual([
+      "state",
+      "state.completedAt",
+      "state.title",
+    ]);
+  });
+
+  it.effect.each(modes(Job))(
+    "writes a patch both modes take the same in both ($mode)",
+    ({ update }) =>
+      Effect.gen(function* () {
+        const encode = (schema: typeof Job.update | typeof Job.updateUnchecked) =>
+          Schema.encodeUnknownEffect(FirestoreValue.toCodecFirestore(schema))({
+            state: { title: "t" },
+          });
+        const encoded = yield* encode(update);
+        expect(encoded).toStrictEqual({ "state.title": "t" });
+        expect(encoded).toStrictEqual(yield* encode(Job.update));
+        expect(encoded).toStrictEqual(yield* encode(Job.updateUnchecked));
+      }),
+  );
+
+  describe("at a key several members hold, but not all", () => {
+    const Draft = FirestoreModel.Struct({ status: Schema.Literal("draft") });
+    const Short = FirestoreModel.Struct({
+      status: Schema.Literal("short"),
+      note: Schema.String.check(Schema.isMaxLength(3)),
+      at: Schema.Date,
+    });
+    const Long = FirestoreModel.Struct({
+      status: Schema.Literal("long"),
+      note: Schema.String,
+      at: Schema.DateFromString,
+    });
+
+    class Doc extends FirestoreModel.Class<Doc>("Doc")({
+      state: FirestoreModel.Union([Draft, Short, Long]),
+    }) {}
+
+    it("is typed as what every member holding it takes, under `unchecked` alone", () => {
+      expectTypeOf<
+        Exclude<NonNullable<(typeof Doc.updateUnchecked)["Type"]["state"]>, Patch.Replace<any>>
+      >().toEqualTypeOf<{ readonly note?: string; readonly at?: Date }>();
+      expectTypeOf<
+        Exclude<NonNullable<(typeof Doc.update)["Type"]["state"]>, Patch.Replace<any>>
+      >().toEqualTypeOf<never>();
+    });
+
+    it.effect("takes a value every member holding it takes and stores the same way", () =>
+      Effect.gen(function* () {
+        const encoded = yield* Schema.encodeEffect(Doc.updateUnchecked)(
+          Doc.updateUnchecked.make({ state: { note: "ok" } }),
+        );
+        expect(encoded).toStrictEqual({ "state.note": "ok" });
+      }),
+    );
+
+    it.effect("refuses a value one member holding it rejects, with a schema issue", () =>
+      Effect.gen(function* () {
+        const error = yield* Schema.encodeUnknownEffect(Doc.updateUnchecked)({
+          state: { note: "too long" },
+        }).pipe(Effect.flip);
+        expect(Schema.isSchemaError(error)).toBe(true);
+      }),
+    );
+
+    it.effect("refuses a value the members holding it store differently, with a schema issue", () =>
+      Effect.gen(function* () {
+        const error = yield* Schema.encodeUnknownEffect(Doc.updateUnchecked)({
+          state: { at: new Date(0) },
+        }).pipe(Effect.flip);
+        expect(Schema.isSchemaError(error)).toBe(true);
+      }),
+    );
+
+    it.effect("refuses it under `checked`, in the type and the encoding", () =>
+      Effect.gen(function* () {
+        expect(() =>
+          Doc.update.make({
+            // @ts-expect-error a draft holds no `note`
+            state: { note: "ok" },
+          }),
+        ).toThrow();
+        const exit = yield* Schema.encodeUnknownEffect(Doc.update)({
+          state: { note: "ok" },
+        }).pipe(Effect.exit);
+        expect(Exit.isFailure(exit)).toBe(true);
+      }),
+    );
+  });
+
+  describe("at a key whose members' types have nothing in common", () => {
+    const Small = FirestoreModel.Struct({
+      status: Schema.Literal("small"),
+      title: Schema.String,
+      kind: Schema.String,
+      size: Schema.String,
+      at: Schema.Date,
+      box: Schema.Struct({ width: Schema.Finite }),
+      tags: Schema.Array(Schema.String),
+    });
+    const Large = FirestoreModel.Struct({
+      status: Schema.Literal("large"),
+      title: Schema.String,
+      kind: Schema.Literals(["s", "m"]),
+      size: Schema.Finite,
+      at: FirestoreSchema.Timestamp,
+      box: Schema.Struct({ height: Schema.Finite }),
+      tags: Schema.Array(Schema.Finite),
+    });
+
+    class Doc extends FirestoreModel.Class<Doc>("Doc")({
+      state: FirestoreModel.Union([Small, Large]),
+    }) {}
+
+    it("is patched and written at just the keys its type has, in either mode", () => {
+      type Patchable = { readonly title?: string; readonly kind?: "s" | "m" };
+      expectTypeOf<
+        Exclude<NonNullable<(typeof Doc.update)["Type"]["state"]>, Patch.Replace<any>>
+      >().toEqualTypeOf<Patchable>();
+      expectTypeOf<
+        Exclude<NonNullable<(typeof Doc.updateUnchecked)["Type"]["state"]>, Patch.Replace<any>>
+      >().toEqualTypeOf<Patchable>();
+      expectTypeOf<keyof (typeof Doc.update)["Encoded"]>().toEqualTypeOf<
+        "state" | "state.title" | "state.kind"
+      >();
+      expect(Object.keys(Doc.update.from.fields).sort()).toEqual([
+        "state",
+        "state.kind",
+        "state.title",
+      ]);
+      expect(Object.keys(Doc.updateUnchecked.from.fields).sort()).toEqual([
+        "state",
+        "state.kind",
+        "state.title",
+      ]);
+    });
+
+    it.effect.each(modes(Doc))("refuses such a key in the encoding ($mode)", ({ update }) =>
+      Effect.gen(function* () {
+        for (const state of [
+          { size: "xl" },
+          { size: 1 },
+          { at: new Date(0) },
+          { box: { width: 1 } },
+          { tags: [] },
+        ]) {
+          const exit = yield* Schema.encodeUnknownEffect(update)({ state }).pipe(Effect.exit);
+          expect(Exit.isFailure(exit)).toBe(true);
+        }
+        const kind = yield* Schema.encodeEffect(update)(update.make({ state: { kind: "s" } }));
+        expect(kind).toStrictEqual({ "state.kind": "s" });
+      }),
+    );
+  });
+});
+
+describe("a document that is a union", () => {
+  const Pending = FirestoreModel.Struct({ status: Schema.Literal("pending") });
+  const Done = FirestoreModel.Struct({ status: Schema.Literal("done"), uri: Schema.String });
+
+  class TaskV1 extends FirestoreModel.Class<TaskV1>("TaskV1")({
+    version: Schema.Literal(1),
+    title: Schema.String,
+    updatedAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
+  }) {}
+
+  class TaskV2 extends FirestoreModel.Class<TaskV2>("TaskV2")({
+    version: Schema.Literal(2),
+    title: Schema.String,
+    updatedAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
+    priority: Schema.Finite,
+    state: FirestoreModel.Union([Pending, Done]),
+  }) {}
+
+  const Task = FirestoreModel.Union([TaskV1, TaskV2]);
+
+  it("is what a collection holds, a subcollection's included", () => {
+    const Tasks = Collection.make("tasks", Task);
+    const Subtasks = Tasks.subcollection("subtasks", Task);
+    // Assignment, not `expectTypeOf(...).toEqualTypeOf(...)`: a deep structural
+    // comparison of two whole schemas costs millions of type instantiations.
+    const schema: typeof Task = Tasks.schema;
+    const subschema: typeof Task = Subtasks.schema;
+    expect(schema).toBe(Task);
+    expect(subschema).toBe(Task);
+  });
+
+  it.effect("is created as any member", () =>
+    Effect.gen(function* () {
+      expectTypeOf<(typeof Task.create)["Type"]>().toEqualTypeOf<
+        | {
+            readonly version: 1;
+            readonly title: string;
+            readonly updatedAt: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+          }
+        | {
+            readonly version: 2;
+            readonly title: string;
+            readonly updatedAt: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+            readonly priority: number;
+            readonly state:
+              | { readonly status: "pending" }
+              | {
+                  readonly status: "done";
+                  readonly uri: string;
+                };
+          }
+      >();
+      const encoded = yield* Schema.encodeEffect(Task.create)(
+        Task.create.make({
+          version: 2,
+          title: "t",
+          updatedAt: FieldValue.serverTimestamp,
+          priority: 1,
+          state: { status: "done", uri: "gs://x" },
+        }),
+      );
+      expect(encoded).toStrictEqual({
+        version: 2,
+        title: "t",
+        updatedAt: FieldValue.serverTimestamp,
+        priority: 1,
+        state: { status: "done", uri: "gs://x" },
+      });
+    }),
+  );
+
+  it.effect.each(modes(Task))("is patched at its Shared Fields ($mode)", ({ update }) =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(update)(
+        update.make({ title: "u", updatedAt: FieldValue.serverTimestamp }),
+      );
+      expect(encoded).toStrictEqual({ title: "u", updatedAt: FieldValue.serverTimestamp });
+    }),
+  );
+
+  it("is typed as its Shared Fields, and a key one member holds under `unchecked` alone", () => {
+    expectTypeOf<(typeof Task.update)["Type"]>().toEqualTypeOf<{
+      readonly title?: string;
+      readonly updatedAt?: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+    }>();
+    expectTypeOf<(typeof Task.updateUnchecked)["Type"]>().toEqualTypeOf<{
+      readonly title?: string;
+      readonly updatedAt?: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+      readonly priority?: number;
+      // A union one member holds, by the rule a union field is written by.
+      readonly state?:
+        | { readonly uri?: string }
+        | Patch.Replace<
+            { readonly status: "pending" } | { readonly status: "done"; readonly uri: string }
+          >;
+    }>();
+  });
+
+  it("is written at the same paths in either mode, and never whole", () => {
+    expectTypeOf<keyof (typeof Task.update)["Encoded"]>().toEqualTypeOf<
+      "title" | "updatedAt" | "priority" | "state" | "state.uri"
+    >();
+    expectTypeOf<(typeof Task.updateUnchecked)["Encoded"]>().toEqualTypeOf<
+      (typeof Task.update)["Encoded"]
+    >();
+    for (const update of [Task.update, Task.updateUnchecked]) {
+      expect(Object.keys(update.from.fields).sort()).toEqual([
+        "priority",
+        "state",
+        "state.uri",
+        "title",
+        "updatedAt",
+      ]);
+    }
+  });
+
+  it.effect("refuses a key one member holds under `checked`, in the type and the encoding", () =>
+    Effect.gen(function* () {
+      expect(() =>
+        Task.update.make({
+          // @ts-expect-error a first-version task holds no `priority`
+          priority: 2,
+        }),
+      ).toThrow();
+      const exit = yield* Schema.encodeUnknownEffect(Task.update)({ priority: 2 }).pipe(
+        Effect.exit,
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      const encoded = yield* Schema.encodeEffect(Task.updateUnchecked)(
+        Task.updateUnchecked.make({ priority: 2 }),
+      );
+      expect(encoded).toStrictEqual({ priority: 2 });
+    }),
+  );
+
+  it.effect.each(modes(Task))(
+    "refuses the discriminator, a replacement and a removal ($mode)",
+    ({ update }) =>
+      Effect.gen(function* () {
+        for (const value of [
+          { version: 2 },
+          Patch.replace({ version: 1, title: "t", updatedAt: FieldValue.serverTimestamp }),
+          FieldValue.deleteField,
+        ]) {
+          const exit = yield* Schema.encodeUnknownEffect(update)(value).pipe(Effect.exit);
+          expect(Exit.isFailure(exit)).toBe(true);
+        }
+      }),
+  );
+
+  it.effect("reads as the member the document matches, and fails on one it matches none of", () =>
+    Effect.gen(function* () {
+      const decode = Schema.decodeUnknownEffect(FirestoreValue.toCodecFirestore(Task));
+      const updatedAt = Timestamp.makeUnsafe(1_700_000_000, 0);
+      const v1 = yield* decode({ version: 1, title: "t", updatedAt });
+      expect(v1).toBeInstanceOf(TaskV1);
+      const v2 = yield* decode({
+        version: 2,
+        title: "t",
+        updatedAt,
+        priority: 1,
+        state: { status: "pending" },
+      });
+      expect(v2).toBeInstanceOf(TaskV2);
+      const error = yield* decode({ version: 3, title: "t", updatedAt }).pipe(Effect.flip);
+      expect(Schema.isSchemaError(error)).toBe(true);
+    }),
+  );
+});
+
+describe("a union held at a key by every member of a union", () => {
+  const Pending = FirestoreModel.Struct({ status: Schema.Literal("pending"), note: Schema.String });
+  const Done = FirestoreModel.Struct({
+    status: Schema.Literal("done"),
+    note: Schema.String,
+    uri: Schema.String,
+  });
+  const State = FirestoreModel.Union([Pending, Done]);
+
+  class TaskV1 extends FirestoreModel.Class<TaskV1>("TaskV1")({
+    version: Schema.Literal(1),
+    state: State,
+  }) {}
+
+  class TaskV2 extends FirestoreModel.Class<TaskV2>("TaskV2")({
+    version: Schema.Literal(2),
+    priority: Schema.Finite,
+    state: State,
+  }) {}
+
+  const Task = FirestoreModel.Union([TaskV1, TaskV2]);
+
+  type Replacement = Patch.Replace<
+    | { readonly status: "pending"; readonly note: string }
+    | { readonly status: "done"; readonly note: string; readonly uri: string }
+  >;
+
+  it("is replaced, and patched at its own Shared Fields, by the rule a union field is", () => {
+    expectTypeOf<NonNullable<(typeof Task.update)["Type"]["state"]>>().toEqualTypeOf<
+      { readonly note?: string } | Replacement
+    >();
+    expectTypeOf<NonNullable<(typeof Task.updateUnchecked)["Type"]["state"]>>().toEqualTypeOf<
+      { readonly note?: string; readonly uri?: string } | Replacement
+    >();
+  });
+
+  it("is written at its own path and at each key its members hold, in either mode", () => {
+    expectTypeOf<keyof (typeof Task.update)["Encoded"]>().toEqualTypeOf<
+      "priority" | "state" | "state.note" | "state.uri"
+    >();
+    expectTypeOf<(typeof Task.updateUnchecked)["Encoded"]>().toEqualTypeOf<
+      (typeof Task.update)["Encoded"]
+    >();
+    for (const update of [Task.update, Task.updateUnchecked]) {
+      expect(Object.keys(update.from.fields).sort()).toEqual([
+        "priority",
+        "state",
+        "state.note",
+        "state.uri",
+      ]);
+    }
+  });
+
+  it.effect.each(modes(Task))("writes a replacement whole, at its path ($mode)", ({ update }) =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(update)(
+        update.make({ state: Patch.replace({ status: "done", note: "n", uri: "gs://x" }) }),
+      );
+      expect(encoded).toStrictEqual({ state: { status: "done", note: "n", uri: "gs://x" } });
+    }),
+  );
+
+  it.effect.each(modes(Task))("writes a Shared Field at its dotted path ($mode)", ({ update }) =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(update)(update.make({ state: { note: "n" } }));
+      expect(encoded).toStrictEqual({ "state.note": "n" });
+    }),
+  );
+
+  it.effect("takes a key one of its members holds under `unchecked` alone", () =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(Task.updateUnchecked)(
+        Task.updateUnchecked.make({ state: { uri: "gs://x" } }),
+      );
+      expect(encoded).toStrictEqual({ "state.uri": "gs://x" });
+      expect(() =>
+        Task.update.make({
+          // @ts-expect-error a pending state holds no `uri`
+          state: { uri: "gs://x" },
+        }),
+      ).toThrow();
+      const exit = yield* Schema.encodeUnknownEffect(Task.update)({
+        state: { uri: "gs://x" },
+      }).pipe(Effect.exit);
+      expect(Exit.isFailure(exit)).toBe(true);
+    }),
+  );
+
+  it.effect.each(modes(Task))(
+    "refuses a removal where every member holds it ($mode)",
+    ({ update }) =>
+      Effect.gen(function* () {
+        const exit = yield* Schema.encodeUnknownEffect(update)({
+          state: FieldValue.deleteField,
+        }).pipe(Effect.exit);
+        expect(Exit.isFailure(exit)).toBe(true);
+      }),
+  );
+
+  describe("where it is a field of a union field", () => {
+    const A = FirestoreModel.Struct({ kind: Schema.Literal("a"), state: State });
+    const B = FirestoreModel.Struct({ kind: Schema.Literal("b"), state: State });
+
+    class Doc extends FirestoreModel.Class<Doc>("Doc")({
+      outer: FirestoreModel.Union([A, B]),
+    }) {}
+
+    it.effect.each(modes(Doc))("is replaced and patched at its path ($mode)", ({ update }) =>
+      Effect.gen(function* () {
+        const patched = yield* Schema.encodeEffect(update)(
+          update.make({ outer: { state: { note: "n" } } }),
+        );
+        expect(patched).toStrictEqual({ "outer.state.note": "n" });
+        const replaced = yield* Schema.encodeEffect(update)(
+          update.make({ outer: { state: Patch.replace({ status: "pending", note: "n" }) } }),
+        );
+        expect(replaced).toStrictEqual({ "outer.state": { status: "pending", note: "n" } });
+      }),
+    );
+  });
+
+  describe("where every member may go without it", () => {
+    class V1 extends FirestoreModel.Class<V1>("V1")({
+      version: Schema.Literal(1),
+      state: FirestoreModel.Optional(State),
+    }) {}
+    class V2 extends FirestoreModel.Class<V2>("V2")({
+      version: Schema.Literal(2),
+      state: FirestoreModel.Optional(State),
+    }) {}
+    const Doc = FirestoreModel.Union([V1, V2]);
+
+    it("is removed besides, and patched under `unchecked` alone", () => {
+      expectTypeOf<NonNullable<(typeof Doc.update)["Type"]["state"]>>().toEqualTypeOf<
+        Replacement | FieldValue.DeleteField
+      >();
+      expectTypeOf<NonNullable<(typeof Doc.updateUnchecked)["Type"]["state"]>>().toEqualTypeOf<
+        { readonly note?: string; readonly uri?: string } | Replacement | FieldValue.DeleteField
+      >();
+    });
+
+    it.effect.each(modes(Doc))("writes the removal at its path ($mode)", ({ update }) =>
+      Effect.gen(function* () {
+        const encoded = yield* Schema.encodeEffect(update)(
+          update.make({ state: FieldValue.deleteField }),
+        );
+        expect(encoded).toStrictEqual({ state: FieldValue.deleteField });
+      }),
+    );
+
+    it.effect("refuses a patch under `checked`, in the type and the encoding", () =>
+      Effect.gen(function* () {
+        expect(() =>
+          Doc.update.make({
+            // @ts-expect-error the patch would create it holding only the note
+            state: { note: "n" },
+          }),
+        ).toThrow();
+        const exit = yield* Schema.encodeUnknownEffect(Doc.update)({
+          state: { note: "n" },
+        }).pipe(Effect.exit);
+        expect(Exit.isFailure(exit)).toBe(true);
+        const encoded = yield* Schema.encodeEffect(Doc.updateUnchecked)(
+          Doc.updateUnchecked.make({ state: { note: "n" } }),
+        );
+        expect(encoded).toStrictEqual({ "state.note": "n" });
+      }),
+    );
+  });
+
+  describe("where the members hold different unions", () => {
+    const Failed = FirestoreModel.Struct({
+      status: Schema.Literal("failed"),
+      note: Schema.String.check(Schema.isMaxLength(3)),
+    });
+
+    class V1 extends FirestoreModel.Class<V1>("V1")({
+      version: Schema.Literal(1),
+      state: State,
+    }) {}
+    class V2 extends FirestoreModel.Class<V2>("V2")({
+      version: Schema.Literal(2),
+      state: FirestoreModel.Union([Pending, Done, Failed]),
+    }) {}
+    const Doc = FirestoreModel.Union([V1, V2]);
+
+    it("is replaced with what every member takes", () => {
+      expectTypeOf<
+        Extract<NonNullable<(typeof Doc.update)["Type"]["state"]>, Patch.Replace<any>>
+      >().toEqualTypeOf<Replacement>();
+    });
+
+    it.effect.each(modes(Doc))(
+      "refuses a replacement some member does not take, with a schema issue ($mode)",
+      ({ update }) =>
+        Effect.gen(function* () {
+          const error = yield* Schema.encodeUnknownEffect(update)({
+            state: Patch.replace({ status: "failed", note: "n" }),
+          }).pipe(Effect.flip);
+          expect(Schema.isSchemaError(error)).toBe(true);
+          const encoded = yield* Schema.encodeEffect(update)(
+            update.make({ state: Patch.replace({ status: "pending", note: "n" }) }),
+          );
+          expect(encoded).toStrictEqual({ state: { status: "pending", note: "n" } });
+        }),
+    );
+
+    it.effect.each(modes(Doc))(
+      "patches the Shared Fields of every member of every union ($mode)",
+      ({ update }) =>
+        Effect.gen(function* () {
+          // A failed state takes no note this long.
+          const error = yield* Schema.encodeUnknownEffect(update)({
+            state: { note: "too long" },
+          }).pipe(Effect.flip);
+          expect(Schema.isSchemaError(error)).toBe(true);
+          const encoded = yield* Schema.encodeEffect(update)(update.make({ state: { note: "n" } }));
+          expect(encoded).toStrictEqual({ "state.note": "n" });
+        }),
+    );
+  });
+});
+
+describe("a union field whose members hold tuples", () => {
+  const Pair = FirestoreModel.Struct({
+    kind: Schema.Literal("pair"),
+    at: Schema.Tuple([Schema.String, Schema.String]),
+  });
+  const Single = FirestoreModel.Struct({
+    kind: Schema.Literal("single"),
+    at: Schema.Tuple([Schema.String]),
+  });
+
+  class Doc extends FirestoreModel.Class<Doc>("Doc")({
+    state: FirestoreModel.Union([Pair, Single]),
+  }) {}
+
+  it("shares no key whose tuples differ in length, in the type and the paths", () => {
+    expectTypeOf<keyof (typeof Doc.update)["Encoded"]>().toEqualTypeOf<"state">();
+    expect(Object.keys(Doc.update.from.fields)).toEqual(["state"]);
+  });
+
+  it("shares a key where one tuple may go without the other's extra element", () => {
+    const Loose = FirestoreModel.Struct({
+      kind: Schema.Literal("loose"),
+      at: Schema.Tuple([Schema.String, Schema.optionalKey(Schema.String)]),
+    });
+
+    class Mixed extends FirestoreModel.Class<Mixed>("Mixed")({
+      state: FirestoreModel.Union([Loose, Single]),
+    }) {}
+
+    expectTypeOf<keyof (typeof Mixed.update)["Encoded"]>().toEqualTypeOf<"state" | "state.at">();
+    expectTypeOf<
+      Exclude<NonNullable<(typeof Mixed.update)["Type"]["state"]>, Patch.Replace<any>>
+    >().toEqualTypeOf<{ readonly at?: readonly [string] }>();
+    expect(Object.keys(Mixed.update.from.fields).sort()).toEqual(["state", "state.at"]);
+  });
+});
