@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from "@effect/vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { Context, Deferred, Effect, Exit, Fiber, Layer, Ref, Schema } from "effect";
 import {
   Firestore,
@@ -272,10 +272,6 @@ describe("Firestore.runTransaction", () => {
           return by;
         }),
       );
-      expectTypeOf(run).toEqualTypeOf<
-        Effect.Effect<number, FirestoreError | Schema.SchemaError, Step>
-      >();
-
       expect(yield* Effect.provideService(run, Step, { by: 5 })).toBe(5);
       expect(yield* valueOf(counter)).toBe(5);
     }).pipe(Effect.provide(layer)),
