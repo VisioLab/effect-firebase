@@ -12,6 +12,7 @@ import {
   FirestoreModel,
   FirestoreSchema,
   GeoPoint,
+  Patch,
   QuerySnapshot,
   Timestamp,
 } from "@visiolab/effect-firebase/firestore";
@@ -430,6 +431,57 @@ describe("ClientFirestore, against the emulator, on a collection of a union", ()
         title: "t",
         priority: 2,
       });
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("replaces and patches the union every member holds, through an update", () =>
+    Effect.gen(function* () {
+      const firestore = yield* freshFirestore;
+
+      yield* firestore.setDoc(task, { version: 1, title: "t", state: { status: "pending" } });
+      yield* firestore.updateDoc(task, {
+        // `updateDoc` infers its mode too, so the literal is not inferred from it.
+        state: Patch.replace({ status: "done", uri: "gs://x" } as const),
+      });
+      expect((yield* read(yield* firestore.getDoc(task))).state).toStrictEqual({
+        status: "done",
+        uri: "gs://x",
+      });
+
+      // Only a done state holds a `uri`, which the caller vouches for.
+      yield* firestore.updateDoc(task, { state: { uri: "gs://y" } }, { mode: "unchecked" });
+      expect(yield* read(yield* firestore.getDoc(task))).toMatchObject({
+        version: 1,
+        title: "t",
+        state: { status: "done", uri: "gs://y" },
+      });
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("streams the document and the collection, each read as its member", () =>
+    Effect.gen(function* () {
+      const firestore = yield* freshFirestore;
+
+      yield* firestore.setDoc(task, {
+        version: 2,
+        title: "t",
+        state: { status: "pending" },
+        priority: 1,
+      });
+
+      const [doc] = yield* firestore.streamDoc(task).pipe(Stream.take(1), Stream.runCollect);
+      const streamed = yield* read(doc);
+      assert(streamed.version === 2);
+      expect(streamed).toBeInstanceOf(TaskV2);
+      expect(streamed.priority).toBe(1);
+
+      const [docs] = yield* firestore
+        .streamDocs(Tasks.collection())
+        .pipe(Stream.take(1), Stream.runCollect);
+      const [listed] = yield* Effect.forEach(docs.docs, (snapshot) => snapshot.data);
+      assert(listed.version === 2);
+      expect(listed).toBeInstanceOf(TaskV2);
+      expect(listed.priority).toBe(1);
     }).pipe(Effect.provide(layer)),
   );
 
