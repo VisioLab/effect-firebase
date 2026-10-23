@@ -73,4 +73,4 @@ export const isReplace: (u: unknown) => u is Replace<unknown> = patch.isReplace;
  * @category constructors
  * @since 0.2.0
  */
-export const replace: <A>(value: A) => Replace<A> = patch.replace;
+export const replace: <const A>(value: A) => Replace<A> = patch.replace;

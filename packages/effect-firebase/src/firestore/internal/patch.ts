@@ -17,5 +17,5 @@ export const isReplace = (u: unknown): u is Patch.Replace<unknown> =>
   Predicate.hasProperty(u, ReplaceTypeId);
 
 /** @internal */
-export const replace = <A>(value: A): Patch.Replace<A> =>
+export const replace = <const A>(value: A): Patch.Replace<A> =>
   Object.assign(Object.create(ReplaceProto) as typeof ReplaceProto, { value });
