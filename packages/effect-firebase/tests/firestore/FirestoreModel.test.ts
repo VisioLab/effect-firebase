@@ -30,6 +30,9 @@ const modes = <M extends FirestoreModel.Any>(model: M) =>
     { mode: "updateUnchecked", update: model.updateUnchecked as M["updateUnchecked"] },
   ] as const;
 
+// Input the types refuse is cast `as never` below, to check that the runtime
+// refuses it too. typetest/FirestoreModel.tst.ts pins the type rule.
+
 /** The shape a snapshot hands back, which is only ever known at runtime. */
 const read = (overrides?: Partial<Record<string, unknown>>): unknown => ({
   displayName: "alice",
@@ -296,8 +299,8 @@ describe("Number", () => {
   it("refuses a move where only a number is read", () => {
     expect(
       () =>
-        // @ts-expect-error a document holds the sum rather than the request to add
-        new Page({ slug: "home", visits: FieldValue.increment(1) }),
+        // a document holds the sum rather than the request to add
+        new Page({ slug: "home", visits: FieldValue.increment(1) } as never),
     ).toThrow();
   });
 
@@ -355,12 +358,12 @@ describe("Array", () => {
 
   it("refuses a sentinel where a document is written whole", () => {
     expect(() =>
+      // growing an array that is not there yet is writing it
       Article.create.make({
         name: "a",
-        // @ts-expect-error growing an array that is not there yet is writing it
         tags: FieldValue.arrayUnion("news"),
         meta: { keywords: [] },
-      }),
+      } as never),
     ).toThrow();
   });
 
@@ -475,8 +478,8 @@ describe("Optional", () => {
 
   it("refuses the sentinel where a document is written whole", () => {
     expect(() =>
-      // @ts-expect-error `set` removes a field by leaving it out
-      Profile.create.make({ name: "alice", nickname: FieldValue.deleteField }),
+      // `set` removes a field by leaving it out
+      Profile.create.make({ name: "alice", nickname: FieldValue.deleteField } as never),
     ).toThrow();
   });
 
@@ -612,15 +615,15 @@ describe("an update reaching into a struct", () => {
 
   it("refuses to replace a struct holding a field no update writes", () => {
     expect(() =>
+      // replacing the address would write `country`, which is written once
       Place.update.make({
-        // @ts-expect-error replacing the address would write `country`, which is written once
         address: Patch.replace({
           city: "Paris",
           country: "FR",
           verifiedAt: Timestamp.makeUnsafe(1, 2),
           geo: { lat: 1, lng: 2 },
         }),
-      }),
+      } as never),
     ).toThrow();
   });
 
@@ -715,8 +718,8 @@ describe("a struct a document may go without", () => {
 
   it("refuses a patch, which would create a missing struct holding only the patch", () => {
     expect(() =>
-      // @ts-expect-error a missing address would be created holding only `city`
-      Place.update.make({ address: { city: "Berlin" } }),
+      // a missing address would be created holding only `city`
+      Place.update.make({ address: { city: "Berlin" } } as never),
     ).toThrow();
   });
 
@@ -731,8 +734,8 @@ describe("a struct a document may go without", () => {
 
   it("refuses a replacement that is not a whole struct", () => {
     expect(() =>
-      // @ts-expect-error a replacement is written whole, so it needs `verifiedAt`, `geo` and `notes`
-      Place.update.make({ address: Patch.replace({ city: "Berlin" }) }),
+      // a replacement is written whole, so it needs `verifiedAt`, `geo` and `notes`
+      Place.update.make({ address: Patch.replace({ city: "Berlin" }) } as never),
     ).toThrow();
   });
 
@@ -761,12 +764,12 @@ describe("a struct a document may go without", () => {
 
   it("refuses the removal and the replacement where a document is written whole", () => {
     expect(() =>
-      // @ts-expect-error `set` removes a map by leaving it out
-      Place.create.make({ name: "a", address: FieldValue.deleteField }),
+      // `set` removes a map by leaving it out
+      Place.create.make({ name: "a", address: FieldValue.deleteField } as never),
     ).toThrow();
     expect(() =>
-      // @ts-expect-error `set` writes every map whole already
-      Place.create.make({ name: "a", address: Patch.replace(address) }),
+      // `set` writes every map whole already
+      Place.create.make({ name: "a", address: Patch.replace(address) } as never),
     ).toThrow();
   });
 });
@@ -824,8 +827,8 @@ describe("a struct a document may go without, inside one every document holds", 
 
   it("is not patched", () => {
     expect(() =>
-      // @ts-expect-error a missing address would be created holding only `city`
-      User.update.make({ profile: { address: { city: "Berlin" } } }),
+      // a missing address would be created holding only `city`
+      User.update.make({ profile: { address: { city: "Berlin" } } } as never),
     ).toThrow();
   });
 });
@@ -842,12 +845,12 @@ describe("a struct holding a field no update writes", () => {
 
   it("is only removed, since replacing it would write that field", () => {
     expect(() =>
-      // @ts-expect-error `country` is written once
-      Shop.update.make({ address: Patch.replace({ city: "Berlin", country: "DE" }) }),
+      // `country` is written once
+      Shop.update.make({ address: Patch.replace({ city: "Berlin", country: "DE" }) } as never),
     ).toThrow();
     expect(() =>
-      // @ts-expect-error a missing address would be created holding only `city`
-      Shop.update.make({ address: { city: "Berlin" } }),
+      // a missing address would be created holding only `city`
+      Shop.update.make({ address: { city: "Berlin" } } as never),
     ).toThrow();
     Shop.update.make({ address: FieldValue.deleteField });
   });
@@ -874,8 +877,8 @@ describe("a struct holding a field no set writes", () => {
 
   it("is not replaced, since the replacement would drop that field", () => {
     expect(() =>
-      // @ts-expect-error `rank` is never written by `set`
-      Doc.update.make({ entry: Patch.replace({ name: "a", rank: 1 }) }),
+      // `rank` is never written by `set`
+      Doc.update.make({ entry: Patch.replace({ name: "a", rank: 1 }) } as never),
     ).toThrow();
   });
 
@@ -1184,12 +1187,12 @@ describe("Record", () => {
 
   it("refuses the removal of a key where a document is written whole", () => {
     expect(() =>
+      // `set` removes a key by leaving it out
       Poll.create.make({
         ...snapshot,
         seenAt: {},
-        // @ts-expect-error `set` removes a key by leaving it out
         aliases: { old: FieldValue.deleteField },
-      }),
+      } as never),
     ).toThrow();
   });
 
@@ -1275,8 +1278,8 @@ describe("Record", () => {
 
   it("refuses a patch into a struct at one key, which may be missing", () => {
     expect(() =>
-      // @ts-expect-error a missing member would be created holding only `badges`
-      Poll.update.make({ members: { m1: { badges: FieldValue.arrayUnion("early") } } }),
+      // a missing member would be created holding only `badges`
+      Poll.update.make({ members: { m1: { badges: FieldValue.arrayUnion("early") } } } as never),
     ).toThrow();
   });
 
@@ -1304,8 +1307,8 @@ describe("Record", () => {
 
   it("refuses the removal of a Record every document holds", () => {
     expect(() =>
-      // @ts-expect-error only an optional Record is removed whole
-      Poll.update.make({ votes: FieldValue.deleteField }),
+      // only an optional Record is removed whole
+      Poll.update.make({ votes: FieldValue.deleteField } as never),
     ).toThrow();
   });
 
@@ -1481,8 +1484,8 @@ describe("a Record keyed by literals", () => {
 
   it("refuses the removal of a key every document holds", () => {
     expect(() =>
-      // @ts-expect-error `yes` is a key every survey holds
-      Survey.update.make({ counts: { yes: FieldValue.deleteField } }),
+      // `yes` is a key every survey holds
+      Survey.update.make({ counts: { yes: FieldValue.deleteField } } as never),
     ).toThrow();
   });
 });
@@ -1529,8 +1532,8 @@ describe("a Record a document may go without", () => {
 
   it("is not patched where its keys are literals, which a missing Record would lack", () => {
     expect(() =>
-      // @ts-expect-error a missing Record would be created holding only `yes`
-      Tally.update.make({ counts: { yes: 1 } }),
+      // a missing Record would be created holding only `yes`
+      Tally.update.make({ counts: { yes: 1 } } as never),
     ).toThrow();
     expect(Tally.updateUnchecked.make({ counts: { yes: 1 } })).toStrictEqual({
       counts: { yes: 1 },
@@ -1683,8 +1686,8 @@ describe("a union field", () => {
   it.effect("refuses a patch into one member under `checked`, in the type and the encoding", () =>
     Effect.gen(function* () {
       expect(() =>
-        // @ts-expect-error a pending job holds no `uri`
-        Job.update.make({ state: { uri: "gs://y" } }),
+        // a pending job holds no `uri`
+        Job.update.make({ state: { uri: "gs://y" } } as never),
       ).toThrow();
       const exit = yield* Schema.encodeUnknownEffect(Job.update)({
         state: { uri: "gs://y" },
@@ -1698,8 +1701,8 @@ describe("a union field", () => {
     ({ update }) =>
       Effect.gen(function* () {
         expect(() =>
-          // @ts-expect-error every document holds the state
-          update.make({ state: FieldValue.deleteField }),
+          // every document holds the state
+          update.make({ state: FieldValue.deleteField } as never),
         ).toThrow();
         const exit = yield* Schema.encodeUnknownEffect(update)({
           state: FieldValue.deleteField,
@@ -1741,8 +1744,8 @@ describe("a union field a document may go without", () => {
     () =>
       Effect.gen(function* () {
         expect(() =>
-          // @ts-expect-error a patch would create it holding only the `uri`
-          Job.update.make({ state: { uri: "gs://y" } }),
+          // a patch would create it holding only the `uri`
+          Job.update.make({ state: { uri: "gs://y" } } as never),
         ).toThrow();
         const exit = yield* Schema.encodeUnknownEffect(Job.update)({
           state: { uri: "gs://y" },
@@ -1789,8 +1792,8 @@ describe("a union field with a member holding a field no update writes", () => {
     ({ update }) =>
       Effect.gen(function* () {
         expect(() =>
-          // @ts-expect-error `author` is written once
-          update.make({ state: Patch.replace({ status: "draft", author: "bob" }) }),
+          // `author` is written once
+          update.make({ state: Patch.replace({ status: "draft", author: "bob" }) } as never),
         ).toThrow();
         const exit = yield* Schema.encodeUnknownEffect(update)({
           state: Patch.replace({ status: "draft", author: "bob" }),
@@ -1816,10 +1819,10 @@ describe("a union field with a member holding a field no update writes", () => {
       }),
     }) {}
     expect(() =>
+      // a replacement could rewrite a draft's `author`
       Doc.update.make({
-        // @ts-expect-error a replacement could rewrite a draft's `author`
         post: Patch.replace({ title: "t", state: { status: "published", url: "/p" } }),
-      }),
+      } as never),
     ).toThrow();
   });
 });
@@ -1922,10 +1925,10 @@ describe("a union field patched at its Shared Fields", () => {
   it.effect("refuses the literal the members are told apart by, in the type and the encoding", () =>
     Effect.gen(function* () {
       expect(() =>
+        // the members hold no `status` in common
         Job.update.make({
-          // @ts-expect-error the members hold no `status` in common
           state: { status: "done" },
-        }),
+        } as never),
       ).toThrow();
       const exit = yield* Schema.encodeUnknownEffect(Job.update)({
         state: { status: "done" },
@@ -1937,10 +1940,10 @@ describe("a union field patched at its Shared Fields", () => {
   it.effect("refuses a key some member goes without, in the type and the encoding", () =>
     Effect.gen(function* () {
       expect(() =>
+        // a pending job holds no `uri`
         Job.update.make({
-          // @ts-expect-error a pending job holds no `uri`
           state: { uri: "gs://x" },
-        }),
+        } as never),
       ).toThrow();
       const exit = yield* Schema.encodeUnknownEffect(Job.update)({
         state: { title: "t", uri: "gs://x" },
@@ -2018,10 +2021,10 @@ describe("a union field patched at its Shared Fields", () => {
     it.effect("refuses a key some member's struct goes without, in the type and the encoding", () =>
       Effect.gen(function* () {
         expect(() =>
+          // a returned order holds no `carrier`
           Order.update.make({
-            // @ts-expect-error a returned order holds no `carrier`
             state: { meta: { carrier: "ups" } },
-          }),
+          } as never),
         ).toThrow();
         const exit = yield* Schema.encodeUnknownEffect(Order.update)({
           state: { meta: { carrier: "ups" } },
@@ -2077,16 +2080,16 @@ describe("a union field patched at its Shared Fields", () => {
       ({ update }) =>
         Effect.gen(function* () {
           expect(() =>
+            // a frozen profile's `seenAt` is no server timestamp
             update.make({
-              // @ts-expect-error a frozen profile's `seenAt` is no server timestamp
               state: { seenAt: FieldValue.serverTimestamp },
-            }),
+            } as never),
           ).toThrow();
           expect(() =>
+            // a frozen profile always holds a `motto`
             update.make({
-              // @ts-expect-error a frozen profile always holds a `motto`
               state: { motto: FieldValue.deleteField },
-            }),
+            } as never),
           ).toThrow();
           const exit = yield* Schema.encodeUnknownEffect(update)({
             state: { seenAt: FieldValue.serverTimestamp },
@@ -2111,10 +2114,10 @@ describe("a union field patched at its Shared Fields", () => {
     it.effect("refuses any patch under `checked`, in the type and the encoding", () =>
       Effect.gen(function* () {
         expect(() =>
+          // the patch would create it holding only the title
           Doc.update.make({
-            // @ts-expect-error the patch would create it holding only the title
             state: { title: "t" },
-          }),
+          } as never),
         ).toThrow();
         const exit = yield* Schema.encodeUnknownEffect(Doc.update)({
           state: { title: "t" },
@@ -2201,10 +2204,10 @@ describe("a union field patched into one member, unchecked", () => {
   it.effect("refuses it under `checked`, in the type and the encoding", () =>
     Effect.gen(function* () {
       expect(() =>
+        // a pending job holds no `completedAt`
         Job.update.make({
-          // @ts-expect-error a pending job holds no `completedAt`
           state: { completedAt: FieldValue.serverTimestamp },
-        }),
+        } as never),
       ).toThrow();
       const exit = yield* Schema.encodeUnknownEffect(Job.update)({
         state: { completedAt: FieldValue.serverTimestamp },
@@ -2288,10 +2291,10 @@ describe("a union field patched into one member, unchecked", () => {
     it.effect("refuses it under `checked`, in the type and the encoding", () =>
       Effect.gen(function* () {
         expect(() =>
+          // a draft holds no `note`
           Doc.update.make({
-            // @ts-expect-error a draft holds no `note`
             state: { note: "ok" },
-          }),
+          } as never),
         ).toThrow();
         const exit = yield* Schema.encodeUnknownEffect(Doc.update)({
           state: { note: "ok" },
@@ -2433,10 +2436,10 @@ describe("a document that is a union", () => {
   it.effect("refuses a key one member holds under `checked`, in the type and the encoding", () =>
     Effect.gen(function* () {
       expect(() =>
+        // a first-version task holds no `priority`
         Task.update.make({
-          // @ts-expect-error a first-version task holds no `priority`
           priority: 2,
-        }),
+        } as never),
       ).toThrow();
       const exit = yield* Schema.encodeUnknownEffect(Task.update)({ priority: 2 }).pipe(
         Effect.exit,
@@ -2540,10 +2543,10 @@ describe("a union held at a key by every member of a union", () => {
       );
       expect(encoded).toStrictEqual({ "state.uri": "gs://x" });
       expect(() =>
+        // a pending state holds no `uri`
         Task.update.make({
-          // @ts-expect-error a pending state holds no `uri`
           state: { uri: "gs://x" },
-        }),
+        } as never),
       ).toThrow();
       const exit = yield* Schema.encodeUnknownEffect(Task.update)({
         state: { uri: "gs://x" },
@@ -2608,10 +2611,10 @@ describe("a union held at a key by every member of a union", () => {
     it.effect("refuses a patch under `checked`, in the type and the encoding", () =>
       Effect.gen(function* () {
         expect(() =>
+          // the patch would create it holding only the note
           Doc.update.make({
-            // @ts-expect-error the patch would create it holding only the note
             state: { note: "n" },
-          }),
+          } as never),
         ).toThrow();
         const exit = yield* Schema.encodeUnknownEffect(Doc.update)({
           state: { note: "n" },

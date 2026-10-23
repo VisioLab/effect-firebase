@@ -4,7 +4,7 @@ import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreMo
 import * as FirestoreSchema from "@visiolab/effect-firebase/firestore/FirestoreSchema";
 import * as FirestoreValue from "@visiolab/effect-firebase/firestore/FirestoreValue";
 import * as Patch from "@visiolab/effect-firebase/firestore/Patch";
-import type * as Timestamp from "@visiolab/effect-firebase/firestore/Timestamp";
+import * as Timestamp from "@visiolab/effect-firebase/firestore/Timestamp";
 import { Context, Effect, Schema, SchemaGetter } from "effect";
 import type { VariantSchema } from "effect/schema";
 import { describe, expect, test } from "tstyche";
@@ -101,6 +101,11 @@ describe("Number", () => {
       FirestoreModel.Number<Schema.Boolean>
     >().type.toBeAssignableTo<unknown>();
   });
+
+  test("refuses a move where only a number is read", () => {
+    // @ts-expect-error Type 'Increment' is not assignable to type 'number'
+    new Page({ slug: "home", visits: FieldValue.increment(1) });
+  });
 });
 
 describe("Array", () => {
@@ -128,6 +133,15 @@ describe("Array", () => {
       | FieldValue.ArrayRemove<string>
       | undefined
     >();
+  });
+
+  test("refuses a sentinel where a document is written whole", () => {
+    Article.create.make({
+      name: "a",
+      // @ts-expect-error Type 'ArrayUnion<string>' is missing the following properties from type 'readonly string[]'
+      tags: FieldValue.arrayUnion("news"),
+      meta: { keywords: [] },
+    });
   });
 });
 
@@ -161,6 +175,11 @@ describe("Optional", () => {
         | FieldValue.ServerTimestamp
         | FieldValue.DeleteField;
     }>();
+  });
+
+  test("refuses the removal where a document is written whole", () => {
+    // @ts-expect-error Type 'DeleteField' is not assignable to type 'string'
+    Profile.create.make({ name: "alice", nickname: FieldValue.deleteField });
   });
 });
 
@@ -234,6 +253,18 @@ describe("an update reaching into a struct", () => {
   test("writes a field of a nested struct at its path, typed as the field", () => {
     expect<(typeof Place.update)["Encoded"]["address.geo.lat"]>().type.toBe<number | undefined>();
   });
+
+  test("refuses to replace a struct holding a field no update writes", () => {
+    Place.update.make({
+      // @ts-expect-error Type 'Replace<{ city: string; country: string;
+      address: Patch.replace({
+        city: "Paris",
+        country: "FR",
+        verifiedAt: Timestamp.makeUnsafe(1, 2),
+        geo: { lat: 1, lng: 2 },
+      }),
+    });
+  });
 });
 
 describe("a struct a document may go without", () => {
@@ -255,6 +286,14 @@ describe("a struct a document may go without", () => {
     name: Schema.String,
     address: FirestoreModel.Optional(Address),
   }) {}
+
+  /** An address the way `set` would write it. */
+  const address = {
+    city: "Berlin",
+    verifiedAt: FieldValue.serverTimestamp,
+    geo: { lat: 1, lng: 2 },
+    notes: {},
+  } as const;
 
   type Unchecked = NonNullable<(typeof Place.updateUnchecked)["Type"]["address"]>;
   type Fields = (typeof Place)[typeof VariantSchema.TypeId];
@@ -349,6 +388,26 @@ describe("a struct a document may go without", () => {
       FirestoreModel.UpdatePaths<Fields, "checked">
     >();
   });
+
+  test("refuses a patch, which would create a missing struct holding only the patch", () => {
+    // @ts-expect-error 'city' does not exist in type 'DeleteField | Replace<
+    Place.update.make({ address: { city: "Berlin" } });
+  });
+
+  test("refuses a replacement that is not a whole struct", () => {
+    // @ts-expect-error Type '{ city: string; }' is missing the following properties
+    Place.update.make({ address: Patch.replace({ city: "Berlin" }) });
+  });
+
+  test("refuses the removal where a document is written whole", () => {
+    // @ts-expect-error Type 'DeleteField' is missing the following properties
+    Place.create.make({ name: "a", address: FieldValue.deleteField });
+  });
+
+  test("refuses the replacement where a document is written whole", () => {
+    // @ts-expect-error Type 'Replace<{ readonly city: "Berlin";
+    Place.create.make({ name: "a", address: Patch.replace(address) });
+  });
 });
 
 describe("a field made optional twice", () => {
@@ -382,6 +441,58 @@ describe("a field made optional twice", () => {
     expect<(typeof Place.updateUnchecked)["Encoded"]>().type.toBe<
       (typeof Once.updateUnchecked)["Encoded"]
     >();
+  });
+});
+
+describe("a struct a document may go without, inside one every document holds", () => {
+  class User extends FirestoreModel.Class<User>("User")({
+    profile: FirestoreModel.Struct({
+      bio: Schema.String,
+      address: FirestoreModel.Optional(
+        FirestoreModel.Struct({ city: Schema.String, zip: Schema.String }),
+      ),
+    }),
+  }) {}
+
+  test("is not patched", () => {
+    // @ts-expect-error 'city' does not exist in type 'DeleteField | Replace<
+    User.update.make({ profile: { address: { city: "Berlin" } } });
+  });
+});
+
+describe("a struct holding a field no update writes", () => {
+  class Shop extends FirestoreModel.Class<Shop>("Shop")({
+    address: FirestoreModel.Optional(
+      FirestoreModel.Struct({
+        city: Schema.String,
+        country: FirestoreModel.Immutable(Schema.String),
+      }),
+    ),
+  }) {}
+
+  test("is not replaced, since replacing it would write that field", () => {
+    // @ts-expect-error Property '[DeleteFieldTypeId]' is missing in type 'Replace<
+    Shop.update.make({ address: Patch.replace({ city: "Berlin", country: "DE" }) });
+  });
+
+  test("is not patched, since a missing struct would be created holding only the patch", () => {
+    // @ts-expect-error 'city' does not exist in type 'DeleteField'.
+    Shop.update.make({ address: { city: "Berlin" } });
+  });
+});
+
+describe("a struct holding a field no set writes", () => {
+  class Doc extends FirestoreModel.Class<Doc>("Doc")({
+    entry: FirestoreModel.Struct({
+      name: Schema.String,
+      // Kept up by updates alone, so a replacement written as `set` would drop it.
+      rank: FirestoreModel.FieldOnly(["read", "update"])(Schema.Finite),
+    }),
+  }) {}
+
+  test("is not replaced, since the replacement would drop that field", () => {
+    // @ts-expect-error Type 'Replace<{ name: string; rank: number; }>' has no properties in common
+    Doc.update.make({ entry: Patch.replace({ name: "a", rank: 1 }) });
   });
 });
 
@@ -523,6 +634,30 @@ describe("Record", () => {
   test("names its own path in its encoded type", () => {
     expect<"votes">().type.toBeAssignableTo<keyof E>();
   });
+
+  test("refuses the removal of a key where a document is written whole", () => {
+    Poll.create.make({
+      title: "lunch",
+      votes: {},
+      tags: {},
+      seenAt: {},
+      // @ts-expect-error Type 'DeleteField' is not assignable to type 'string'
+      aliases: { old: FieldValue.deleteField },
+      members: {},
+      scores: {},
+      profile: { links: {} },
+    });
+  });
+
+  test("refuses a patch into a struct at one key, which may be missing", () => {
+    // @ts-expect-error 'badges' does not exist in type 'DeleteField | Replace<
+    Poll.update.make({ members: { m1: { badges: FieldValue.arrayUnion("early") } } });
+  });
+
+  test("refuses the removal of a Record every document holds", () => {
+    // @ts-expect-error Index signature for type 'string' is missing in type 'DeleteField'
+    Poll.update.make({ votes: FieldValue.deleteField });
+  });
 });
 
 describe("a Record keyed by literals", () => {
@@ -567,6 +702,11 @@ describe("a Record keyed by literals", () => {
       "answers" | "answers.Y" | "answers.N"
     >();
   });
+
+  test("refuses the removal of a key every document holds", () => {
+    // @ts-expect-error Type 'DeleteField' is not assignable to type 'number | Increment | undefined'
+    Survey.update.make({ counts: { yes: FieldValue.deleteField } });
+  });
 });
 
 describe("a Record a document may go without", () => {
@@ -593,6 +733,11 @@ describe("a Record a document may go without", () => {
 
   test("names its own path in its encoded type", () => {
     expect<"votes">().type.toBeAssignableTo<keyof (typeof Tally.update)["Encoded"]>();
+  });
+
+  test("is not patched where its keys are literals, which a missing Record would lack", () => {
+    // @ts-expect-error 'yes' does not exist in type 'DeleteField | Replace<
+    Tally.update.make({ counts: { yes: 1 } });
   });
 });
 
@@ -686,6 +831,21 @@ describe("a union field", () => {
   test("is written at the same paths in either mode", () => {
     expect<(typeof Job.updateUnchecked)["Encoded"]>().type.toBe<(typeof Job.update)["Encoded"]>();
   });
+
+  test("refuses a patch into one member under `checked`", () => {
+    // @ts-expect-error 'uri' does not exist in type 'Replace<
+    Job.update.make({ state: { uri: "gs://y" } });
+  });
+
+  test("refuses the removal where every document holds it, under `checked`", () => {
+    // @ts-expect-error Type 'DeleteField' is missing the following properties from type 'Replace<
+    Job.update.make({ state: FieldValue.deleteField });
+  });
+
+  test("refuses the removal where every document holds it, under `unchecked`", () => {
+    // @ts-expect-error Type 'DeleteField' is missing the following properties from type 'Replace<
+    Job.updateUnchecked.make({ state: FieldValue.deleteField });
+  });
 });
 
 describe("a union field a document may go without", () => {
@@ -723,6 +883,11 @@ describe("a union field a document may go without", () => {
       { readonly uri?: string } | Takes
     >();
   });
+
+  test("refuses a patch into it under `checked`, which would create it holding only the patch", () => {
+    // @ts-expect-error 'uri' does not exist in type 'DeleteField | Replace<
+    Job.update.make({ state: { uri: "gs://y" } });
+  });
 });
 
 describe("a union field with a member holding a field no update writes", () => {
@@ -739,10 +904,34 @@ describe("a union field with a member holding a field no update writes", () => {
     state: FirestoreModel.Union([Draft, Published]),
   }) {}
 
+  class Doc extends FirestoreModel.Class<Doc>("Doc")({
+    post: FirestoreModel.Struct({
+      title: Schema.String,
+      state: FirestoreModel.Union([Draft, Published]),
+    }),
+  }) {}
+
   test("is replaced with the other members alone", () => {
     expect<NonNullable<(typeof Post.update)["Type"]["state"]>>().type.toBe<
       Patch.Replace<{ readonly status: "published"; readonly url: string }>
     >();
+  });
+
+  test("refuses a replacement with that member under `checked`", () => {
+    // @ts-expect-error Property 'url' is missing in type '{ status: "draft"; author: string; }'
+    Post.update.make({ state: Patch.replace({ status: "draft", author: "bob" }) });
+  });
+
+  test("refuses a replacement with that member under `unchecked`", () => {
+    // @ts-expect-error Property 'url' is missing in type '{ status: "draft"; author: string; }'
+    Post.updateUnchecked.make({ state: Patch.replace({ status: "draft", author: "bob" }) });
+  });
+
+  test("keeps the struct holding it from being replaced", () => {
+    Doc.update.make({
+      // @ts-expect-error Type 'Replace<{ title: string; state: { status: string; url: string; }; }>' has no properties in common
+      post: Patch.replace({ title: "t", state: { status: "published", url: "/p" } }),
+    });
   });
 });
 
@@ -876,6 +1065,64 @@ describe("a union field patched at its Shared Fields", () => {
         };
       }>();
     });
+
+    test("refuses a key some member's struct goes without", () => {
+      Order.update.make({
+        // @ts-expect-error 'carrier' does not exist in type '{ readonly owner?: string | undefined; }'
+        state: { meta: { carrier: "ups" } },
+      });
+    });
+  });
+
+  describe("taking a sentinel", () => {
+    const Live = FirestoreModel.Struct({
+      status: Schema.Literal("live"),
+      seenAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
+      visits: FirestoreModel.Number(Schema.Int),
+      tags: FirestoreModel.Array(Schema.String),
+      nickname: FirestoreModel.Optional(Schema.String),
+      motto: FirestoreModel.Optional(Schema.String),
+    });
+    const Frozen = FirestoreModel.Struct({
+      status: Schema.Literal("frozen"),
+      seenAt: FirestoreSchema.Timestamp,
+      visits: FirestoreModel.Number(Schema.Int),
+      tags: FirestoreModel.Array(Schema.String),
+      nickname: FirestoreModel.Optional(Schema.String),
+      motto: Schema.String,
+    });
+
+    class Profile extends FirestoreModel.Class<Profile>("Profile")({
+      state: FirestoreModel.Union([Live, Frozen]),
+    }) {}
+
+    test("refuses a server timestamp some member does not take, under `checked`", () => {
+      Profile.update.make({
+        // @ts-expect-error Type 'ServerTimestamp' is missing the following properties from type 'Timestamp'
+        state: { seenAt: FieldValue.serverTimestamp },
+      });
+    });
+
+    test("refuses a server timestamp some member does not take, under `unchecked`", () => {
+      Profile.updateUnchecked.make({
+        // @ts-expect-error Type 'ServerTimestamp' is missing the following properties from type 'Timestamp'
+        state: { seenAt: FieldValue.serverTimestamp },
+      });
+    });
+
+    test("refuses a removal some member does not take, under `checked`", () => {
+      Profile.update.make({
+        // @ts-expect-error Type 'DeleteField' is not assignable to type 'string'
+        state: { motto: FieldValue.deleteField },
+      });
+    });
+
+    test("refuses a removal some member does not take, under `unchecked`", () => {
+      Profile.updateUnchecked.make({
+        // @ts-expect-error Type 'DeleteField' is not assignable to type 'string'
+        state: { motto: FieldValue.deleteField },
+      });
+    });
   });
 
   describe("where a document may go without it", () => {
@@ -885,6 +1132,13 @@ describe("a union field patched at its Shared Fields", () => {
 
     test("is written at the same paths in either mode", () => {
       expect<(typeof Doc.updateUnchecked)["Encoded"]>().type.toBe<(typeof Doc.update)["Encoded"]>();
+    });
+
+    test("refuses any patch under `checked`", () => {
+      Doc.update.make({
+        // @ts-expect-error 'title' does not exist in type 'DeleteField | Replace<
+        state: { title: "t" },
+      });
     });
   });
 
@@ -907,6 +1161,20 @@ describe("a union field patched at its Shared Fields", () => {
             | { readonly status: "written"; readonly at: Date }
           >
       >();
+    });
+  });
+
+  test("refuses the literal the members are told apart by", () => {
+    Job.update.make({
+      // @ts-expect-error 'status' does not exist in type
+      state: { status: "done" },
+    });
+  });
+
+  test("refuses a key some member goes without", () => {
+    Job.update.make({
+      // @ts-expect-error 'uri' does not exist in type 'Replace<
+      state: { uri: "gs://x" },
     });
   });
 });
@@ -989,6 +1257,13 @@ describe("a union field patched into one member, unchecked", () => {
         Exclude<NonNullable<(typeof Doc.update)["Type"]["state"]>, Patch.Replace<any>>
       >().type.toBe<never>();
     });
+
+    test("refuses it under `checked`", () => {
+      Doc.update.make({
+        // @ts-expect-error 'note' does not exist in type 'Replace<
+        state: { note: "ok" },
+      });
+    });
   });
 
   describe("at a key whose members' types have nothing in common", () => {
@@ -1033,6 +1308,13 @@ describe("a union field patched into one member, unchecked", () => {
       expect<keyof (typeof Doc.update)["Encoded"]>().type.toBe<
         "state" | "state.title" | "state.kind"
       >();
+    });
+  });
+
+  test("refuses it under `checked`", () => {
+    Job.update.make({
+      // @ts-expect-error 'completedAt' does not exist in type
+      state: { completedAt: FieldValue.serverTimestamp },
     });
   });
 });
@@ -1109,6 +1391,13 @@ describe("a document that is a union", () => {
   test("is written at the same paths in either mode", () => {
     expect<(typeof Task.updateUnchecked)["Encoded"]>().type.toBe<(typeof Task.update)["Encoded"]>();
   });
+
+  test("refuses a key one member holds under `checked`", () => {
+    Task.update.make({
+      // @ts-expect-error 'priority' does not exist in type
+      priority: 2,
+    });
+  });
 });
 
 describe("a union held at a key by every member of a union", () => {
@@ -1182,6 +1471,13 @@ describe("a union held at a key by every member of a union", () => {
         { readonly note?: string; readonly uri?: string } | Replacement | FieldValue.DeleteField
       >();
     });
+
+    test("refuses a patch under `checked`", () => {
+      Doc.update.make({
+        // @ts-expect-error 'note' does not exist in type 'DeleteField | Replace<
+        state: { note: "n" },
+      });
+    });
   });
 
   describe("where the members hold different unions", () => {
@@ -1204,6 +1500,13 @@ describe("a union held at a key by every member of a union", () => {
       expect<
         Extract<NonNullable<(typeof Doc.update)["Type"]["state"]>, Patch.Replace<any>>
       >().type.toBe<Replacement>();
+    });
+  });
+
+  test("refuses a key one of its members holds under `checked`", () => {
+    Task.update.make({
+      // @ts-expect-error 'uri' does not exist in type '{ readonly note?: string | undefined; }
+      state: { uri: "gs://x" },
     });
   });
 });
