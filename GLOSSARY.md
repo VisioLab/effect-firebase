@@ -28,6 +28,12 @@ The portable reads and writes a single Firestore transaction is made of, as hand
 **Admin Transaction**:
 A **Transaction** that can also read every document in a collection.
 
+### Collections
+
+**Collection Group**:
+The collections the model defines under one collection id, wherever each sits, read together as one. Each document read through it still belongs to the one collection it lives in.
+_Avoid_: group query, all collections named X
+
 ### Reads
 
 **Document Snapshot**:
