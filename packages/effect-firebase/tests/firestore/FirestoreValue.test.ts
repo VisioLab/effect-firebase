@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from "@effect/vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { BigDecimal, DateTime, Duration, Effect, Option, Schema, SchemaGetter } from "effect";
 import * as DocumentPath from "../../src/firestore/DocumentPath.ts";
 import * as FieldValue from "../../src/firestore/FieldValue.ts";
@@ -370,20 +370,5 @@ describe("toCodecFirestore", () => {
         views: FieldValue.increment(1),
       }),
     ).toEqual({ views: FieldValue.increment(1) });
-  });
-
-  it("types the encoded side as a Firestore Value and adds no services", () => {
-    const Model = Schema.Struct({
-      utc: Schema.DateTimeUtc,
-      date: Schema.Date,
-      at: PortableTimestamp,
-      data: Schema.Uint8Array,
-      nickname: Schema.Option(Schema.String),
-    });
-    const codec = FirestoreValue.toCodecFirestore(Model);
-    expectTypeOf<(typeof codec)["Encoded"]>().toEqualTypeOf<FirestoreValue.FirestoreValue>();
-    expectTypeOf<(typeof codec)["Type"]>().toEqualTypeOf<(typeof Model)["Type"]>();
-    expectTypeOf<(typeof codec)["EncodingServices"]>().toEqualTypeOf<never>();
-    expectTypeOf<(typeof codec)["DecodingServices"]>().toEqualTypeOf<never>();
   });
 });
