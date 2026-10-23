@@ -28,9 +28,8 @@ describe("make", () => {
   });
 
   it("rejects a collection listed twice", () => {
-    expect(() => CollectionGroup.make(UserPosts, UserPosts)).toThrow(
-      '"users/{id}/posts" more than once',
-    );
+    const make = CollectionGroup.make as (...members: ReadonlyArray<Collection.Any>) => unknown;
+    expect(() => make(UserPosts, UserPosts)).toThrow('"users/{id}/posts" more than once');
   });
 });
 

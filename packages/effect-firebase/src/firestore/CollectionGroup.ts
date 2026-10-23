@@ -80,6 +80,41 @@ export type DocumentReference<G extends Any> =
       : never
     : never;
 
+/** Whether `A` and `B` are the same type, rather than one fitting the other. */
+type Same<A, B> =
+  (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
+
+/** Whether `C` sits at any index of `Members` other than `K`. */
+type ListedElsewhere<Members extends ReadonlyArray<Collection.Any>, K, C> = true extends {
+  [J in keyof Members]: J extends K ? false : Same<Members[J], C>;
+}[number]
+  ? true
+  : false;
+
+/**
+ * The collections `Members` a group may be made of: each one as it is, or, in
+ * place of one that breaks the rules of a group, a message saying which rule
+ * it breaks. Members must share the collection id of the first, and no
+ * collection may be listed twice.
+ *
+ * Two collections are told apart here by their types, so a collection defined
+ * twice with the same path and model counts as listed twice, even though they
+ * are separate definitions.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export type Valid<Members extends ReadonlyArray<Collection.Any>> = {
+  readonly [K in keyof Members]: Members[K] extends Collection.Any
+    ? Members[K]["segment"] extends Members[0]["segment"]
+      ? ListedElsewhere<Members, K, Members[K]> extends true
+        ? `Collection Group member '${Members[K]["segment"]}' is listed more than once`
+        : Members[K]
+      : `Collection Group member '${Members[K]["segment"]}' does not share the collection id '${Members[0]["segment"]}'`
+    : never;
+};
+
 /**
  * @stability unstable
  * @category guards
@@ -89,6 +124,9 @@ export const isCollectionGroup: (u: unknown) => u is Any = collectionGroup.isCol
 
 /**
  * Defines a Collection Group from the collections it stands for.
+ *
+ * Collections that do not share the collection id of the first, and a
+ * collection listed twice, are refused by the type checker.
  *
  * Throws when it is given no collection, collections that do not share their
  * collection id, or the same collection twice, because a group like that is a
@@ -100,7 +138,7 @@ export const isCollectionGroup: (u: unknown) => u is Any = collectionGroup.isCol
  * @since 0.2.0
  */
 export const make: <const Members extends readonly [Collection.Any, ...Array<Collection.Any>]>(
-  ...members: Members
+  ...members: Valid<Members>
 ) => CollectionGroup<Members[number]> = collectionGroup.make;
 
 /**

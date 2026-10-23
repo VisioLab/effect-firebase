@@ -109,6 +109,14 @@ const UserPosts = Collection.make("users", User).subcollection("posts", Post);
 const AllUserPosts = CollectionGroup.make(UserPosts);
 const groupRead = firestore.getDocs(AllUserPosts);
 
+class Org extends FirestoreModel.Class<Org>("Org")({ name: Schema.String }) {}
+class OrgPost extends FirestoreModel.Class<OrgPost>("OrgPost")({ headline: Schema.String }) {}
+
+const OrgPosts = Collection.make("orgs", Org).subcollection("posts", OrgPost);
+const AllPosts = CollectionGroup.make(UserPosts, OrgPosts);
+const bothRead = firestore.getDocs(AllPosts);
+declare const bothDocs: Effect.Success<typeof bothRead>["docs"];
+
 describe("getDocs", () => {
   test("reads a collection, failing with a Firestore error alone", () => {
     expect(firestore.getDocs(Posts.collection())).type.toBe<
@@ -129,6 +137,36 @@ describe("getDocs", () => {
     expect<Effect.Success<typeof groupRead>["docs"][number]>().type.toBe<
       DocumentSnapshot.Existing<typeof UserPosts>
     >();
+  });
+
+  test("reads a group of several collections, failing as any group read does", () => {
+    expect<Effect.Error<typeof bothRead>>().type.toBe<
+      Firestore.FirestoreError | Firestore.UndefinedCollectionError
+    >();
+  });
+
+  test("addresses each document of a group of several by the one collection it is in", () => {
+    expect<Effect.Success<typeof bothRead>["docs"][number]>().type.toBe<
+      DocumentSnapshot.Existing<typeof UserPosts> | DocumentSnapshot.Existing<typeof OrgPosts>
+    >();
+  });
+
+  test("filters the documents of one collection out of a group of several", () => {
+    expect(bothDocs.filter(OrgPosts.contains)).type.toBe<
+      Array<DocumentSnapshot.Existing<typeof OrgPosts>>
+    >();
+  });
+
+  test("narrows a document of a group of several to its collection's id, ancestors and data", () => {
+    const [doc] = bothDocs;
+    if (OrgPosts.contains(doc)) {
+      expect(doc).type.toBe<DocumentSnapshot.Existing<typeof OrgPosts>>();
+      expect(doc.id).type.toBe<Collection.Id<typeof OrgPosts>>();
+      expect(doc.ref.ancestors).type.toBe<Readonly<Collection.Ancestors<typeof OrgPosts>>>();
+      expect(doc.data).type.toBe<Effect.Effect<OrgPost, Schema.SchemaError>>();
+    } else {
+      expect(doc).type.toBe<DocumentSnapshot.Existing<typeof UserPosts>>();
+    }
   });
 });
 

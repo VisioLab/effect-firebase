@@ -27,7 +27,24 @@ import * as querySnapshot from "./internal/querySnapshot.ts";
 const TypeId = querySnapshot.TypeId;
 
 /**
+ * A snapshot of a document that was there when it was read, in whichever of
+ * the collections `C` it is in: `Existing<A> | Existing<B>` rather than
+ * `Existing<A | B>`, so that its id, ancestors, reference and data all speak
+ * of the same collection.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export type Existing<C extends Collection.Any> = C extends Collection.Any
+  ? DocumentSnapshot.Existing<C>
+  : never;
+
+/**
  * The documents in `C` a read of many found.
+ *
+ * `C` is a union when the read was of a Collection Group made of several
+ * collections, and each document is then one of theirs.
  *
  * @stability unstable
  * @category models
@@ -39,9 +56,10 @@ export interface QuerySnapshot<C extends Collection.Any> extends Inspectable.Ins
    * Every document the read found, in the order Firestore returned them.
    *
    * Each was there when it was read, which is why these are
-   * {@link DocumentSnapshot.Existing}.
+   * {@link DocumentSnapshot.Existing}, each of the one collection of `C` it
+   * is in.
    */
-  readonly docs: ReadonlyArray<DocumentSnapshot.Existing<C>>;
+  readonly docs: ReadonlyArray<Existing<C>>;
 }
 
 /**

@@ -24,8 +24,15 @@ class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {
 const UserPosts = Collection.make("users", User).subcollection("posts", Post);
 const AllUserPosts = CollectionGroup.make(UserPosts);
 
+class Org extends FirestoreModel.Class<Org>("Org")({ name: Schema.String }) {}
+
+const OrgPosts = Collection.make("orgs", Org).subcollection("posts", Post);
+const AllPosts = CollectionGroup.make(UserPosts, OrgPosts);
+
 declare const client: ClientFirestore.ClientFirestore;
 declare const portable: Firestore.Firestore;
+
+const allPostsRead = client.getDocs(AllPosts);
 
 describe("ClientFirestore", () => {
   test("is a Firestore", () => {
@@ -61,6 +68,13 @@ describe("ClientFirestore", () => {
         ClientQuerySnapshot.ClientQuerySnapshot<typeof UserPosts>,
         Firestore.FirestoreError | Firestore.UndefinedCollectionError
       >
+    >();
+  });
+
+  test("reads each document of a group of several with metadata, as the collection it is in", () => {
+    expect<Effect.Success<typeof allPostsRead>["docs"][number]>().type.toBe<
+      | ClientDocumentSnapshot.Existing<typeof UserPosts>
+      | ClientDocumentSnapshot.Existing<typeof OrgPosts>
     >();
   });
 
