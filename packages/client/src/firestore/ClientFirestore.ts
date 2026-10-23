@@ -103,14 +103,31 @@ export interface ClientFirestore extends Firestore {
   ) => Stream.Stream<ClientDocumentSnapshot.ClientDocumentSnapshot<C>, FirestoreError>;
 
   /**
-   * Listens to one collection, as {@link Firestore.streamDocs} does, each
-   * snapshot with the {@link ClientDocumentSnapshot.SnapshotMetadata} it
-   * arrived with, listening as `options` says.
+   * Listens to one collection, or to a Collection Group, as
+   * {@link Firestore.streamDocs} does, each snapshot with the
+   * {@link ClientDocumentSnapshot.SnapshotMetadata} it arrived with, listening
+   * as `options` says.
    */
-  readonly streamDocs: <C extends Collection.Any>(
-    ref: Collection.CollectionReference<C>,
-    options?: ListenOptions,
-  ) => Stream.Stream<ClientQuerySnapshot.ClientQuerySnapshot<C>, FirestoreError>;
+  readonly streamDocs: {
+    /** Listens to every document in the collection at `ref`. */
+    <C extends Collection.Any>(
+      ref: Collection.CollectionReference<C>,
+      options?: ListenOptions,
+    ): Stream.Stream<ClientQuerySnapshot.ClientQuerySnapshot<C>, FirestoreError>;
+    /**
+     * Listens to every document of a {@link CollectionGroup.CollectionGroup},
+     * as {@link Firestore.streamDocs} does, failing with an
+     * {@link UndefinedCollectionError} at the first snapshot holding a
+     * document at a path none of its collections define.
+     */
+    <G extends CollectionGroup.Any>(
+      group: G,
+      options?: ListenOptions,
+    ): Stream.Stream<
+      ClientQuerySnapshot.ClientQuerySnapshot<CollectionGroup.Members<G>>,
+      FirestoreError | UndefinedCollectionError
+    >;
+  };
 }
 
 /**

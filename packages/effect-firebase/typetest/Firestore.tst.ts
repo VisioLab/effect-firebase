@@ -7,7 +7,7 @@ import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreMo
 import * as FirestoreSchema from "@visiolab/effect-firebase/firestore/FirestoreSchema";
 import * as Patch from "@visiolab/effect-firebase/firestore/Patch";
 import type * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
-import { Context, Effect, Schema, SchemaGetter } from "effect";
+import { Context, Effect, Schema, SchemaGetter, type Stream } from "effect";
 import { describe, expect, test } from "tstyche";
 
 /** A service a document schema might encode through. */
@@ -127,6 +127,31 @@ describe("getDocs", () => {
 
   test("addresses each document of a Collection Group by its collection", () => {
     expect<Effect.Success<typeof groupRead>["docs"][number]>().type.toBe<
+      DocumentSnapshot.Existing<typeof UserPosts>
+    >();
+  });
+});
+
+const groupStream = firestore.streamDocs(AllUserPosts);
+
+describe("streamDocs", () => {
+  test("streams a collection, failing with a Firestore error alone", () => {
+    expect(firestore.streamDocs(Posts.collection())).type.toBe<
+      Stream.Stream<QuerySnapshot.QuerySnapshot<typeof Posts>, Firestore.FirestoreError>
+    >();
+  });
+
+  test("streams a Collection Group as the documents of its collection", () => {
+    expect(groupStream).type.toBe<
+      Stream.Stream<
+        QuerySnapshot.QuerySnapshot<typeof UserPosts>,
+        Firestore.FirestoreError | Firestore.UndefinedCollectionError
+      >
+    >();
+  });
+
+  test("addresses each document of a streamed Collection Group by its collection", () => {
+    expect<Stream.Success<typeof groupStream>["docs"][number]>().type.toBe<
       DocumentSnapshot.Existing<typeof UserPosts>
     >();
   });

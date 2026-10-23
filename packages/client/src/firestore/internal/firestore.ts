@@ -351,13 +351,13 @@ const operations = (firestore: Client.Firestore, target: Target) => {
  * reader that falls behind, which is sound because each one is a whole
  * snapshot rather than a change to the last.
  */
-const listen = <S, A>(
+const listen = <S, A, E = FirestoreError>(
   span: string,
   message: string,
   subscribe: (onNext: (snapshot: S) => void, onError: (error: Error) => void) => () => void,
-  toElement: (snapshot: S) => Result.Result<A, FirestoreError>,
-): Stream.Stream<A, FirestoreError> =>
-  Stream.callback<A, FirestoreError>(
+  toElement: (snapshot: S) => Result.Result<A, E>,
+): Stream.Stream<A, FirestoreError | E> =>
+  Stream.callback<A, FirestoreError | E>(
     (queue) =>
       Effect.acquireRelease(
         Effect.sync(() =>
@@ -479,22 +479,35 @@ export const fromDatabase = (firestore: Client.Firestore): ClientFirestore.Clien
         (snapshot: Client.DocumentSnapshot) => documentSnapshotOf(ref, snapshot),
       ),
 
-    streamDocs: <C extends Collection.Any>(
-      ref: Collection.CollectionReference<C>,
+    streamDocs: ((
+      source: Collection.CollectionReference<Collection.Any> | CollectionGroup.Any,
       options?: ClientFirestore.ListenOptions,
     ) =>
-      listen(
-        "streamDocs",
-        `Failed to listen to the collection "${ref.path}"`,
-        (onNext, onError) =>
-          Client.onSnapshot(
-            Client.collection(firestore, ref.path),
-            snapshotListenOptions(options),
-            onNext,
-            onError,
-          ),
-        (query: Client.QuerySnapshot) => collectionSnapshotOf(ref, query),
-      ),
+      CollectionGroup.isCollectionGroup(source)
+        ? listen(
+            "streamDocs",
+            `Failed to listen to the collection group "${source.id}"`,
+            (onNext, onError) =>
+              Client.onSnapshot(
+                Client.collectionGroup(firestore, source.id),
+                snapshotListenOptions(options),
+                onNext,
+                onError,
+              ),
+            (query: Client.QuerySnapshot) => groupSnapshotOf(source, query),
+          )
+        : listen(
+            "streamDocs",
+            `Failed to listen to the collection "${source.path}"`,
+            (onNext, onError) =>
+              Client.onSnapshot(
+                Client.collection(firestore, source.path),
+                snapshotListenOptions(options),
+                onNext,
+                onError,
+              ),
+            (query: Client.QuerySnapshot) => collectionSnapshotOf(source, query),
+          )) as ClientFirestore.ClientFirestore["streamDocs"],
 
     runTransaction: Effect.fn("Firestore.runTransaction")(function* <A, E, R>(
       effect: Effect.Effect<A, E, R>,
