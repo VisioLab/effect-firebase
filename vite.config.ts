@@ -15,6 +15,11 @@ export default defineConfig({
     },
     options: { typeAware: true, typeCheck: true },
   },
+  test: {
+    // Run each package under its own config, so a root `vp test` picks up each
+    // package's `test` settings, such as the emulator `env` and `globalSetup`.
+    projects: ["packages/*"],
+  },
   run: {
     cache: true,
   },
