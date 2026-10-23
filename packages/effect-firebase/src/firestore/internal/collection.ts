@@ -1,6 +1,7 @@
 import { Equal, Hash, Inspectable, Option, Predicate, Schema } from "effect";
 import type * as Collection from "../Collection.ts";
 import type * as FirestoreModel from "../FirestoreModel.ts";
+import * as documentSnapshot from "./documentSnapshot.ts";
 
 /** @internal */
 export const CollectionTypeId = "~@visiolab/effect-firebase/firestore/Collection";
@@ -71,6 +72,7 @@ interface CollectionImpl {
   readonly segment: string;
   readonly schema: FirestoreModel.Any;
   readonly id: Schema.Top;
+  contains(value: unknown): boolean;
   subcollection(segment: string, schema: FirestoreModel.Any): CollectionImpl;
   collection(...ancestors: ReadonlyArray<string>): CollectionReferenceImpl;
   doc(...ids: ReadonlyArray<string>): DocumentReferenceImpl;
@@ -122,13 +124,25 @@ const makeCollection = (
   path: ReadonlyArray<string>,
   schema: FirestoreModel.Any,
   id: Schema.Top,
-): CollectionImpl =>
-  Object.assign(Object.create(CollectionProto) as typeof CollectionProto, {
-    path,
-    segment: path[path.length - 1],
-    schema,
-    id,
-  });
+): CollectionImpl => {
+  const self: CollectionImpl = Object.assign(
+    Object.create(CollectionProto) as typeof CollectionProto,
+    {
+      path,
+      segment: path[path.length - 1],
+      schema,
+      id,
+      // An own closure rather than a method on the prototype, so that it can be
+      // passed on unbound, as in `docs.filter(Posts.contains)`. The definition
+      // is compared by reference, as references compare theirs in `Equal`.
+      contains: (value: unknown): boolean =>
+        isDocumentReference(value)
+          ? value.collection === self
+          : documentSnapshot.isDocumentSnapshot(value) && value.ref.collection === self,
+    },
+  );
+  return self;
+};
 
 const CollectionReferenceProto = {
   ...Inspectable.BaseProto,
