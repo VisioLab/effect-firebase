@@ -1,8 +1,13 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Context, Effect, Latch, Layer, Ref, Schema } from "effect";
-import { FirestoreError, Transaction } from "@visiolab/effect-firebase/firestore/Firestore";
+import {
+  FirestoreError,
+  Transaction,
+  UndefinedCollectionError,
+} from "@visiolab/effect-firebase/firestore/Firestore";
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import * as CollectionGroup from "@visiolab/effect-firebase/firestore/CollectionGroup";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as App from "../../src/App.ts";
 import * as AdminFirestore from "../../src/firestore/AdminFirestore.ts";
@@ -195,5 +200,97 @@ describe("AdminTransaction", () => {
       );
       expect(yield* Effect.provideService(run, Step, { by: 1 })).toBe(true);
     }).pipe(Effect.provide(layer)),
+  );
+});
+
+// A project of its own, so the group reads see only what these tests write.
+const groupProjectId = "demo-admin-transaction-groups";
+
+const groupLayer = AdminFirestore.layer().pipe(
+  Layer.provide(App.layer({ projectId: groupProjectId }, "admin-transaction-groups")),
+);
+
+class Venue extends FirestoreModel.Class<Venue>("Venue")({ name: Schema.String }) {}
+class Booking extends FirestoreModel.Class<Booking>("Booking")({ confirmed: Schema.Boolean }) {}
+
+const Venues = Collection.make("venues", Venue);
+const VenueBookings = Venues.subcollection("bookings", Booking);
+const AllVenueBookings = CollectionGroup.make(VenueBookings);
+
+/** A `bookings` at the root, which the group does not define. */
+const RootBookings = Collection.make("bookings", Booking);
+
+const hall = Venues.id.make("hall");
+const park = Venues.id.make("park");
+const booking = (venue: typeof hall, id: string) =>
+  VenueBookings.doc(venue, VenueBookings.id.make(id));
+
+/** A database holding an unconfirmed booking at the hall and one at the park. */
+const freshBookings = Effect.gen(function* () {
+  yield* clear(groupProjectId);
+  const firestore = yield* AdminFirestore.AdminFirestore;
+  yield* firestore.setDoc(booking(hall, "a"), { confirmed: false });
+  yield* firestore.setDoc(booking(park, "b"), { confirmed: false });
+  return firestore;
+});
+
+const isConfirmed = Effect.fn(function* (venue: typeof hall, id: string) {
+  const firestore = yield* AdminFirestore.AdminFirestore;
+  const snapshot = yield* firestore.getDoc(booking(venue, id));
+  return DocumentSnapshot.isExisting(snapshot) ? (yield* snapshot.data).confirmed : undefined;
+});
+
+describe("AdminTransaction.getDocs of a Collection Group", () => {
+  it.effect("reads the documents across parents, and commits what it writes based on them", () =>
+    Effect.gen(function* () {
+      const firestore = yield* freshBookings;
+
+      const paths = yield* firestore.runTransaction(
+        Effect.gen(function* () {
+          const tx = yield* AdminFirestore.AdminTransaction;
+          const snapshot = yield* tx.getDocs(AllVenueBookings);
+          const unconfirmed = [];
+          for (const doc of snapshot.docs) {
+            if (!(yield* doc.data).confirmed) unconfirmed.push(doc.ref);
+          }
+          for (const ref of unconfirmed) yield* tx.updateDoc(ref, { confirmed: true });
+          return unconfirmed.map((ref) => ref.path).toSorted(byId);
+        }),
+      );
+
+      expect(paths).toEqual(["venues/hall/bookings/a", "venues/park/bookings/b"]);
+      expect(yield* isConfirmed(hall, "a")).toBe(true);
+      expect(yield* isConfirmed(park, "b")).toBe(true);
+    }).pipe(Effect.provide(groupLayer)),
+  );
+
+  it.effect(
+    "fails the body on a document at a path the group does not define, rolling back without retrying",
+    () =>
+      Effect.gen(function* () {
+        const firestore = yield* freshBookings;
+        yield* firestore.setDoc(RootBookings.doc(RootBookings.id.make("stray")), {
+          confirmed: false,
+        });
+        const runs = yield* Ref.make(0);
+
+        const error = yield* Effect.flip(
+          firestore.runTransaction(
+            Effect.gen(function* () {
+              yield* Ref.update(runs, (n) => n + 1);
+              const tx = yield* AdminFirestore.AdminTransaction;
+              const snapshot = yield* tx.getDocs(AllVenueBookings);
+              for (const doc of snapshot.docs) yield* tx.updateDoc(doc.ref, { confirmed: true });
+              return snapshot.docs.length;
+            }),
+            { maxAttempts: 5 },
+          ),
+        );
+
+        expect(error).toBeInstanceOf(UndefinedCollectionError);
+        expect(error).toMatchObject({ path: "bookings/stray", collectionId: "bookings" });
+        expect(yield* Ref.get(runs)).toBe(1);
+        expect(yield* isConfirmed(hall, "a")).toBe(false);
+      }).pipe(Effect.provide(groupLayer)),
   );
 });
