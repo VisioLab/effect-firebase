@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from "@effect/vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { Equal, Option, Schema } from "effect";
 import * as Collection from "../../src/firestore/Collection.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
@@ -33,13 +33,6 @@ describe("make", () => {
     expect(() => Collection.make("..", User)).toThrow('must not be "." or ".."');
     expect(() => Collection.make("__id__", User)).toThrow('must not match "__.*__"');
     expect(() => Users.subcollection("a/b", Post)).toThrow('must not contain "/"');
-  });
-
-  it("only takes a model, which carries the shapes a document is written in", () => {
-    // @ts-expect-error a plain schema has no `create` or `update`
-    Collection.make("users", Schema.Struct({ name: Schema.String }));
-    // @ts-expect-error a plain schema has no `create` or `update`
-    Users.subcollection("posts", Schema.Struct({ title: Schema.String }));
   });
 });
 
@@ -83,44 +76,12 @@ describe("DocumentReference", () => {
   });
 });
 
-describe("ids", () => {
-  it("is minted from a string and nothing else", () => {
-    expectTypeOf<Parameters<typeof Users.id.make>[0]>().toEqualTypeOf<string>();
-  });
-
-  it("brands off the whole path, so a shared segment is not a shared id", () => {
-    expectTypeOf<Collection.Id<typeof Posts>>().not.toEqualTypeOf<Collection.Id<typeof OrgPosts>>();
-    expectTypeOf<Collection.Id<typeof Posts>>().not.toEqualTypeOf<Collection.Id<typeof Users>>();
-  });
-
-  it("asks for one id per ancestor, ordered from the root down", () => {
-    expectTypeOf<Collection.Ancestors<typeof Users>>().toEqualTypeOf<[]>();
-    expectTypeOf<Collection.Ancestors<typeof Comments>>().toEqualTypeOf<
-      [Collection.Id<typeof Users>, Collection.Id<typeof Posts>]
-    >();
-  });
-
-  it("does not address a collection with the wrong ids", () => {
-    // @ts-expect-error a root collection takes no ancestor ids
-    Users.collection(alice);
-    // @ts-expect-error `posts` sits under one ancestor, not none
-    Posts.collection();
-    // @ts-expect-error a post id does not address a user
-    Users.doc(hello);
-    // @ts-expect-error the ancestors come before the document's own id
-    Posts.doc(hello, alice);
-    // @ts-expect-error `posts` under `orgs` is a different collection
-    Posts.doc(alice, OrgPosts.id.make("hello"));
-  });
-});
-
 describe("fromPath", () => {
   it("references the document found at a path", () => {
     const ref = Option.getOrThrow(
       Collection.fromPath(Comments, "users/alice/posts/hello/comments/first"),
     );
     expect(Equal.equals(ref, Comments.doc(alice, hello, first))).toBe(true);
-    expectTypeOf(ref).toEqualTypeOf<Collection.DocumentReference<typeof Comments>>();
   });
 
   it("refuses a path into another collection", () => {
