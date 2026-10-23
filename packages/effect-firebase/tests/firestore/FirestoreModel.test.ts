@@ -2822,9 +2822,12 @@ describe("a document that is a union", () => {
   it("is what a collection holds, a subcollection's included", () => {
     const Tasks = Collection.make("tasks", Task);
     const Subtasks = Tasks.subcollection("subtasks", Task);
-    expect(Tasks.schema).toBe(Task);
-    expect(Subtasks.schema).toBe(Task);
-    expectTypeOf(Tasks.schema).toEqualTypeOf(Task);
+    // Assignment, not `expectTypeOf(...).toEqualTypeOf(...)`: a deep structural
+    // comparison of two whole schemas costs millions of type instantiations.
+    const schema: typeof Task = Tasks.schema;
+    const subschema: typeof Task = Subtasks.schema;
+    expect(schema).toBe(Task);
+    expect(subschema).toBe(Task);
   });
 
   it.effect("is created as any member", () =>
