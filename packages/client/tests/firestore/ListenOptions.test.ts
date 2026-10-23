@@ -1,8 +1,7 @@
-import { assert, describe, expect, expectTypeOf, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import { Effect, Layer, Queue, Schema } from "effect";
 import { disableNetwork, enableNetwork } from "firebase/firestore";
 import { Collection, DocumentSnapshot, FirestoreModel } from "@visiolab/effect-firebase/firestore";
-import type { Firestore } from "@visiolab/effect-firebase/firestore/Firestore";
 import * as App from "../../src/App.ts";
 import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
 import { emulator, fresh, listening, otherClient } from "./emulator.ts";
@@ -22,24 +21,6 @@ const Posts = Collection.make("posts", Post);
 const hello = Posts.doc(Posts.id.make("hello"));
 
 describe("ClientFirestore.ListenOptions", () => {
-  it("are taken by the client streams alone", () => {
-    expectTypeOf<ClientFirestore.ListenOptions>().toEqualTypeOf<{
-      readonly includeMetadataChanges?: boolean | undefined;
-      readonly source?: "default" | "cache" | undefined;
-    }>();
-
-    // Never called: only what the compiler makes of it matters.
-    expectTypeOf((client: ClientFirestore.ClientFirestore, portable: Firestore) => [
-      client.streamDoc(hello, { includeMetadataChanges: true, source: "cache" }),
-      client.streamDocs(Posts.collection(), { includeMetadataChanges: true, source: "cache" }),
-      // @ts-expect-error The Admin SDK's listeners take no options.
-      portable.streamDoc(hello, { includeMetadataChanges: true }),
-      // @ts-expect-error The Admin SDK's listeners take no options.
-      portable.streamDocs(Posts.collection(), { source: "cache" }),
-    ]).toBeFunction();
-    expectTypeOf<ClientFirestore.ClientFirestore>().toExtend<Firestore>();
-  });
-
   // Live, because acknowledging a write waits on the SDK's own connection
   // rather than on the test clock.
   it.live("with includeMetadataChanges, emits again once a write is acknowledged", () =>

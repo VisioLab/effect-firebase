@@ -1,4 +1,4 @@
-import { assert, describe, expect, expectTypeOf, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import { Effect, Equal, Schema, SchemaGetter } from "effect";
 import * as Collection from "../../src/firestore/Collection.ts";
 import * as DocumentSnapshot from "../../src/firestore/DocumentSnapshot.ts";
@@ -84,18 +84,6 @@ describe("data", () => {
 });
 
 describe("guards", () => {
-  it("narrow a snapshot without losing the collection it is in", () => {
-    const snapshot = DocumentSnapshot.make(Users.doc(alice), undefined);
-    if (DocumentSnapshot.isExisting(snapshot)) {
-      expectTypeOf(snapshot).toEqualTypeOf<DocumentSnapshot.Existing<typeof Users>>();
-      expectTypeOf(snapshot.data).toEqualTypeOf<Effect.Effect<User, Schema.SchemaError>>();
-    }
-    if (DocumentSnapshot.isMissing(snapshot)) {
-      expectTypeOf(snapshot).toEqualTypeOf<DocumentSnapshot.Missing<typeof Users>>();
-      expectTypeOf(snapshot.id).toEqualTypeOf<Collection.Id<typeof Users>>();
-    }
-  });
-
   it("tell a snapshot apart from anything else", () => {
     expect(DocumentSnapshot.isDocumentSnapshot(DocumentSnapshot.missing(Users.doc(alice)))).toBe(
       true,

@@ -27,6 +27,20 @@ jobs:
 
       - run: vp check
 
+  test-types:
+    name: Test types
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: voidzero-dev/setup-vp@9fd26ff49f9b5e6276c2b493da4454ad4527f7f4 # v1.20.0
+        with:
+          node-version: "24"
+          cache: true
+
+      - run: vp run test-types
+
   test:
     name: Test (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
@@ -63,9 +77,9 @@ jobs:
   ci:
     name: CI
     if: always()
-    needs: [check, test]
+    needs: [check, test-types, test]
     runs-on: ubuntu-latest
     steps:
       - name: Fail if any job failed
-        if: needs.check.result != 'success' || needs.test.result != 'success'
+        if: needs.check.result != 'success' || needs.test-types.result != 'success' || needs.test.result != 'success'
         run: exit 1

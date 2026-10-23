@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from "@effect/vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { Schema } from "effect";
 import * as Collection from "../../src/firestore/Collection.ts";
 import * as DocumentSnapshot from "../../src/firestore/DocumentSnapshot.ts";
@@ -18,10 +18,6 @@ describe("make", () => {
   it("holds the documents a read found, in the order it found them", () => {
     const snapshot = QuerySnapshot.make([alice, bob]);
     expect(snapshot.docs).toEqual([alice, bob]);
-    expectTypeOf(snapshot).toEqualTypeOf<QuerySnapshot.QuerySnapshot<typeof Users>>();
-    expectTypeOf(snapshot.docs).toEqualTypeOf<
-      ReadonlyArray<DocumentSnapshot.Existing<typeof Users>>
-    >();
   });
 
   it("holds no documents where a read found none", () => {
