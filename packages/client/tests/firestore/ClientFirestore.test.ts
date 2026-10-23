@@ -420,8 +420,7 @@ describe("ClientFirestore, against the emulator, on a collection of a union", ()
 
       yield* firestore.setDoc(task, { version: 1, title: "t", state: { status: "pending" } });
       yield* firestore.updateDoc(task, {
-        // `updateDoc` infers its mode too, so the literal is not inferred from it.
-        state: Patch.replace({ status: "done", uri: "gs://x" } as const),
+        state: Patch.replace({ status: "done", uri: "gs://x" }),
       });
       expect((yield* read(yield* firestore.getDoc(task))).state).toStrictEqual({
         status: "done",

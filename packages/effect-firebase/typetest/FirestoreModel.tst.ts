@@ -256,7 +256,7 @@ describe("an update reaching into a struct", () => {
 
   test("refuses to replace a struct holding a field no update writes", () => {
     Place.update.make({
-      // @ts-expect-error Type 'Replace<{ city: string; country: string;
+      // @ts-expect-error Type 'Replace<{ readonly city: "Paris"; readonly country: "FR";
       address: Patch.replace({
         city: "Paris",
         country: "FR",
@@ -395,7 +395,7 @@ describe("a struct a document may go without", () => {
   });
 
   test("refuses a replacement that is not a whole struct", () => {
-    // @ts-expect-error Type '{ city: string; }' is missing the following properties
+    // @ts-expect-error Type '{ readonly city: "Berlin"; }' is missing the following properties
     Place.update.make({ address: Patch.replace({ city: "Berlin" }) });
   });
 
@@ -491,7 +491,7 @@ describe("a struct holding a field no set writes", () => {
   }) {}
 
   test("is not replaced, since the replacement would drop that field", () => {
-    // @ts-expect-error Type 'Replace<{ name: string; rank: number; }>' has no properties in common
+    // @ts-expect-error Type 'Replace<{ readonly name: "a"; readonly rank: 1; }>' has no properties in common
     Doc.update.make({ entry: Patch.replace({ name: "a", rank: 1 }) });
   });
 });
@@ -918,18 +918,18 @@ describe("a union field with a member holding a field no update writes", () => {
   });
 
   test("refuses a replacement with that member under `checked`", () => {
-    // @ts-expect-error Property 'url' is missing in type '{ status: "draft"; author: string; }'
+    // @ts-expect-error Property 'url' is missing in type '{ readonly status: "draft"; readonly author: "bob"; }'
     Post.update.make({ state: Patch.replace({ status: "draft", author: "bob" }) });
   });
 
   test("refuses a replacement with that member under `unchecked`", () => {
-    // @ts-expect-error Property 'url' is missing in type '{ status: "draft"; author: string; }'
+    // @ts-expect-error Property 'url' is missing in type '{ readonly status: "draft"; readonly author: "bob"; }'
     Post.updateUnchecked.make({ state: Patch.replace({ status: "draft", author: "bob" }) });
   });
 
   test("keeps the struct holding it from being replaced", () => {
     Doc.update.make({
-      // @ts-expect-error Type 'Replace<{ title: string; state: { status: string; url: string; }; }>' has no properties in common
+      // @ts-expect-error Type 'Replace<{ readonly title: "t"; readonly state: { readonly status: "published"; readonly url: "/p"; }; }>' has no properties in common
       post: Patch.replace({ title: "t", state: { status: "published", url: "/p" } }),
     });
   });

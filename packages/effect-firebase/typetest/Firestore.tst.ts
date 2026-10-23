@@ -4,6 +4,7 @@ import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
 import * as Firestore from "@visiolab/effect-firebase/firestore/Firestore";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as FirestoreSchema from "@visiolab/effect-firebase/firestore/FirestoreSchema";
+import * as Patch from "@visiolab/effect-firebase/firestore/Patch";
 import { Context, Effect, Schema, SchemaGetter } from "effect";
 import { describe, expect, test } from "tstyche";
 
@@ -144,6 +145,27 @@ describe("updateDoc", () => {
   test("refuses a checked patch of a key only one member of a union holds", () => {
     // @ts-expect-error 'priority' does not exist in type
     void firestore.updateDoc(task, { priority: 2 });
+  });
+
+  test("takes a replacement holding one member of a union", () => {
+    expect(
+      firestore.updateDoc(task, { state: Patch.replace({ status: "done", uri: "gs://x" }) }),
+    ).type.toBe<Effect.Effect<void, Firestore.FirestoreError | Schema.SchemaError>>();
+  });
+
+  test("takes a replacement holding one member of a union in unchecked mode", () => {
+    expect(
+      firestore.updateDoc(
+        task,
+        { state: Patch.replace({ status: "done", uri: "gs://x" }) },
+        { mode: "unchecked" },
+      ),
+    ).type.toBe<Effect.Effect<void, Firestore.FirestoreError | Schema.SchemaError>>();
+  });
+
+  test("refuses a replacement that matches no member of a union", () => {
+    // @ts-expect-error Type '"lost"' is not assignable to type '"done"'
+    void firestore.updateDoc(task, { state: Patch.replace({ status: "lost", uri: "gs://x" }) });
   });
 
   test("asks for nothing where a document writes a sentinel", () => {
