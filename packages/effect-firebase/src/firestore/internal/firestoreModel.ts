@@ -911,12 +911,11 @@ const flatten = (
     return out;
   });
 
-const update = (
-  fields: VariantSchema.Struct.Fields,
-  mode: FirestoreModel.UpdateMode,
-): Schema.Top => {
-  const paths: Paths = { known: {}, patterns: new Map() };
-  const { patch, shape } = build(fields, [], paths, mode);
+/**
+ * The update of a document, out of the patch it takes, where the patch goes
+ * one level down, and the paths it writes at.
+ */
+const updateOf = (patch: Schema.Top, shape: Shape, paths: Paths): Schema.Top => {
   const known = Schema.Struct(paths.known);
   const patterns = [...paths.patterns.values()];
   return (patterns.length === 0 ? known : Schema.StructWithRest(known, patterns as any)).pipe(
@@ -927,6 +926,27 @@ const update = (
       ),
     }),
   );
+};
+
+const update = (
+  fields: VariantSchema.Struct.Fields,
+  mode: FirestoreModel.UpdateMode,
+): Schema.Top => {
+  const paths: Paths = { known: {}, patterns: new Map() };
+  const { patch, shape } = build(fields, [], paths, mode);
+  return updateOf(patch, shape, paths);
+};
+
+/**
+ * The update of a document that is a union, patched at its Shared Fields - and,
+ * unchecked, at a key only some members hold - by the rule a union field is
+ * patched by. It is never written whole: a document changes member through
+ * `set`.
+ */
+const unionUpdate = (members: Members, mode: FirestoreModel.UpdateMode): Schema.Top => {
+  const paths: Paths = { known: {}, patterns: new Map() };
+  const { patch, shape } = buildShared(members.map(fields), [], paths, mode);
+  return updateOf(patch, shape, paths);
 };
 
 /** @internal */
@@ -1045,6 +1065,9 @@ export const Union = (members: Members): any => {
     schemas: { value: schemas },
     read: { value: Schema.Union(members.map((member) => extract(member, "read") as Schema.Top)) },
     create: { value: schemas.create },
+    // What a document that is the union is updated through.
+    update: { value: unionUpdate(members, "checked") },
+    updateUnchecked: { value: unionUpdate(members, "unchecked") },
     [UnionTypeId]: { value: members },
   });
 };

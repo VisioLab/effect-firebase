@@ -124,14 +124,17 @@ export const fields: <A extends VariantSchema.Struct<any>>(
 ) => A[typeof VariantSchema.TypeId] = firestoreModel.fields;
 
 /**
- * Any document schema, whatever it holds.
+ * Any document schema, whatever it holds: a {@link Class}, or a {@link Union}
+ * of them.
+ *
+ * Unlike Effect's `Model.Any`, it asks for no `fields`, which nothing taking
+ * one reads, and which a union has none of.
  *
  * @stability unstable
  * @category models
  * @since 0.2.0
  */
 export type Any = Schema.Top & {
-  readonly fields: Schema.Struct.Fields;
   readonly create: Schema.Top;
   readonly update: Schema.Top;
   readonly updateUnchecked: Schema.Top;
@@ -509,7 +512,7 @@ type FieldUpdate<F, Mode extends UpdateMode> =
     ? StructUpdate<G, IsOptional<F>, Mode>
     : [UnionOf<F>] extends [never]
       ? ValueUpdate<F, Mode>
-      : UnionUpdate<UnionOf<F>, IsOptional<F>, Mode>;
+      : UnionFieldUpdate<UnionOf<F>, IsOptional<F>, Mode>;
 
 /** What a field that is no struct or union takes in an update in `Mode`. */
 type ValueUpdate<F, Mode extends UpdateMode> = [RecordOf<F>] extends [never]
@@ -949,7 +952,7 @@ type IsUnionWritable<
     : true;
 
 /** What a union takes as a field of the struct it sits in, or `never` where it takes nothing. */
-type UnionUpdate<
+type UnionFieldUpdate<
   Members extends ReadonlyArray<VariantSchema.Struct<any>>,
   Optional extends boolean,
   Mode extends UpdateMode,
@@ -993,7 +996,7 @@ type UnionSchemas<Members extends ReadonlyArray<VariantSchema.Struct<any>>> =
     ? {
         readonly read: VariantSchema.Union<Members, "read">;
         readonly create: UnionCreate<Members>;
-        readonly update: UnionUpdate<Members, false, "unchecked">;
+        readonly update: UnionFieldUpdate<Members, false, "unchecked">;
       }
     : {
         readonly read: VariantSchema.Union<Members, "read">;
@@ -1018,8 +1021,54 @@ export interface Union<in out Members extends ReadonlyArray<VariantSchema.Struct
   }>;
   /** What `set` writes: any member, as `set` writes it. */
   readonly create: UnionCreate<Members>;
+  /**
+   * What `update` writes to a document that is the union: a patch of its
+   * Shared Fields alone. It is never written whole - a document changes
+   * member through `set`.
+   */
+  readonly update: UnionUpdate<Members, "checked">;
+  /**
+   * What `update` writes to a document that is the union, taking a patch of a
+   * key only some members hold as well, which the caller vouches the document
+   * holds - see {@link Class.updateUnchecked}.
+   */
+  readonly updateUnchecked: UnionUpdate<Members, "unchecked">;
   readonly [UnionTypeId]: Members;
 }
+
+/** The patch of a document that is a union, or an empty one where it takes no key. */
+type UnionDocumentPatch<
+  Members extends ReadonlyArray<VariantSchema.Struct<any>>,
+  Mode extends UpdateMode,
+> = [SharedPatch<MemberFields<Members>, Mode>] extends [never]
+  ? Schema.Struct<{}>
+  : SharedPatch<MemberFields<Members>, Mode>;
+
+/**
+ * The update of a document that is a {@link Union}, taking the patches `Mode`
+ * allows: one of its Shared Fields, and under `unchecked` a key only some
+ * members hold as well, by the rule a union field is patched by - see
+ * {@link Update}. Each is written at its path, as a class's update writes it.
+ *
+ * It takes no replacement or removal of the document: a document changes
+ * member, a new discriminator or version, through `set`.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface UnionUpdate<
+  in out Members extends ReadonlyArray<VariantSchema.Struct<any>>,
+  in out Mode extends UpdateMode = "checked",
+> extends Schema.decodeTo<
+  Schema.toType<UnionDocumentPatch<Members, Mode>>,
+  Schema.Struct<
+    Struct_.Simplify<SharedPaths<MemberFields<Members>, "">> extends infer P extends
+      Schema.Struct.Fields
+      ? P
+      : never
+  >
+> {}
 
 /**
  * A field holding one of several structs or classes, its members.
@@ -1071,6 +1120,12 @@ export interface Union<in out Members extends ReadonlyArray<VariantSchema.Struct
  * // Where the job is known to be done: written at "state.completedAt".
  * Job.updateUnchecked.make({ state: { completedAt: FieldValue.serverTimestamp } });
  * ```
+ *
+ * A whole document may be a union of classes too, so one collection holds
+ * several document shapes - versions of one, say, told apart by a literal
+ * number. `set` writes any member, and changing member is a whole `set`. An
+ * update patches the document by the same rule, at its Shared Fields, and
+ * under `unchecked` at a key only some members hold - see {@link UnionUpdate}.
  *
  * @stability unstable
  * @category constructors
@@ -1360,7 +1415,7 @@ type OptionalSchemas<F extends Value> =
       ? {
           readonly read: Schema.optionalKey<VariantSchema.Union<Members, "read">>;
           readonly create: Schema.optionalKey<UnionCreate<Members>>;
-          readonly update: UnionUpdate<Members, true, "unchecked">;
+          readonly update: UnionFieldUpdate<Members, true, "unchecked">;
         }
       : F extends AnyRecord
         ? IsWritable<RecordOf<F>["value"]> extends true

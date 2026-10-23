@@ -2798,3 +2798,161 @@ describe("a union field patched into one member, unchecked", () => {
     );
   });
 });
+
+describe("a document that is a union", () => {
+  const Pending = FirestoreModel.Struct({ status: Schema.Literal("pending") });
+  const Done = FirestoreModel.Struct({ status: Schema.Literal("done"), uri: Schema.String });
+
+  class TaskV1 extends FirestoreModel.Class<TaskV1>("TaskV1")({
+    version: Schema.Literal(1),
+    title: Schema.String,
+    updatedAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
+  }) {}
+
+  class TaskV2 extends FirestoreModel.Class<TaskV2>("TaskV2")({
+    version: Schema.Literal(2),
+    title: Schema.String,
+    updatedAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
+    priority: Schema.Finite,
+    state: FirestoreModel.Union([Pending, Done]),
+  }) {}
+
+  const Task = FirestoreModel.Union([TaskV1, TaskV2]);
+
+  it("is what a collection holds, a subcollection's included", () => {
+    const Tasks = Collection.make("tasks", Task);
+    const Subtasks = Tasks.subcollection("subtasks", Task);
+    expect(Tasks.schema).toBe(Task);
+    expect(Subtasks.schema).toBe(Task);
+    expectTypeOf(Tasks.schema).toEqualTypeOf(Task);
+  });
+
+  it.effect("is created as any member", () =>
+    Effect.gen(function* () {
+      expectTypeOf<(typeof Task.create)["Type"]>().toEqualTypeOf<
+        | {
+            readonly version: 1;
+            readonly title: string;
+            readonly updatedAt: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+          }
+        | {
+            readonly version: 2;
+            readonly title: string;
+            readonly updatedAt: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+            readonly priority: number;
+            readonly state:
+              | { readonly status: "pending" }
+              | {
+                  readonly status: "done";
+                  readonly uri: string;
+                };
+          }
+      >();
+      const encoded = yield* Schema.encodeEffect(Task.create)(
+        Task.create.make({
+          version: 2,
+          title: "t",
+          updatedAt: FieldValue.serverTimestamp,
+          priority: 1,
+          state: { status: "done", uri: "gs://x" },
+        }),
+      );
+      expect(encoded).toStrictEqual({
+        version: 2,
+        title: "t",
+        updatedAt: FieldValue.serverTimestamp,
+        priority: 1,
+        state: { status: "done", uri: "gs://x" },
+      });
+    }),
+  );
+
+  it.effect.each(modes(Task))("is patched at its Shared Fields ($mode)", ({ update }) =>
+    Effect.gen(function* () {
+      const encoded = yield* Schema.encodeEffect(update)(
+        update.make({ title: "u", updatedAt: FieldValue.serverTimestamp }),
+      );
+      expect(encoded).toStrictEqual({ title: "u", updatedAt: FieldValue.serverTimestamp });
+    }),
+  );
+
+  it("is typed as its Shared Fields, and a key one member holds under `unchecked` alone", () => {
+    expectTypeOf<(typeof Task.update)["Type"]>().toEqualTypeOf<{
+      readonly title?: string;
+      readonly updatedAt?: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+    }>();
+    expectTypeOf<(typeof Task.updateUnchecked)["Type"]>().toEqualTypeOf<{
+      readonly title?: string;
+      readonly updatedAt?: Timestamp.Timestamp | FieldValue.ServerTimestamp;
+      readonly priority?: number;
+    }>();
+  });
+
+  it("is written at the same paths in either mode, and never whole", () => {
+    expectTypeOf<keyof (typeof Task.update)["Encoded"]>().toEqualTypeOf<
+      "title" | "updatedAt" | "priority"
+    >();
+    expectTypeOf<(typeof Task.updateUnchecked)["Encoded"]>().toEqualTypeOf<
+      (typeof Task.update)["Encoded"]
+    >();
+    expect(Object.keys(Task.update.from.fields).sort()).toEqual(["priority", "title", "updatedAt"]);
+    expect(Object.keys(Task.updateUnchecked.from.fields).sort()).toEqual([
+      "priority",
+      "title",
+      "updatedAt",
+    ]);
+  });
+
+  it.effect("refuses a key one member holds under `checked`, in the type and the encoding", () =>
+    Effect.gen(function* () {
+      expect(() =>
+        Task.update.make({
+          // @ts-expect-error a first-version task holds no `priority`
+          priority: 2,
+        }),
+      ).toThrow();
+      const exit = yield* Schema.encodeUnknownEffect(Task.update)({ priority: 2 }).pipe(
+        Effect.exit,
+      );
+      expect(Exit.isFailure(exit)).toBe(true);
+      const encoded = yield* Schema.encodeEffect(Task.updateUnchecked)(
+        Task.updateUnchecked.make({ priority: 2 }),
+      );
+      expect(encoded).toStrictEqual({ priority: 2 });
+    }),
+  );
+
+  it.effect.each(modes(Task))(
+    "refuses the discriminator, a replacement and a removal ($mode)",
+    ({ update }) =>
+      Effect.gen(function* () {
+        for (const value of [
+          { version: 2 },
+          Patch.replace({ version: 1, title: "t", updatedAt: FieldValue.serverTimestamp }),
+          FieldValue.deleteField,
+        ]) {
+          const exit = yield* Schema.encodeUnknownEffect(update)(value).pipe(Effect.exit);
+          expect(Exit.isFailure(exit)).toBe(true);
+        }
+      }),
+  );
+
+  it.effect("reads as the member the document matches, and fails on one it matches none of", () =>
+    Effect.gen(function* () {
+      const decode = Schema.decodeUnknownEffect(FirestoreValue.toCodecFirestore(Task));
+      const updatedAt = Timestamp.makeUnsafe(1_700_000_000, 0);
+      const v1 = yield* decode({ version: 1, title: "t", updatedAt });
+      expect(v1).toBeInstanceOf(TaskV1);
+      const v2 = yield* decode({
+        version: 2,
+        title: "t",
+        updatedAt,
+        priority: 1,
+        state: { status: "pending" },
+      });
+      expect(v2).toBeInstanceOf(TaskV2);
+      const error = yield* decode({ version: 3, title: "t", updatedAt }).pipe(Effect.flip);
+      expect(Schema.isSchemaError(error)).toBe(true);
+    }),
+  );
+});

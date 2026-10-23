@@ -1,6 +1,10 @@
 import { assert, describe, expect, expectTypeOf, it } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
-import { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
+import {
+  Firestore,
+  FirestoreError,
+  Transaction,
+} from "@visiolab/effect-firebase/firestore/Firestore";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
@@ -228,6 +232,131 @@ describe("Firestore, against the emulator", () => {
       const error = yield* Effect.flip(firestore.updateDoc(Posts.doc(hello), { views: 2 }));
 
       expect(error).toBeInstanceOf(FirestoreError);
+    }).pipe(Effect.provide(layer)),
+  );
+});
+
+describe("Firestore, against the emulator, on a collection of a union", () => {
+  const fresh = clear("demo-firestore").pipe(Effect.andThen(Firestore));
+
+  const Pending = FirestoreModel.Struct({ status: Schema.Literal("pending") });
+  const Done = FirestoreModel.Struct({ status: Schema.Literal("done"), uri: Schema.String });
+
+  class TaskV1 extends FirestoreModel.Class<TaskV1>("TaskV1")({
+    version: Schema.Literal(1),
+    title: Schema.String,
+    state: FirestoreModel.Union([Pending, Done]),
+  }) {}
+
+  class TaskV2 extends FirestoreModel.Class<TaskV2>("TaskV2")({
+    version: Schema.Literal(2),
+    title: Schema.String,
+    state: FirestoreModel.Union([Pending, Done]),
+    priority: Schema.Finite,
+  }) {}
+
+  const Tasks = Collection.make("tasks", FirestoreModel.Union([TaskV1, TaskV2]));
+  // The same collection under another model, to put a document there that
+  // matches no member.
+  const Strays = Collection.make("tasks", Post);
+  const task = Tasks.doc(Tasks.id.make("task"));
+
+  const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnapshot<C>) =>
+    DocumentSnapshot.isExisting(snapshot) ? snapshot.data : Effect.die("missing");
+
+  it.effect("writes each member, reads it back as that member, and switches it with a set", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh;
+
+      yield* firestore.setDoc(task, { version: 1, title: "t", state: { status: "pending" } });
+      const first = yield* read(yield* firestore.getDoc(task));
+      assert(first instanceof TaskV1);
+      expect(first.state).toStrictEqual({ status: "pending" });
+
+      yield* firestore.setDoc(task, {
+        version: 2,
+        title: "t",
+        state: { status: "done", uri: "gs://x" },
+        priority: 1,
+      });
+      const second = yield* firestore.runTransaction(
+        Effect.gen(function* () {
+          const tx = yield* Transaction;
+          return yield* read(yield* tx.getDoc(task));
+        }),
+      );
+      assert(second.version === 2);
+      expectTypeOf(second).toEqualTypeOf<TaskV2>();
+      expect(second).toBeInstanceOf(TaskV2);
+      expect(second.state).toStrictEqual({ status: "done", uri: "gs://x" });
+      expect(second.priority).toBe(1);
+
+      const added = yield* firestore.addDoc(Tasks.collection(), {
+        version: 1,
+        title: "a",
+        state: { status: "pending" },
+      });
+      const snapshot = yield* firestore.getDocs(Tasks.collection());
+      const members = yield* Effect.forEach(snapshot.docs, (doc) =>
+        Effect.map(doc.data, (data) => [doc.id, data.constructor] as const),
+      );
+      expect(new Map(members)).toStrictEqual(
+        new Map<string, unknown>([
+          [task.id, TaskV2],
+          [added.id, TaskV1],
+        ]),
+      );
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("updates a Shared Field whichever member the document holds", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh;
+
+      yield* firestore.setDoc(task, { version: 1, title: "t", state: { status: "pending" } });
+      yield* firestore.updateDoc(task, { title: "u" });
+
+      expect(yield* read(yield* firestore.getDoc(task))).toMatchObject({
+        version: 1,
+        title: "u",
+        state: { status: "pending" },
+      });
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("updates a key only one member holds, unchecked alone", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh;
+
+      yield* firestore.setDoc(task, {
+        version: 2,
+        title: "t",
+        state: { status: "pending" },
+        priority: 1,
+      });
+      const checked = yield* Effect.flip(
+        // @ts-expect-error a first-version task holds no `priority`
+        firestore.updateDoc(task, { priority: 2 }),
+      );
+      expect(checked._tag).toBe("SchemaError");
+      yield* firestore.updateDoc(task, { priority: 2 }, { mode: "unchecked" });
+
+      expect(yield* read(yield* firestore.getDoc(task))).toMatchObject({
+        version: 2,
+        title: "t",
+        priority: 2,
+      });
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("fails to read a document matching no member, with a schema issue", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh;
+
+      yield* firestore.setDoc(Strays.doc(Strays.id.make("task")), { title: "t", views: 1 });
+      const error = yield* Effect.flip(read(yield* firestore.getDoc(task)));
+
+      expect(Schema.isSchemaError(error)).toBe(true);
     }).pipe(Effect.provide(layer)),
   );
 });
