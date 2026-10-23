@@ -15,11 +15,7 @@ import type {
   FirestoreError,
   Transaction,
   TransactionOptions,
-  UndefinedCollectionError,
 } from "@visiolab/effect-firebase/firestore/Firestore";
-import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
-import type * as CollectionGroup from "@visiolab/effect-firebase/firestore/CollectionGroup";
-import type * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
 import type * as Admin from "firebase-admin/firestore";
 import type * as App from "../App.ts";
 import * as internalFirestore from "./internal/firestore.ts";
@@ -61,8 +57,7 @@ export interface AdminFirestore extends Firestore {
 
 /**
  * A {@link Transaction} that can also read every document in a collection or
- * a {@link CollectionGroup.CollectionGroup}, which only the Admin SDK's
- * transactions can.
+ * a Collection Group, which only the Admin SDK's transactions can.
  *
  * It holds to the same rules as {@link Transaction}: a read of many is a
  * read, so it comes before every write.
@@ -78,31 +73,10 @@ export interface AdminTransaction extends Transaction {
    *
    * Every document it hands back is locked for the rest of the transaction,
    * so another write to one of them makes the transaction run again. A group
-   * read that fails with an {@link UndefinedCollectionError} fails the body,
+   * read that fails with an `UndefinedCollectionError` fails the body,
    * which rolls the transaction back without running it again.
    */
-  readonly getDocs: {
-    /** Reads every document in the collection at `ref`. */
-    <C extends Collection.Any>(
-      ref: Collection.CollectionReference<C>,
-    ): Effect.Effect<QuerySnapshot.QuerySnapshot<C>, FirestoreError>;
-    /**
-     * Reads every document of a {@link CollectionGroup.CollectionGroup}: every
-     * document in each of its collections, under every parent.
-     *
-     * Each document is matched by its path to the one collection of the group
-     * it lives in, and comes back addressed, with its ancestors, and decoded
-     * as that collection's. A document under the group's collection id at a
-     * path none of its collections define fails the read with an
-     * {@link UndefinedCollectionError}.
-     */
-    <G extends CollectionGroup.Any>(
-      group: G,
-    ): Effect.Effect<
-      QuerySnapshot.QuerySnapshot<CollectionGroup.Members<G>>,
-      FirestoreError | UndefinedCollectionError
-    >;
-  };
+  readonly getDocs: Firestore["getDocs"];
 }
 
 /**
