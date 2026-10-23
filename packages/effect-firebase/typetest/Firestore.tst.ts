@@ -1,4 +1,5 @@
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
 import * as Firestore from "@visiolab/effect-firebase/firestore/Firestore";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
@@ -47,6 +48,58 @@ const stampedUpdate = firestore.updateDoc(Stamped.doc(Stamped.id.make("a")), { t
 const secretSet = firestore.setDoc(Secret.doc(Secret.id.make("a")), { token: "t" });
 const secretUpdate = firestore.updateDoc(Secret.doc(Secret.id.make("a")), { token: "t" });
 
+class Post extends FirestoreModel.Class<Post>("Post")({
+  title: Schema.String,
+  views: Schema.Finite,
+}) {}
+
+const Posts = Collection.make("posts", Post);
+const hello = Posts.doc(Posts.id.make("hello"));
+
+const Pending = FirestoreModel.Struct({ status: Schema.Literal("pending") });
+const Done = FirestoreModel.Struct({ status: Schema.Literal("done"), uri: Schema.String });
+
+class TaskV1 extends FirestoreModel.Class<TaskV1>("TaskV1")({
+  version: Schema.Literal(1),
+  title: Schema.String,
+  state: FirestoreModel.Union([Pending, Done]),
+}) {}
+
+class TaskV2 extends FirestoreModel.Class<TaskV2>("TaskV2")({
+  version: Schema.Literal(2),
+  title: Schema.String,
+  state: FirestoreModel.Union([Pending, Done]),
+  priority: Schema.Finite,
+}) {}
+
+const Tasks = Collection.make("tasks", FirestoreModel.Union([TaskV1, TaskV2]));
+const task = Tasks.doc(Tasks.id.make("task"));
+
+const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnapshot<C>) =>
+  DocumentSnapshot.isExisting(snapshot) ? snapshot.data : Effect.die("missing");
+
+interface Step {
+  readonly by: number;
+}
+const Step = Context.Service<Step>("Step");
+
+const portableRun = firestore.runTransaction(
+  Effect.gen(function* () {
+    const { by } = yield* Step;
+    const tx = yield* Firestore.Transaction;
+    yield* tx.setDoc(hello, { title: "Hello", views: by });
+    return by;
+  }),
+);
+
+const unionRun = firestore.runTransaction(
+  Effect.gen(function* () {
+    const tx = yield* Firestore.Transaction;
+    return yield* read(yield* tx.getDoc(task));
+  }),
+);
+declare const readBack: Effect.Success<typeof unionRun>;
+
 describe("DocumentSchema", () => {
   test("encodes a sentinel in the `create` shape without asking for a service", () => {
     expect<
@@ -56,6 +109,12 @@ describe("DocumentSchema", () => {
 });
 
 describe("setDoc", () => {
+  test("fails with a Firestore error or a schema error, asking the caller for nothing", () => {
+    expect(firestore.setDoc(hello, { title: "Hello", views: 1 })).type.toBe<
+      Effect.Effect<void, Firestore.FirestoreError | Schema.SchemaError>
+    >();
+  });
+
   test("asks for nothing when a document encodes on its own", () => {
     expect<Effect.Services<typeof plainSet>>().type.toBe<never>();
   });
@@ -76,12 +135,37 @@ describe("addDoc", () => {
 });
 
 describe("updateDoc", () => {
+  test("fails with a Firestore error or a schema error, asking the caller for nothing", () => {
+    expect(firestore.updateDoc(hello, { views: 1 })).type.toBe<
+      Effect.Effect<void, Firestore.FirestoreError | Schema.SchemaError>
+    >();
+  });
+
+  test("refuses a checked patch of a key only one member of a union holds", () => {
+    // @ts-expect-error 'priority' does not exist in type
+    void firestore.updateDoc(task, { priority: 2 });
+  });
+
   test("asks for nothing where a document writes a sentinel", () => {
     expect<Effect.Services<typeof stampedUpdate>>().type.toBe<never>();
   });
 
   test("leaves anything else the document encodes through to the caller", () => {
     expect<Effect.Services<typeof secretUpdate>>().type.toBe<Secrets>();
+  });
+});
+
+describe("runTransaction", () => {
+  test("hands the body the services of the caller, and asks for no Transaction", () => {
+    expect(portableRun).type.toBe<
+      Effect.Effect<number, Firestore.FirestoreError | Schema.SchemaError, Step>
+    >();
+  });
+
+  test("reads a document of a union collection as the member it holds", () => {
+    if (readBack.version === 2) {
+      expect(readBack).type.toBe<TaskV2>();
+    }
   });
 });
 
