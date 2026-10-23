@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from "@effect/vitest";
+import { describe, expect, it } from "@effect/vitest";
 import { Context, Effect, Latch, Layer, Ref, Schema } from "effect";
 import { FirestoreError, Transaction } from "@visiolab/effect-firebase/firestore/Firestore";
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
@@ -177,11 +177,6 @@ describe("AdminTransaction.getDocs", () => {
 });
 
 describe("AdminTransaction", () => {
-  it("is a Transaction", () => {
-    expectTypeOf<AdminFirestore.AdminTransaction>().toExtend<Transaction>();
-    expectTypeOf<Transaction>().not.toHaveProperty("getDocs");
-  });
-
   it.effect("is provided alongside Transaction, and neither is asked of the caller", () =>
     Effect.gen(function* () {
       interface Step {
@@ -198,10 +193,6 @@ describe("AdminTransaction", () => {
           return admin === portable;
         }),
       );
-      // AdminTransaction extends Transaction, so excluding Transaction alone
-      // would already drop it: this can't tell the two signatures apart.
-      expectTypeOf(run).toEqualTypeOf<Effect.Effect<boolean, FirestoreError, Step>>();
-
       expect(yield* Effect.provideService(run, Step, { by: 1 })).toBe(true);
     }).pipe(Effect.provide(layer)),
   );

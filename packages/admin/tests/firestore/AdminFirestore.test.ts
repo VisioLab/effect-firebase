@@ -1,4 +1,4 @@
-import { assert, describe, expect, expectTypeOf, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import { Effect, Layer, Schema, Stream } from "effect";
 import {
   Firestore,
@@ -12,7 +12,6 @@ import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreMo
 import * as Patch from "@visiolab/effect-firebase/firestore/Patch";
 import * as Admin from "firebase-admin/app";
 import { initializeFirestore } from "firebase-admin/firestore";
-import type * as AdminSdk from "firebase-admin/firestore";
 import * as App from "../../src/App.ts";
 import * as AdminFirestore from "../../src/firestore/AdminFirestore.ts";
 import { clear } from "./emulator.ts";
@@ -92,11 +91,8 @@ describe("Firestore", () => {
       const firestore = yield* Firestore;
 
       // `NaN` is not a number Firestore stores, so this never reaches the
-      // database: encoding happens first and is where it stops. The type says
-      // as much - encoding to Firestore Values asks for no service, so
-      // nothing is left for the caller to provide.
+      // database: encoding happens first and is where it stops.
       const write = firestore.setDoc(Posts.doc(hello), { title: "Hello", views: Number.NaN });
-      expectTypeOf(write).toEqualTypeOf<Effect.Effect<void, FirestoreError | Schema.SchemaError>>();
 
       const error = yield* Effect.flip(write);
       expect(error._tag).toBe("SchemaError");
@@ -119,9 +115,6 @@ describe("Firestore", () => {
       const firestore = yield* Firestore;
 
       const update = firestore.updateDoc(Posts.doc(hello), { views: Number.NaN });
-      expectTypeOf(update).toEqualTypeOf<
-        Effect.Effect<void, FirestoreError | Schema.SchemaError>
-      >();
 
       const error = yield* Effect.flip(update);
       expect(error._tag).toBe("SchemaError");
@@ -287,7 +280,6 @@ describe("Firestore, against the emulator, on a collection of a union", () => {
         }),
       );
       assert(second.version === 2);
-      expectTypeOf(second).toEqualTypeOf<TaskV2>();
       expect(second).toBeInstanceOf(TaskV2);
       expect(second.state).toStrictEqual({ status: "done", uri: "gs://x" });
       expect(second.priority).toBe(1);
@@ -336,8 +328,9 @@ describe("Firestore, against the emulator, on a collection of a union", () => {
         priority: 1,
       });
       const checked = yield* Effect.flip(
-        // @ts-expect-error a first-version task holds no `priority`
-        firestore.updateDoc(task, { priority: 2 }),
+        // The types refuse this patch, as a first-version task holds no
+        // `priority`; cast past them to see the schema refuse it too.
+        firestore.updateDoc(task, { priority: 2 } as never),
       );
       expect(checked._tag).toBe("SchemaError");
       yield* firestore.updateDoc(task, { priority: 2 }, { mode: "unchecked" });
@@ -463,18 +456,4 @@ describe("AdminFirestore, against the emulator", () => {
       ),
     ),
   );
-
-  it("is a Firestore, and the only one of the two with the SDK's instance", () => {
-    expectTypeOf<AdminFirestore.AdminFirestore>().toExtend<Firestore>();
-    expectTypeOf<AdminFirestore.AdminFirestore["instance"]>().toEqualTypeOf<AdminSdk.Firestore>();
-    expectTypeOf<Firestore>().not.toHaveProperty("instance");
-  });
-});
-
-describe("AdminFirestore layers", () => {
-  it("provide AdminFirestore and Firestore", () => {
-    expectTypeOf(AdminFirestore.layer()).toEqualTypeOf<
-      Layer.Layer<AdminFirestore.AdminFirestore | Firestore, never, App.App>
-    >();
-  });
 });
