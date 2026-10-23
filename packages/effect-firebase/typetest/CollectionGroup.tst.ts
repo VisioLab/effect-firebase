@@ -1,7 +1,7 @@
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as CollectionGroup from "@visiolab/effect-firebase/firestore/CollectionGroup";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
-import { type Option, Schema } from "effect";
+import { Schema } from "effect";
 import { describe, expect, test } from "tstyche";
 
 class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
@@ -41,8 +41,24 @@ describe("make", () => {
   });
 
   test("refuses a collection listed twice", () => {
-    // @ts-expect-error member 'posts' is listed more than once
+    // @ts-expect-error member 'posts' has the same path as another member
     CollectionGroup.make(UserPosts, OrgPosts, UserPosts);
+  });
+
+  test("refuses two collections defined at the same path", () => {
+    class Draft extends FirestoreModel.Class<Draft>("Draft")({ body: Schema.String }) {}
+    const UserDrafts = Users.subcollection("posts", Draft);
+    // @ts-expect-error member 'posts' has the same path as another member
+    CollectionGroup.make(UserPosts, UserDrafts);
+  });
+
+  test("leaves a path only known as a string to be checked when the group is defined", () => {
+    const segment: string = "posts";
+    const Posts = Collection.make(segment, Post);
+    const Others = Collection.make(segment, Post);
+    expect(CollectionGroup.make(Posts, Others)).type.toBe<
+      CollectionGroup.CollectionGroup<typeof Posts>
+    >();
   });
 
   test("needs at least one collection", () => {
@@ -69,23 +85,5 @@ describe("isCollectionGroup", () => {
     if (CollectionGroup.isCollectionGroup(u)) {
       expect(u).type.toBe<CollectionGroup.Any>();
     }
-  });
-});
-
-describe("fromPath", () => {
-  test("references a document of the collection it lives in", () => {
-    expect(CollectionGroup.fromPath(AllUserPosts, "users/alice/posts/hello")).type.toBe<
-      Option.Option<Collection.DocumentReference<typeof UserPosts>>
-    >();
-  });
-
-  test("references a document of whichever of several collections it lives in", () => {
-    expect(CollectionGroup.fromPath(AllPosts, "orgs/acme/posts/hello")).type.toBe<
-      Option.Option<
-        | Collection.DocumentReference<typeof UserPosts>
-        | Collection.DocumentReference<typeof OrgPosts>
-        | Collection.DocumentReference<typeof RootPosts>
-      >
-    >();
   });
 });

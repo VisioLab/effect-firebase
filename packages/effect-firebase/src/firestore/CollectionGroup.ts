@@ -21,8 +21,9 @@
  * @stability unstable
  * @since 0.2.0
  */
-import type { Inspectable, Option } from "effect";
+import type { Inspectable, Result } from "effect";
 import type * as Collection from "./Collection.ts";
+import type { UndefinedCollectionError } from "./Firestore.ts";
 import * as collectionGroup from "./internal/collectionGroup.ts";
 
 const TypeId = collectionGroup.TypeId;
@@ -84,9 +85,23 @@ export type DocumentReference<G extends Any> =
 type Same<A, B> =
   (<T>() => T extends A ? 1 : 2) extends <T>() => T extends B ? 1 : 2 ? true : false;
 
-/** Whether `C` sits at any index of `Members` other than `K`. */
-type ListedElsewhere<Members extends ReadonlyArray<Collection.Any>, K, C> = true extends {
-  [J in keyof Members]: J extends K ? false : Same<Members[J], C>;
+/**
+ * Whether `A` and `B` are the same path. A path with a segment only known as
+ * `string` could be any path, so it is never taken for another here.
+ */
+type SamePath<A extends ReadonlyArray<string>, B extends ReadonlyArray<string>> = string extends
+  | A[number]
+  | B[number]
+  ? false
+  : Same<A, B>;
+
+/** Whether a member of `Members` other than the one at `K` sits at `C`'s path. */
+type PathTakenElsewhere<
+  Members extends ReadonlyArray<Collection.Any>,
+  K,
+  C extends Collection.Any,
+> = true extends {
+  [J in keyof Members]: J extends K ? false : SamePath<Members[J]["path"], C["path"]>;
 }[number]
   ? true
   : false;
@@ -94,12 +109,14 @@ type ListedElsewhere<Members extends ReadonlyArray<Collection.Any>, K, C> = true
 /**
  * The collections `Members` a group may be made of: each one as it is, or, in
  * place of one that breaks the rules of a group, a message saying which rule
- * it breaks. Members must share the collection id of the first, and no
- * collection may be listed twice.
+ * it breaks. Members must share the collection id of the first, and no two
+ * may sit at the same path.
  *
- * Two collections are told apart here by their types, so a collection defined
- * twice with the same path and model counts as listed twice, even though they
- * are separate definitions.
+ * Members are told apart by their paths, so a collection listed twice and two
+ * definitions built separately at the same path are refused alike: a document
+ * at that path could not be said to belong to one rather than the other. A
+ * path with a segment only known as `string` is left for {@link make} to check
+ * when the group is defined.
  *
  * @stability unstable
  * @category models
@@ -108,8 +125,8 @@ type ListedElsewhere<Members extends ReadonlyArray<Collection.Any>, K, C> = true
 export type Valid<Members extends ReadonlyArray<Collection.Any>> = {
   readonly [K in keyof Members]: Members[K] extends Collection.Any
     ? Members[K]["segment"] extends Members[0]["segment"]
-      ? ListedElsewhere<Members, K, Members[K]> extends true
-        ? `Collection Group member '${Members[K]["segment"]}' is listed more than once`
+      ? PathTakenElsewhere<Members, K, Members[K]> extends true
+        ? `Collection Group member '${Members[K]["segment"]}' has the same path as another member`
         : Members[K]
       : `Collection Group member '${Members[K]["segment"]}' does not share the collection id '${Members[0]["segment"]}'`
     : never;
@@ -125,13 +142,14 @@ export const isCollectionGroup: (u: unknown) => u is Any = collectionGroup.isCol
 /**
  * Defines a Collection Group from the collections it stands for.
  *
- * Collections that do not share the collection id of the first, and a
- * collection listed twice, are refused by the type checker.
+ * Collections that do not share the collection id of the first, and two
+ * collections at the same path, are refused by the type checker.
  *
  * Throws when it is given no collection, collections that do not share their
- * collection id, or the same collection twice, because a group like that is a
- * mistake in the definition rather than something a caller can recover from,
- * as {@link Collection.make} does for a segment it cannot address.
+ * collection id, or two collections at the same path - the same one twice, or
+ * two built separately - because a group like that is a mistake in the
+ * definition rather than something a caller can recover from, as
+ * {@link Collection.make} does for a segment it cannot address.
  *
  * @stability unstable
  * @category constructors
@@ -141,19 +159,18 @@ export const make: <const Members extends readonly [Collection.Any, ...Array<Col
   ...members: Valid<Members>
 ) => CollectionGroup<Members[number]> = collectionGroup.make;
 
+// How the SDK packages match each document a group read finds to its
+// collection. Not API: they reach it here because a package can only import
+// another's public modules.
+
 /**
- * References the document found at `path` in whichever collection of `group`
- * defines that path, such as `users/alice/posts/hello`.
+ * References the document at `path` in whichever collection of `group` sits
+ * there, or fails with the {@link UndefinedCollectionError} a group read
+ * reports for a document none of them define.
  *
- * Each collection is checked as {@link Collection.fromPath} checks it, so a
- * path under the group's collection id that none of its collections define
- * comes back as `None`.
- *
- * @stability unstable
- * @category constructors
- * @since 0.2.0
+ * @internal
  */
-export const fromPath: <G extends Any>(
+export const documentAt: <G extends Any>(
   group: G,
   path: string,
-) => Option.Option<DocumentReference<G>> = collectionGroup.fromPath;
+) => Result.Result<DocumentReference<G>, UndefinedCollectionError> = collectionGroup.documentAt;

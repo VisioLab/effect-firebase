@@ -30,6 +30,19 @@ const bob = Users.id.make("bob");
 const hello = UserPosts.id.make("hello");
 const intro = UserPosts.id.make("intro");
 
+class Org extends FirestoreModel.Class<Org>("Org")({ name: Schema.String }) {}
+class OrgPost extends FirestoreModel.Class<OrgPost>("OrgPost")({
+  headline: Schema.String,
+  pinned: Schema.Boolean,
+}) {}
+
+const Orgs = Collection.make("orgs", Org);
+const OrgPosts = Orgs.subcollection("posts", OrgPost);
+const AllPosts = CollectionGroup.make(UserPosts, OrgPosts);
+
+const acme = Orgs.id.make("acme");
+const launch = OrgPosts.id.make("launch");
+
 const freshFirestore = clear(projectId).pipe(Effect.andThen(Firestore));
 
 describe("streamDocs of a Collection Group", () => {
@@ -54,6 +67,31 @@ describe("streamDocs of a Collection Group", () => {
         "users/alice/posts/hello",
         "users/bob/posts/intro",
       ]);
+    }).pipe(Effect.scoped, Effect.provide(layer)),
+  );
+
+  it.effect("follows a change in any collection of a group of several", () =>
+    Effect.gen(function* () {
+      const firestore = yield* freshFirestore;
+      const snapshots = yield* listening(firestore.streamDocs(AllPosts));
+      expect((yield* Queue.take(snapshots)).docs).toEqual([]);
+
+      yield* firestore.setDoc(UserPosts.doc(alice, hello), { title: "Hello", views: 1 });
+      expect((yield* Queue.take(snapshots)).docs.map((doc) => doc.ref.path)).toEqual([
+        "users/alice/posts/hello",
+      ]);
+
+      yield* firestore.setDoc(OrgPosts.doc(acme, launch), { headline: "Launch", pinned: false });
+      const added = yield* Queue.take(snapshots);
+      const orgPost = added.docs.find(OrgPosts.contains);
+      expect(orgPost?.ref.ancestors).toEqual([acme]);
+      expect(yield* orgPost!.data).toEqual({ headline: "Launch", pinned: false });
+
+      yield* firestore.updateDoc(UserPosts.doc(alice, hello), { views: 2 });
+      const updated = yield* Queue.take(snapshots);
+      const userPost = updated.docs.find(UserPosts.contains);
+      expect(yield* userPost!.data).toEqual({ title: "Hello", views: 2 });
+      expect(updated.docs.filter(OrgPosts.contains)).toHaveLength(1);
     }).pipe(Effect.scoped, Effect.provide(layer)),
   );
 

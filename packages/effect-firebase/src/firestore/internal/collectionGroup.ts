@@ -1,6 +1,7 @@
-import { Inspectable, Option, Predicate } from "effect";
+import { Inspectable, Option, Predicate, Result } from "effect";
 import type * as Collection from "../Collection.ts";
 import type * as CollectionGroup from "../CollectionGroup.ts";
+import { UndefinedCollectionError } from "../Firestore.ts";
 import * as collection from "./collection.ts";
 
 /** @internal */
@@ -10,30 +11,26 @@ export const TypeId = "~@visiolab/effect-firebase/firestore/CollectionGroup";
 export const isCollectionGroup = (u: unknown): u is CollectionGroup.Any =>
   Predicate.hasProperty(u, TypeId);
 
-interface CollectionGroupImpl {
-  readonly members: ReadonlyArray<Collection.Any>;
-  readonly id: string;
-}
-
 /**
  * Where `member`'s collections sit, with `{id}` standing in for each ancestor
  * id: `users/{id}/posts`.
  */
-const where = (member: Collection.Any): string =>
+const memberPattern = (member: Collection.Any): string =>
   collection.pattern(member).slice(0, -"/{id}".length);
 
 const CollectionGroupProto = {
   ...Inspectable.BaseProto,
   [TypeId]: TypeId,
-  toJSON(this: CollectionGroupImpl) {
-    return { _id: "CollectionGroup", members: this.members.map(where) };
+  toJSON(this: CollectionGroup.Any) {
+    return { _id: "CollectionGroup", members: this.members.map(memberPattern) };
   },
 };
 
 /**
  * Rejects the groups that would not mean one thing: one with nothing in it,
  * one whose collections Firestore could not read under one collection id, and
- * one listing a collection twice.
+ * one with two collections at the same path, which no document could be told
+ * apart between.
  */
 const validate = (members: ReadonlyArray<Collection.Any>): void => {
   const reject = (reason: string): never => {
@@ -41,14 +38,16 @@ const validate = (members: ReadonlyArray<Collection.Any>): void => {
   };
   if (members.length === 0) reject("it must hold at least one collection");
   const [first] = members;
-  for (let i = 1; i < members.length; i++) {
-    const member = members[i];
+  const seen = new Set<string>();
+  for (const member of members) {
     if (member.segment !== first.segment) {
-      reject(`"${where(first)}" and "${where(member)}" do not share their collection id`);
+      reject(
+        `"${memberPattern(first)}" and "${memberPattern(member)}" do not share their collection id`,
+      );
     }
-    if (members.indexOf(member) !== i) {
-      reject(`it lists "${where(member)}" more than once`);
-    }
+    const pattern = memberPattern(member);
+    if (seen.has(pattern)) reject(`it has more than one member at "${pattern}"`);
+    seen.add(pattern);
   }
 };
 
@@ -58,23 +57,25 @@ export const make = <const Members extends readonly [Collection.Any, ...Array<Co
 ): CollectionGroup.CollectionGroup<Members[number]> => {
   // The type checker has refused anything that is not one of `Members`, but
   // a caller that got past it is checked again here.
-  const members = valid as unknown as Members;
+  const members = valid as ReadonlyArray<unknown> as Members;
   validate(members);
-  const self = Object.assign(Object.create(CollectionGroupProto) as typeof CollectionGroupProto, {
+  return Object.assign(Object.create(CollectionGroupProto) as typeof CollectionGroupProto, {
     members,
     id: members[0].segment as string,
-  });
-  return self as unknown as CollectionGroup.CollectionGroup<Members[number]>;
+  }) as CollectionGroup.CollectionGroup<Members[number]>;
 };
 
 /** @internal */
-export const fromPath = <G extends CollectionGroup.Any>(
+export const documentAt = <G extends CollectionGroup.Any>(
   group: G,
   path: string,
-): Option.Option<CollectionGroup.DocumentReference<G>> => {
-  for (const member of (group as unknown as CollectionGroupImpl).members) {
+): Result.Result<CollectionGroup.DocumentReference<G>, UndefinedCollectionError> => {
+  // The members are read as `Collection.Any`, so the reference found in one is
+  // typed back by the member it was found in.
+  for (const member of group.members) {
     const ref = collection.fromPath(member, path);
-    if (Option.isSome(ref)) return ref as Option.Option<CollectionGroup.DocumentReference<G>>;
+    if (Option.isSome(ref))
+      return Result.succeed(ref.value as CollectionGroup.DocumentReference<G>);
   }
-  return Option.none();
+  return Result.fail(new UndefinedCollectionError({ path, collectionId: group.id }));
 };

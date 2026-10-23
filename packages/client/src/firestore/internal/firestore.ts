@@ -125,32 +125,45 @@ const querySnapshotOf = <C extends Collection.Any, E>(
     (docs) => ClientQuerySnapshot.make(docs, query.metadata),
   );
 
-/** A snapshot of the documents `query` read from the collection at `ref`. */
-const collectionSnapshotOf = <C extends Collection.Any>(
-  ref: Collection.CollectionReference<C>,
-  query: Client.QuerySnapshot,
-): Result.Result<ClientQuerySnapshot.ClientQuerySnapshot<C>, FirestoreError> =>
-  querySnapshotOf(query, (snapshot) =>
-    Result.succeed(ref.doc(ref.collection.id.make(snapshot.id))),
-  );
+/** What `getDocs` and `streamDocs` read from: a collection, or a group. */
+type Source = Collection.CollectionReference<Collection.Any> | CollectionGroup.Any;
 
 /**
- * A snapshot of the documents `query` read from `group`, each matched by its
- * path to the collection of the group it lives in.
+ * The client SDK query that reads `source`, what it is called in a failure,
+ * and how a snapshot of it maps to one of the documents of `source`: each
+ * addressed in the collection read, or, for a group, matched by its path to the
+ * collection of the group it lives in.
  */
-const groupSnapshotOf = (
-  group: CollectionGroup.Any,
-  query: Client.QuerySnapshot,
-): Result.Result<
-  ClientQuerySnapshot.ClientQuerySnapshot<Collection.Any>,
-  FirestoreError | UndefinedCollectionError
-> =>
-  querySnapshotOf(query, (snapshot) =>
-    Result.fromOption(
-      CollectionGroup.fromPath(group, snapshot.ref.path),
-      () => new UndefinedCollectionError({ path: snapshot.ref.path, collectionId: group.id }),
-    ),
-  );
+const queryOf = (
+  firestore: Client.Firestore,
+  source: Source,
+): {
+  readonly query: Client.Query;
+  readonly name: string;
+  readonly snapshotOf: (
+    query: Client.QuerySnapshot,
+  ) => Result.Result<
+    ClientQuerySnapshot.ClientQuerySnapshot<Collection.Any>,
+    FirestoreError | UndefinedCollectionError
+  >;
+} =>
+  CollectionGroup.isCollectionGroup(source)
+    ? {
+        query: Client.collectionGroup(firestore, source.id),
+        name: `the collection group "${source.id}"`,
+        snapshotOf: (query) =>
+          querySnapshotOf(query, (snapshot) =>
+            CollectionGroup.documentAt(source, snapshot.ref.path),
+          ),
+      }
+    : {
+        query: Client.collection(firestore, source.path),
+        name: `the collection "${source.path}"`,
+        snapshotOf: (query) =>
+          querySnapshotOf(query, (snapshot) =>
+            Result.succeed(source.doc(source.collection.id.make(snapshot.id))),
+          ),
+      };
 
 /**
  * Opens the database the options name on the {@link App.App} in context.
@@ -423,30 +436,15 @@ export const fromDatabase = (firestore: Client.Firestore): ClientFirestore.Clien
         Effect.fromResult(documentSnapshotOf(ref, snapshot)),
       ),
 
-    getDocs: ((
-      source: Collection.CollectionReference<Collection.Any> | CollectionGroup.Any,
-      options?: ClientFirestore.ReadOptions,
-    ) =>
-      CollectionGroup.isCollectionGroup(source)
-        ? Effect.gen(function* () {
-            const query = yield* call(
-              "getDocs",
-              `Failed to read the collection group "${source.id}"`,
-              () =>
-                readsFrom(options?.source).getDocs(Client.collectionGroup(firestore, source.id)),
-            );
+    getDocs: ((source: Source, options?: ClientFirestore.ReadOptions) =>
+      Effect.gen(function* () {
+        const { query, name, snapshotOf } = queryOf(firestore, source);
+        const snapshot = yield* call("getDocs", `Failed to read ${name}`, () =>
+          readsFrom(options?.source).getDocs(query),
+        );
 
-            return yield* Effect.fromResult(groupSnapshotOf(source, query));
-          })
-        : Effect.gen(function* () {
-            const query = yield* call(
-              "getDocs",
-              `Failed to read the collection "${source.path}"`,
-              () => readsFrom(options?.source).getDocs(Client.collection(firestore, source.path)),
-            );
-
-            return yield* Effect.fromResult(collectionSnapshotOf(source, query));
-          })) as ClientFirestore.ClientFirestore["getDocs"],
+        return yield* Effect.fromResult(snapshotOf(snapshot));
+      })) as ClientFirestore.ClientFirestore["getDocs"],
 
     addDoc: <C extends Collection.Any>(ref: Collection.CollectionReference<C>, data: Create<C>) =>
       Effect.gen(function* () {
@@ -479,35 +477,16 @@ export const fromDatabase = (firestore: Client.Firestore): ClientFirestore.Clien
         (snapshot: Client.DocumentSnapshot) => documentSnapshotOf(ref, snapshot),
       ),
 
-    streamDocs: ((
-      source: Collection.CollectionReference<Collection.Any> | CollectionGroup.Any,
-      options?: ClientFirestore.ListenOptions,
-    ) =>
-      CollectionGroup.isCollectionGroup(source)
-        ? listen(
-            "streamDocs",
-            `Failed to listen to the collection group "${source.id}"`,
-            (onNext, onError) =>
-              Client.onSnapshot(
-                Client.collectionGroup(firestore, source.id),
-                snapshotListenOptions(options),
-                onNext,
-                onError,
-              ),
-            (query: Client.QuerySnapshot) => groupSnapshotOf(source, query),
-          )
-        : listen(
-            "streamDocs",
-            `Failed to listen to the collection "${source.path}"`,
-            (onNext, onError) =>
-              Client.onSnapshot(
-                Client.collection(firestore, source.path),
-                snapshotListenOptions(options),
-                onNext,
-                onError,
-              ),
-            (query: Client.QuerySnapshot) => collectionSnapshotOf(source, query),
-          )) as ClientFirestore.ClientFirestore["streamDocs"],
+    streamDocs: ((source: Source, options?: ClientFirestore.ListenOptions) => {
+      const { query, name, snapshotOf } = queryOf(firestore, source);
+      return listen(
+        "streamDocs",
+        `Failed to listen to ${name}`,
+        (onNext, onError) =>
+          Client.onSnapshot(query, snapshotListenOptions(options), onNext, onError),
+        snapshotOf,
+      );
+    }) as ClientFirestore.ClientFirestore["streamDocs"],
 
     runTransaction: Effect.fn("Firestore.runTransaction")(function* <A, E, R>(
       effect: Effect.Effect<A, E, R>,
