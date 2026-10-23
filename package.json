@@ -3,13 +3,17 @@
   "type": "module",
   "scripts": {
     "emulator": "firebase emulators:start --only firestore --project demo-effect-firebase",
-    "ready": "vp check && vp run -r test && vp run -r build",
+    "ready": "vp check && vp run -r test && vp run test-types && vp run -r build",
+    "test-types": "TSTYCHE_TYPESCRIPT_MODULE=typescript6 tstyche",
     "prepare": "vp config && effect-tsgo patch --typescript --oxlint"
   },
   "devDependencies": {
     "@changesets/cli": "catalog:",
     "@effect/tsgo": "catalog:",
     "firebase-tools": "catalog:",
+    "tstyche": "catalog:",
+    "typescript": "catalog:",
+    "typescript6": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:"
   },
