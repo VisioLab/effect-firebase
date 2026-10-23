@@ -58,7 +58,7 @@ jobs:
           key: firebase-emulators-${{ hashFiles('pnpm-workspace.yaml') }}
           restore-keys: firebase-emulators-
 
-      - run: vp exec firebase emulators:exec --only firestore --project demo-effect-firebase "vp run -r test"
+      - run: vp exec firebase emulators:exec --only firestore --project demo-effect-firebase "vp test"
 
   ci:
     name: CI
