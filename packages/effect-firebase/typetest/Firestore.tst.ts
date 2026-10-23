@@ -1,10 +1,12 @@
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import * as CollectionGroup from "@visiolab/effect-firebase/firestore/CollectionGroup";
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import * as FieldValue from "@visiolab/effect-firebase/firestore/FieldValue";
 import * as Firestore from "@visiolab/effect-firebase/firestore/Firestore";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as FirestoreSchema from "@visiolab/effect-firebase/firestore/FirestoreSchema";
 import * as Patch from "@visiolab/effect-firebase/firestore/Patch";
+import type * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
 import { Context, Effect, Schema, SchemaGetter } from "effect";
 import { describe, expect, test } from "tstyche";
 
@@ -100,6 +102,35 @@ const unionRun = firestore.runTransaction(
   }),
 );
 declare const readBack: Effect.Success<typeof unionRun>;
+
+class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
+
+const UserPosts = Collection.make("users", User).subcollection("posts", Post);
+const AllUserPosts = CollectionGroup.make(UserPosts);
+const groupRead = firestore.getDocs(AllUserPosts);
+
+describe("getDocs", () => {
+  test("reads a collection, failing with a Firestore error alone", () => {
+    expect(firestore.getDocs(Posts.collection())).type.toBe<
+      Effect.Effect<QuerySnapshot.QuerySnapshot<typeof Posts>, Firestore.FirestoreError>
+    >();
+  });
+
+  test("reads a Collection Group into the documents of its collection", () => {
+    expect(firestore.getDocs(AllUserPosts)).type.toBe<
+      Effect.Effect<
+        QuerySnapshot.QuerySnapshot<typeof UserPosts>,
+        Firestore.FirestoreError | Firestore.UndefinedCollectionError
+      >
+    >();
+  });
+
+  test("addresses each document of a Collection Group by its collection", () => {
+    expect<Effect.Success<typeof groupRead>["docs"][number]>().type.toBe<
+      DocumentSnapshot.Existing<typeof UserPosts>
+    >();
+  });
+});
 
 describe("DocumentSchema", () => {
   test("encodes a sentinel in the `create` shape without asking for a service", () => {
