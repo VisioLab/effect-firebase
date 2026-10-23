@@ -26,6 +26,19 @@ import type * as ClientDocumentSnapshot from "./ClientDocumentSnapshot.ts";
 import { withMetadata } from "./internal/snapshot.ts";
 
 /**
+ * A client snapshot of a document that was there when it was read, in
+ * whichever of the collections `C` it is in, as
+ * {@link QuerySnapshot.Existing} is for the portable one.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export type Existing<C extends Collection.Any> = C extends Collection.Any
+  ? ClientDocumentSnapshot.Existing<C>
+  : never;
+
+/**
  * The documents in `C` a read of many found, with the
  * {@link ClientDocumentSnapshot.SnapshotMetadata} of that read.
  *
@@ -38,9 +51,9 @@ export interface ClientQuerySnapshot<
 > extends QuerySnapshot.QuerySnapshot<C> {
   /**
    * Every document the read found, in the order Firestore returned them, each
-   * with its own metadata.
+   * with its own metadata, and each of the one collection of `C` it is in.
    */
-  readonly docs: ReadonlyArray<ClientDocumentSnapshot.Existing<C>>;
+  readonly docs: ReadonlyArray<Existing<C>>;
   /** Where the read as a whole came from. */
   readonly metadata: ClientDocumentSnapshot.SnapshotMetadata;
 }

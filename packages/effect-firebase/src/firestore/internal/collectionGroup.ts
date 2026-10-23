@@ -54,8 +54,11 @@ const validate = (members: ReadonlyArray<Collection.Any>): void => {
 
 /** @internal */
 export const make = <const Members extends readonly [Collection.Any, ...Array<Collection.Any>]>(
-  ...members: Members
+  ...valid: CollectionGroup.Valid<Members>
 ): CollectionGroup.CollectionGroup<Members[number]> => {
+  // The type checker has refused anything that is not one of `Members`, but
+  // a caller that got past it is checked again here.
+  const members = valid as unknown as Members;
   validate(members);
   const self = Object.assign(Object.create(CollectionGroupProto) as typeof CollectionGroupProto, {
     members,
