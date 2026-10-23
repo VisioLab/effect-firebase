@@ -4,10 +4,10 @@ import * as ClientFirestore from "@visiolab/effect-firebase-client/firestore/Cli
 import type * as ClientQuerySnapshot from "@visiolab/effect-firebase-client/firestore/ClientQuerySnapshot";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import type * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
-import type { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
+import type * as Firestore from "@visiolab/effect-firebase/firestore/Firestore";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import { type Effect, type Layer, Schema, type Stream } from "effect";
-import type { Firestore as SdkFirestore } from "firebase/firestore";
+import type * as ClientSdk from "firebase/firestore";
 import { describe, expect, test } from "tstyche";
 
 class Post extends FirestoreModel.Class<Post>("Post")({
@@ -19,48 +19,60 @@ const Posts = Collection.make("posts", Post);
 const hello = Posts.doc(Posts.id.make("hello"));
 
 declare const client: ClientFirestore.ClientFirestore;
-declare const portable: Firestore;
+declare const portable: Firestore.Firestore;
 
 describe("ClientFirestore", () => {
   test("is a Firestore", () => {
-    expect<ClientFirestore.ClientFirestore>().type.toBeAssignableTo<Firestore>();
+    expect<ClientFirestore.ClientFirestore>().type.toBeAssignableTo<Firestore.Firestore>();
   });
 
   test("holds the client SDK's own Firestore object as instance", () => {
-    expect<ClientFirestore.ClientFirestore["instance"]>().type.toBe<SdkFirestore>();
+    expect<ClientFirestore.ClientFirestore["instance"]>().type.toBe<ClientSdk.Firestore>();
   });
 
   test("leaves Firestore without an instance", () => {
-    expect<Firestore>().type.not.toHaveProperty("instance");
+    expect<Firestore.Firestore>().type.not.toHaveProperty("instance");
   });
 
   test("reads a document into a Document Snapshot carrying Snapshot Metadata", () => {
     expect<ReturnType<ClientFirestore.ClientFirestore["getDoc"]>>().type.toBe<
-      Effect.Effect<ClientDocumentSnapshot.ClientDocumentSnapshot<Collection.Any>, FirestoreError>
+      Effect.Effect<
+        ClientDocumentSnapshot.ClientDocumentSnapshot<Collection.Any>,
+        Firestore.FirestoreError
+      >
     >();
   });
 
   test("reads a collection into a Query Snapshot carrying Snapshot Metadata", () => {
     expect<ReturnType<ClientFirestore.ClientFirestore["getDocs"]>>().type.toBe<
-      Effect.Effect<ClientQuerySnapshot.ClientQuerySnapshot<Collection.Any>, FirestoreError>
+      Effect.Effect<
+        ClientQuerySnapshot.ClientQuerySnapshot<Collection.Any>,
+        Firestore.FirestoreError
+      >
     >();
   });
 
   test("streams a document as Document Snapshots carrying Snapshot Metadata", () => {
     expect<ReturnType<ClientFirestore.ClientFirestore["streamDoc"]>>().type.toBe<
-      Stream.Stream<ClientDocumentSnapshot.ClientDocumentSnapshot<Collection.Any>, FirestoreError>
+      Stream.Stream<
+        ClientDocumentSnapshot.ClientDocumentSnapshot<Collection.Any>,
+        Firestore.FirestoreError
+      >
     >();
   });
 
   test("streams a collection as Query Snapshots carrying Snapshot Metadata", () => {
     expect<ReturnType<ClientFirestore.ClientFirestore["streamDocs"]>>().type.toBe<
-      Stream.Stream<ClientQuerySnapshot.ClientQuerySnapshot<Collection.Any>, FirestoreError>
+      Stream.Stream<
+        ClientQuerySnapshot.ClientQuerySnapshot<Collection.Any>,
+        Firestore.FirestoreError
+      >
     >();
   });
 
   test("leaves the Document Snapshots Firestore reads without Snapshot Metadata", () => {
-    expect<ReturnType<Firestore["getDoc"]>>().type.toBe<
-      Effect.Effect<DocumentSnapshot.DocumentSnapshot<Collection.Any>, FirestoreError>
+    expect<ReturnType<Firestore.Firestore["getDoc"]>>().type.toBe<
+      Effect.Effect<DocumentSnapshot.DocumentSnapshot<Collection.Any>, Firestore.FirestoreError>
     >();
   });
 
@@ -77,31 +89,31 @@ describe("ClientFirestore", () => {
   });
 
   test("leaves Firestore reading a document without read options", () => {
-    expect<Parameters<Firestore["getDoc"]>>().type.toBe<
+    expect<Parameters<Firestore.Firestore["getDoc"]>>().type.toBe<
       [ref: Collection.DocumentReference<Collection.Any>]
     >();
   });
 
   test("leaves Firestore reading a collection without read options", () => {
-    expect<Parameters<Firestore["getDocs"]>>().type.toBe<
+    expect<Parameters<Firestore.Firestore["getDocs"]>>().type.toBe<
       [ref: Collection.CollectionReference<Collection.Any>]
     >();
   });
 
   test("takes listen options when streaming a document", () => {
-    expect(
-      client.streamDoc(hello, { includeMetadataChanges: true, source: "cache" }),
-    ).type.not.toRaiseError();
+    expect(client.streamDoc).type.toBeCallableWith(hello, {
+      includeMetadataChanges: true,
+      source: "cache",
+    });
   });
 
   test("takes listen options when streaming a collection", () => {
-    expect(
-      client.streamDocs(Posts.collection(), { includeMetadataChanges: true, source: "cache" }),
-    ).type.not.toRaiseError();
+    expect(client.streamDocs).type.toBeCallableWith(Posts.collection(), {
+      includeMetadataChanges: true,
+      source: "cache",
+    });
   });
 
-  // A `toRaiseError` would fail `vp check`, which type-checks this file too.
-  // TSTyche checks the message after `@ts-expect-error` instead.
   test("leaves Firestore streaming a document without listen options", () => {
     // @ts-expect-error Expected 1 arguments, but got 2
     void portable.streamDoc(hello, { includeMetadataChanges: true });
@@ -131,7 +143,7 @@ describe("ListenOptions", () => {
 describe("layer", () => {
   test("provides Client Firestore and Firestore from the App", () => {
     expect(ClientFirestore.layer()).type.toBe<
-      Layer.Layer<ClientFirestore.ClientFirestore | Firestore, never, App.App>
+      Layer.Layer<ClientFirestore.ClientFirestore | Firestore.Firestore, never, App.App>
     >();
   });
 });

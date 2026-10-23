@@ -385,7 +385,7 @@ describe("a field made optional twice", () => {
   });
 });
 
-describe("a field holding a document reference", () => {
+describe("a field holding a Document Reference", () => {
   class Author extends FirestoreModel.Class<Author>("Author")({ name: Schema.String }) {}
   class Category extends FirestoreModel.Class<Category>("Category")({ label: Schema.String }) {}
 

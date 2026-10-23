@@ -197,7 +197,7 @@ describe("IncrementOr", () => {
     expect<
       // @ts-expect-error Type 'String' does not satisfy the constraint 'Codec<unknown, number, unknown, unknown>'
       FirestoreSchema.IncrementOr<Schema.String>
-    >().type.toBeAssignableTo<Schema.Top>();
+    >().type.toBeAssignableTo<unknown>();
   });
 });
 

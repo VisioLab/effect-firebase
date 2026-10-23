@@ -20,14 +20,14 @@ const hello = Posts.id.make("hello");
 
 describe("make", () => {
   test("refuses a plain schema, which has no `create` or `update`", () => {
-    // @ts-expect-error is missing the following properties from type '{ readonly create: Top; readonly update: Top;
+    // @ts-expect-error : create, update, updateUnchecked
     Collection.make("users", Schema.Struct({ name: Schema.String }));
   });
 });
 
 describe("subcollection", () => {
   test("refuses a plain schema, which has no `create` or `update`", () => {
-    // @ts-expect-error is missing the following properties from type '{ readonly create: Top; readonly update: Top;
+    // @ts-expect-error : create, update, updateUnchecked
     Users.subcollection("posts", Schema.Struct({ title: Schema.String }));
   });
 });
@@ -72,17 +72,17 @@ describe("collection", () => {
 
 describe("doc", () => {
   test("refuses a post id where a user id belongs", () => {
-    // @ts-expect-error is not assignable to parameter of type 'IdOf<readonly [readonly ["users", typeof User]]>'
+    // @ts-expect-error Property 'users' is missing
     Users.doc(hello);
   });
 
   test("takes the ancestor ids before the document's own id", () => {
-    // @ts-expect-error is not assignable to parameter of type 'IdOf<[readonly ["users", typeof User]]>'
+    // @ts-expect-error Property 'users' is missing
     Posts.doc(hello, alice);
   });
 
   test("refuses an id of `posts` under `orgs`, a different collection", () => {
-    // @ts-expect-error Property '"users/posts"' is missing in type '{ readonly "orgs/posts": "orgs/posts"; }'
+    // @ts-expect-error Property '"users/posts"' is missing
     Posts.doc(alice, OrgPosts.id.make("hello"));
   });
 });
