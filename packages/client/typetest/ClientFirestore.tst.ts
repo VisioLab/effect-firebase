@@ -92,10 +92,16 @@ describe("ClientFirestore", () => {
   });
 
   test("streams a collection as Query Snapshots carrying Snapshot Metadata", () => {
-    expect<ReturnType<ClientFirestore.ClientFirestore["streamDocs"]>>().type.toBe<
+    expect(client.streamDocs(Posts.collection())).type.toBe<
+      Stream.Stream<ClientQuerySnapshot.ClientQuerySnapshot<typeof Posts>, Firestore.FirestoreError>
+    >();
+  });
+
+  test("streams a Collection Group as Query Snapshots carrying Snapshot Metadata", () => {
+    expect(client.streamDocs(AllUserPosts)).type.toBe<
       Stream.Stream<
-        ClientQuerySnapshot.ClientQuerySnapshot<Collection.Any>,
-        Firestore.FirestoreError
+        ClientQuerySnapshot.ClientQuerySnapshot<typeof UserPosts>,
+        Firestore.FirestoreError | Firestore.UndefinedCollectionError
       >
     >();
   });
@@ -136,6 +142,13 @@ describe("ClientFirestore", () => {
 
   test("takes listen options when streaming a collection", () => {
     expect(client.streamDocs).type.toBeCallableWith(Posts.collection(), {
+      includeMetadataChanges: true,
+      source: "cache",
+    });
+  });
+
+  test("takes listen options when streaming a Collection Group", () => {
+    expect(client.streamDocs).type.toBeCallableWith(AllUserPosts, {
       includeMetadataChanges: true,
       source: "cache",
     });

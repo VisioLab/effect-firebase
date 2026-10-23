@@ -280,17 +280,38 @@ export interface Firestore {
   ) => Stream.Stream<DocumentSnapshot.DocumentSnapshot<C>, FirestoreError>;
 
   /**
-   * Listens to every document in one collection, emitting all of them each
-   * time any of them changes.
+   * Listens to every document in one collection, or in a Collection Group,
+   * emitting all of them each time any of them changes.
    *
    * Each element is a {@link QuerySnapshot.QuerySnapshot} of every document
    * there at that moment, as {@link getDocs} would have handed it back, and as
    * with {@link streamDoc}, one that is not pulled before the next arrives is
    * dropped.
+   *
+   * Two overloads, as for {@link getDocs}, so that listening to a collection
+   * says in its type that it fails with {@link FirestoreError} alone.
    */
-  readonly streamDocs: <C extends Collection.Any>(
-    ref: Collection.CollectionReference<C>,
-  ) => Stream.Stream<QuerySnapshot.QuerySnapshot<C>, FirestoreError>;
+  readonly streamDocs: {
+    /** Listens to every document in the collection at `ref`. */
+    <C extends Collection.Any>(
+      ref: Collection.CollectionReference<C>,
+    ): Stream.Stream<QuerySnapshot.QuerySnapshot<C>, FirestoreError>;
+    /**
+     * Listens to every document of a {@link CollectionGroup.CollectionGroup},
+     * emitting the whole group each time a document in any of its collections,
+     * under any parent, changes.
+     *
+     * Each document is matched to its collection as {@link getDocs} does. The
+     * stream fails with an {@link UndefinedCollectionError} at the first
+     * snapshot holding a document at a path none of its collections define.
+     */
+    <G extends CollectionGroup.Any>(
+      group: G,
+    ): Stream.Stream<
+      QuerySnapshot.QuerySnapshot<CollectionGroup.Members<G>>,
+      FirestoreError | UndefinedCollectionError
+    >;
+  };
 
   /**
    * Writes one document, replacing whatever was there.
