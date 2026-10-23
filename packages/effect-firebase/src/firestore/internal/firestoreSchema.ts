@@ -1,48 +1,28 @@
-import { Array, Effect, Equal, Schema, SchemaGetter, SchemaIssue, SchemaParser } from "effect";
+import {
+  Array,
+  Effect,
+  Equal,
+  Schema,
+  SchemaAST,
+  SchemaGetter,
+  SchemaIssue,
+  SchemaParser,
+  SchemaTransformation,
+} from "effect";
 import type * as Collection from "../Collection.ts";
 import type * as DocumentPath_ from "../DocumentPath.ts";
 import type * as FieldValue from "../FieldValue.ts";
 import type * as FirestoreSchema from "../FirestoreSchema.ts";
 import type * as GeoPoint_ from "../GeoPoint.ts";
-import type * as Timestamp_ from "../Timestamp.ts";
 import * as collection_ from "./collection.ts";
 import * as documentPath from "./documentPath.ts";
 import * as fieldValue from "./fieldValue.ts";
+import * as firestoreValue from "./firestoreValue.ts";
 import * as geoPoint from "./geoPoint.ts";
-import * as timestamp from "./timestamp.ts";
-
-/** Writes a timestamp as JSON without losing the digits finer than a millisecond. */
-const TimestampJson = Schema.Struct({ seconds: Schema.Int, nanoseconds: Schema.Int });
+import * as timestampSchema from "./timestampSchema.ts";
 
 /** @internal */
-export const Timestamp: FirestoreSchema.Timestamp = Schema.declare<Timestamp_.Timestamp>(
-  timestamp.isTimestamp,
-  {
-    representation: { id: "@visiolab/effect-firebase/firestore/Timestamp", payload: null },
-    expected: "a Firestore Timestamp",
-    toEquivalence: () => Equal.equals,
-    toCodecFirestore: () => undefined,
-    toCodecJson: () =>
-      Schema.link<Timestamp_.Timestamp>()(TimestampJson, {
-        decode: SchemaGetter.transformEffect((json: typeof TimestampJson.Type, options) =>
-          Effect.fromOption(timestamp.make(json.seconds, json.nanoseconds)).pipe(
-            Effect.mapError(
-              () =>
-                new SchemaIssue.InvalidValue(
-                  { message: "Expected an instant Firestore can store" },
-                  json,
-                  options,
-                ),
-            ),
-          ),
-        ),
-        encode: SchemaGetter.transform((value: Timestamp_.Timestamp) => ({
-          seconds: value.seconds,
-          nanoseconds: value.nanoseconds,
-        })),
-      }),
-  },
-);
+export const Timestamp: FirestoreSchema.Timestamp = timestampSchema.Timestamp;
 
 /** @internal */
 export const GeoPoint: FirestoreSchema.GeoPoint = Schema.declare<GeoPoint_.GeoPoint>(
@@ -163,17 +143,19 @@ export const DeleteFieldOr = <S extends Schema.Top>(schema: S): FirestoreSchema.
  * decoded on the way in and encoded on the way out, as `Schema.Option` does
  * with what it holds.
  *
- * The sentinel is already in Firestore form, apart from its elements:
- * `toCodecFirestore` keeps it and derives `item`'s own codec for them, so a
- * `DateTimeUtc` among them is stored as a timestamp.
+ * Its Firestore form is the same sentinel, holding the elements in their own
+ * Firestore form: `toCodecFirestore` links it to a sentinel of `item`'s derived
+ * codec, so a `DateTimeUtc` among them is stored as a timestamp.
  */
-const elementsSentinel =
-  <Sentinel extends { readonly elements: ReadonlyArray<unknown> }>(
-    name: string,
-    is: (u: unknown) => u is Sentinel,
-    make: (...elements: ReadonlyArray<unknown>) => Sentinel,
+const elementsSentinel = <Sentinel extends { readonly elements: ReadonlyArray<unknown> }>(
+  name: string,
+  is: (u: unknown) => u is Sentinel,
+  make: (...elements: ReadonlyArray<unknown>) => Sentinel,
+) => {
+  const declareSentinel = <S extends Schema.Top>(
+    item: S,
+    toCodecFirestore: (typeParameters: readonly [Schema.Top]) => SchemaAST.Link | undefined,
   ) =>
-  <S extends Schema.Top>(item: S) =>
     Schema.declareConstructor<Sentinel, Sentinel>()(
       [item],
       ([item]) => {
@@ -194,13 +176,22 @@ const elementsSentinel =
           payload: null,
         },
         expected: `an ${name}`,
-        toCodecFirestore: () => undefined,
+        toCodecFirestore,
         toEquivalence: ([item]) => {
           const elements = Array.makeEquivalence(item);
           return (self, that) => elements(self.elements, that.elements);
         },
       },
     );
+  return <S extends Schema.Top>(item: S) =>
+    declareSentinel(item, ([encoded]) =>
+      Schema.link<Sentinel>()(
+        // Already in Firestore form, elements and all, so derivation leaves it.
+        declareSentinel(firestoreValue.toCodecFirestore(encoded), () => undefined),
+        SchemaTransformation.passthrough(),
+      ),
+    );
+};
 
 const ArrayUnionSentinel = elementsSentinel(
   "ArrayUnion",
