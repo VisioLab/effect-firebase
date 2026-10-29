@@ -212,11 +212,11 @@ catalogs:
       specifier: 0.51.1
       version: 0.51.1
     '@effect/vitest':
-      specifier: ^4.0.5
-      version: 4.0.5
+      specifier: ^4.0.6
+      version: 4.0.6
     effect:
-      specifier: 4.0.5
-      version: 4.0.5
+      specifier: 4.0.6
+      version: 4.0.6
     firebase:
       specifier: ^13.0.0
       version: 13.0.0
@@ -282,13 +282,13 @@ importers:
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
-        version: 4.0.5(effect@4.0.5)(vitest@5.0.4(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(@vitest/browser-preview@5.0.3)(@voidzero-dev/vite-plus-core@1.1.0(@types/node@26.2.0)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)))
+        version: 4.0.6(effect@4.0.6)(vitest@5.0.4(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(@vitest/browser-preview@5.0.3)(@voidzero-dev/vite-plus-core@1.1.0(@types/node@26.2.0)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)))
       '@visiolab/effect-firebase':
         specifier: workspace:^
         version: link:../effect-firebase
       effect:
         specifier: 'catalog:'
-        version: 4.0.5
+        version: 4.0.6
       firebase-admin:
         specifier: 'catalog:'
         version: 14.5.0(@firebase/app-compat@0.5.19)(@firebase/app@0.16.3)(supports-color@7.2.0)
@@ -309,13 +309,13 @@ importers:
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
-        version: 4.0.5(effect@4.0.5)(vitest@5.0.4(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(@vitest/browser-preview@5.0.3)(@voidzero-dev/vite-plus-core@1.1.0(@types/node@26.2.0)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)))
+        version: 4.0.6(effect@4.0.6)(vitest@5.0.4(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(@vitest/browser-preview@5.0.3)(@voidzero-dev/vite-plus-core@1.1.0(@types/node@26.2.0)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)))
       '@visiolab/effect-firebase':
         specifier: workspace:^
         version: link:../effect-firebase
       effect:
         specifier: 'catalog:'
-        version: 4.0.5
+        version: 4.0.6
       firebase:
         specifier: 'catalog:'
         version: 13.0.0
@@ -336,10 +336,10 @@ importers:
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
-        version: 4.0.5(effect@4.0.5)(vitest@5.0.4(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(@vitest/browser-preview@5.0.3)(@voidzero-dev/vite-plus-core@1.1.0(@types/node@26.2.0)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)))
+        version: 4.0.6(effect@4.0.6)(vitest@5.0.4(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(@vitest/browser-preview@5.0.3)(@voidzero-dev/vite-plus-core@1.1.0(@types/node@26.2.0)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)))
       effect:
         specifier: 'catalog:'
-        version: 4.0.5
+        version: 4.0.6
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -496,10 +496,10 @@ packages:
     resolution: {integrity: sha512-i6mA6cNah+0mkPdu8qZILCO3Pnd9kWo03/s82Ju+1DFhdL28HFagi+1PRGxqgq1uMaHziWQ+ciKvOmIoks2RdA==}
     hasBin: true
 
-  '@effect/vitest@4.0.5':
-    resolution: {integrity: sha512-q64paZ/i4V2NiRhTyqCmT2KiDbFjlxc2EZrZca8GGt+Nf8844946HyJM5bPk/q+YeRkFSxIrlCs+J+LSfky/wA==}
+  '@effect/vitest@4.0.6':
+    resolution: {integrity: sha512-oKNbtyUHK5+0o730CXwojULEu7f3+c235pYFD4U5T//o+hHrJbYbZU4bRkcv936tPr5IOnmujeyQiC/LuJJjHw==}
     peerDependencies:
-      effect: ^4.0.5
+      effect: ^4.0.6
       vitest: 5.0.4
 
   '@electric-sql/pglite-tools@0.2.21':
@@ -2390,8 +2390,8 @@ packages:
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
 
-  effect@4.0.5:
-    resolution: {integrity: sha512-BY4/28NlpOd99yzmV741xbVGmp+1U7tks4oB7F/Png64bTa5tm5eCA6W0RiXsnuLDDoJpjfVSo4Dnq4BZb/89Q==}
+  effect@4.0.6:
+    resolution: {integrity: sha512-Tc3mkzuLR6t6P9dhLt0D2GrxYtmU5td4XEJEiXCmILz53IRIfJyHsKZWjTA3xEjiwpNTtXBgI4iqYPxMztBDrw==}
 
   emoji-regex@8.0.0:
     resolution: {integrity: sha512-MSjYzcWNOA0ewAHpz0MxpYFvwg6yjy1NG3xteoqz644VCo/RPgnr1/GGt+ic3iJTzQ8Eu3TdM14SawnVUmGE6A==}
@@ -4478,9 +4478,9 @@ snapshots:
       '@effect/tsgo-win32-arm64': 0.51.1
       '@effect/tsgo-win32-x64': 0.51.1
 
-  '@effect/vitest@4.0.5(effect@4.0.5)(vitest@5.0.4(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(@vitest/browser-preview@5.0.3)(@voidzero-dev/vite-plus-core@1.1.0(@types/node@26.2.0)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)))':
+  '@effect/vitest@4.0.6(effect@4.0.6)(vitest@5.0.4(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(@vitest/browser-preview@5.0.3)(@voidzero-dev/vite-plus-core@1.1.0(@types/node@26.2.0)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0)))':
     dependencies:
-      effect: 4.0.5
+      effect: 4.0.6
       vitest: 5.0.4(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(@vitest/browser-preview@5.0.3)(@voidzero-dev/vite-plus-core@1.1.0(@types/node@26.2.0)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.0))
 
   '@electric-sql/pglite-tools@0.2.21(@electric-sql/pglite@0.3.16)':
@@ -6160,7 +6160,7 @@ snapshots:
 
   ee-first@1.1.1: {}
 
-  effect@4.0.5: {}
+  effect@4.0.6: {}
 
   emoji-regex@8.0.0: {}
 
