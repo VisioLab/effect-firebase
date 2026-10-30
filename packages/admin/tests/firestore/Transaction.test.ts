@@ -48,7 +48,7 @@ const increment = Effect.gen(function* () {
   return n + 1;
 });
 
-class Refused extends Schema.TaggedError<Refused>()("Refused", {
+class Refused extends Schema.TaggedError<Refused, { readonly brand: unique symbol }>()("Refused", {
   // The very number the SDK reads as ABORTED.
   code: Schema.Finite,
 }) {}

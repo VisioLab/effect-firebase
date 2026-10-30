@@ -33,10 +33,13 @@ export const App = Context.Service<App>("@visiolab/effect-firebase-admin/App");
  * @category errors
  * @since 0.1.0
  */
-export class AppError extends Schema.TaggedError<AppError>()("AppError", {
-  message: Schema.String,
-  cause: Schema.optional(Schema.Defect()),
-}) {}
+export class AppError extends Schema.TaggedError<AppError, { readonly brand: unique symbol }>()(
+  "AppError",
+  {
+    message: Schema.String,
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
 
 /**
  * Initializes a Firebase Admin SDK app, deleting it again when the surrounding
