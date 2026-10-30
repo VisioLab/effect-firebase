@@ -23,7 +23,7 @@ catalog:
   typescript6: npm:typescript@6.0.3
   vite: npm:@voidzero-dev/vite-plus-core@1.1.0
   vite-plus: 1.1.0
-  vitest: 5.0.4
+  vitest: 5.0.5
 overrides:
   vite@*: "catalog:"
   vitest@*: "catalog:"
