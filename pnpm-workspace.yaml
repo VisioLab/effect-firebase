@@ -7,7 +7,7 @@ catalogMode: prefer
 
 catalog:
   "@changesets/cli": ^3.0.3
-  "@effect/tsgo": 0.51.1
+  "@effect/tsgo": 0.62.0
   "@effect/vitest": ^4.0.6
   # Exact: toCodecFirestore builds on Effect's @internal SchemaAST helpers
   # (ADR 0002), which a patch release may change without notice.
@@ -22,7 +22,7 @@ catalog:
   # alias. Revisit once TypeScript 7.1 and TSTyche 8 are both stable (#94).
   typescript6: npm:typescript@6.0.3
   vite: npm:@voidzero-dev/vite-plus-core@1.1.0
-  vite-plus: 1.1.0
+  vite-plus: 1.4.0
   vitest: 5.0.4
 overrides:
   vite@*: "catalog:"
