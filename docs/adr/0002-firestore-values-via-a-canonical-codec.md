@@ -18,5 +18,5 @@ A document reference is the one value whose model type is not its Firestore Valu
 ## Consequences
 
 - `FirestoreEncoder`, both SDK implementations of it, `layerWithEncoder`, `WriteServices` and `UpdateServices`, the `*Like` types and `FirestoreSchema.DateTimeUtcFromTimestamp` go. Writing through the raw SDK takes each SDK package's mapping function instead.
-- Effect has no public way to define a canonical format, so derivation builds on `SchemaAST` helpers marked `@internal` (`replaceEncoding`, `mapLink`, `applyToSelfOrLastLinkEncodingIdempotent`), and `effect` is pinned to an exact version until Effect offers pluggable formats.
+- Effect has no public way to define a canonical format, so derivation builds on `SchemaAST` helpers marked `@internal` (`replaceEncoding`, `mapLink`, `applyToSelfOrLastLinkEncodingIdempotent`), so until Effect offers pluggable formats the packages accept only patch releases of the `effect` minor they are tested against, such as `~4.1.0`, trusting a patch to leave those helpers alone.
 - A `DateTimeUtc` or `Date` read back loses whatever precision a timestamp held below a millisecond; a field that needs it is a `Timestamp`.
