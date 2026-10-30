@@ -14,6 +14,14 @@ export default defineConfig({
       "effecttsgo/unstable-api-usage": "off",
     },
     options: { typeAware: true, typeCheck: true },
+    overrides: [
+      {
+        // Test helpers are exported between test files, not published, so
+        // they have no stability of their own to guard.
+        files: ["packages/*/tests/**", "packages/*/typetest/**"],
+        rules: { "effecttsgo/api-stability-leak": "off" },
+      },
+    ],
   },
   test: {
     // Run each package under its own config, so a root `vp test` picks up each

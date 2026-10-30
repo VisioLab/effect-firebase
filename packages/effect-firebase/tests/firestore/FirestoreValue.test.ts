@@ -171,7 +171,7 @@ describe("toCodecFirestore", () => {
 
     it.effect("stores a Schema.Class instance through its JSON form, timestamps included", () =>
       Effect.gen(function* () {
-        class Address extends Schema.Class<Address>("Address")({
+        class Address extends Schema.Class<Address, { readonly brand: unique symbol }>("Address")({
           city: Schema.String,
           since: Schema.DateTimeUtc,
         }) {}

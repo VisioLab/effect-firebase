@@ -511,7 +511,7 @@ describe("a field holding a Document Reference", () => {
     }),
   }) {}
 
-  const post = Schema.decodeUnknownSync(FirestoreValue.toCodecFirestore(Post))({});
+  const post = Schema.decodeSync(FirestoreValue.toCodecFirestore(Post))({});
 
   test("decodes the paths a snapshot holds, typed by collection", () => {
     expect(post.author).type.toBe<Collection.DocumentReference<typeof Users>>();
