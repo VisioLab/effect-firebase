@@ -19,7 +19,10 @@ import type * as QuerySnapshot from "./QuerySnapshot.ts";
  * @category errors
  * @since 0.2.0
  */
-export class FirestoreError extends Schema.TaggedError<FirestoreError>()("FirestoreError", {
+export class FirestoreError extends Schema.TaggedError<
+  FirestoreError,
+  { readonly brand: unique symbol }
+>()("FirestoreError", {
   message: Schema.String,
   /**
    * The code the SDK reported, where it reported one it can be named by.
@@ -49,15 +52,15 @@ export class FirestoreError extends Schema.TaggedError<FirestoreError>()("Firest
  * @category errors
  * @since 0.2.0
  */
-export class UndefinedCollectionError extends Schema.TaggedError<UndefinedCollectionError>()(
-  "UndefinedCollectionError",
-  {
-    /** The full path of the document no collection of the group defines. */
-    path: Schema.String,
-    /** The collection id of the group that was read. */
-    collectionId: Schema.String,
-  },
-) {}
+export class UndefinedCollectionError extends Schema.TaggedError<
+  UndefinedCollectionError,
+  { readonly brand: unique symbol }
+>()("UndefinedCollectionError", {
+  /** The full path of the document no collection of the group defines. */
+  path: Schema.String,
+  /** The collection id of the group that was read. */
+  collectionId: Schema.String,
+}) {}
 
 /**
  * What writing a whole document in `C` takes: the `create` shape of the

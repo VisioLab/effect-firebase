@@ -16,12 +16,15 @@ import * as App from "./App.ts";
  * @category errors
  * @since 0.1.0
  */
-export class AuthError extends Schema.TaggedError<AuthError>()("AuthError", {
-  message: Schema.String,
-  /** The `service/string-code` the Admin SDK reported, such as `auth/user-not-found`. */
-  code: Schema.optional(Schema.String),
-  cause: Schema.optional(Schema.Defect()),
-}) {}
+export class AuthError extends Schema.TaggedError<AuthError, { readonly brand: unique symbol }>()(
+  "AuthError",
+  {
+    message: Schema.String,
+    /** The `service/string-code` the Admin SDK reported, such as `auth/user-not-found`. */
+    code: Schema.optional(Schema.String),
+    cause: Schema.optional(Schema.Defect()),
+  },
+) {}
 
 const authError = (message: string) => (cause: unknown) =>
   new AuthError({

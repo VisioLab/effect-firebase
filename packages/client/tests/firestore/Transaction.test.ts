@@ -48,7 +48,7 @@ const increment = Effect.gen(function* () {
   return n + 1;
 });
 
-class Refused extends Schema.TaggedError<Refused>()("Refused", {
+class Refused extends Schema.TaggedError<Refused, { readonly brand: unique symbol }>()("Refused", {
   // The very code the SDK retries a conflict by.
   code: Schema.String,
 }) {}
