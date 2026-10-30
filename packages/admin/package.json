@@ -68,6 +68,6 @@
   "peerDependencies": {
     "@visiolab/effect-firebase": "workspace:^",
     "effect": "catalog:peers",
-    "firebase-admin": "catalog:"
+    "firebase-admin": "catalog:peers"
   }
 }
