@@ -8,10 +8,10 @@ catalogMode: prefer
 catalog:
   "@changesets/cli": ^3.0.3
   "@effect/tsgo": 0.63.0
-  "@effect/vitest": ^4.0.6
+  "@effect/vitest": ^4.1.0
   # Exact: toCodecFirestore builds on Effect's @internal SchemaAST helpers
   # (ADR 0002), which a patch release may change without notice.
-  effect: 4.0.6
+  effect: 4.1.0
   firebase: ^13.0.0
   firebase-admin: ^14.5.0
   firebase-tools: 15.34.0
