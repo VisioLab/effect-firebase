@@ -329,3 +329,111 @@ assert<
 void fsB.getDocs(UserPosts.collection(userId), { where: [["nope", "==", 1]] });
 // @ts-expect-error A on a group: field must exist on the members
 pipe(AllPosts, A.where("nope", "==", 1));
+
+// ===========================================================================
+// Question 2 - how composite `and`/`or` filters are written (on top of A)
+// ===========================================================================
+//
+// SDKs for reference:
+//   client: query(ref, or(where("tags", "array-contains", "effect"), where("likes", ">=", 1000)), orderBy("likes"))
+//   admin:  ref.where(Filter.or(Filter.where("tags", "array-contains", "effect"), Filter.where("likes", ">=", 1000))).orderBy("likes")
+
+// D1 - a separate `Filter` module, as Admin has: filters are plain values,
+// `Query.where` takes a field triple or one Filter.
+namespace D1 {
+  export interface Filter<S extends Source> {
+    readonly _S: (s: S) => void;
+  }
+  export declare const Filter: {
+    readonly where: <S extends Source>(
+      field: Field<CollectionsOf<S>>,
+      op: Op,
+      value: unknown,
+    ) => Filter<S>;
+    readonly or: <S extends Source>(...filters: Array<Filter<S>>) => Filter<S>;
+    readonly and: <S extends Source>(...filters: Array<Filter<S>>) => Filter<S>;
+  };
+  export declare const where: {
+    <S extends Source>(filter: Filter<S>): (self: A.Query<S> | S) => A.Query<S>;
+    <S extends Source>(
+      field: Field<CollectionsOf<S>>,
+      op: Op,
+      value: unknown,
+    ): (self: A.Query<S> | S) => A.Query<S>;
+  };
+}
+const d1 = pipe(
+  AllPosts,
+  D1.where("published", "==", true),
+  D1.where(
+    D1.Filter.or(
+      D1.Filter.where("tags", "array-contains", "effect"),
+      D1.Filter.where("likes", ">=", 1000),
+    ),
+  ),
+  A.orderBy("likes", "desc"),
+);
+// D1 reusable filter: has no source yet, so it is annotated or built from one.
+const popularOrTagged = (tag: string) =>
+  D1.Filter.or<typeof AllPosts>(
+    D1.Filter.where("tags", "array-contains", tag),
+    D1.Filter.where("likes", ">=", 1000),
+  );
+void pipe(AllPosts, D1.where(popularOrTagged("effect")));
+// @ts-expect-error D1: a field the model lacks, nested inside `or`
+void pipe(AllPosts, D1.where(D1.Filter.or(D1.Filter.where("nope", "==", 1))));
+
+// D2 - `or`/`and` live in `Query`, and each takes the same field triples
+// `where` does, so there is no leaf constructor.
+namespace D2 {
+  export type Condition<S extends Source> =
+    | readonly [Field<CollectionsOf<S>>, Op, unknown]
+    | Composite<S>;
+  export interface Composite<S extends Source> {
+    readonly _S: (s: S) => void;
+  }
+  export declare const or: <S extends Source>(...conditions: Array<Condition<S>>) => Composite<S>;
+  export declare const and: <S extends Source>(...conditions: Array<Condition<S>>) => Composite<S>;
+  export declare const where: {
+    <S extends Source>(composite: Composite<S>): (self: A.Query<S> | S) => A.Query<S>;
+    <S extends Source>(
+      field: Field<CollectionsOf<S>>,
+      op: Op,
+      value: unknown,
+    ): (self: A.Query<S> | S) => A.Query<S>;
+  };
+}
+const d2 = pipe(
+  AllPosts,
+  D2.where("published", "==", true),
+  D2.where(D2.or(["tags", "array-contains", "effect"], ["likes", ">=", 1000])),
+  A.orderBy("likes", "desc"),
+);
+// @ts-expect-error D2: a field the model lacks, nested inside `or`
+void pipe(AllPosts, D2.where(D2.or(["nope", "==", 1])));
+
+// D3 - as the client SDK: `Query.where(...)` returns one value that is both a
+// pipe step and a filter, so `Query.or(Query.where(...), ...)` nests it.
+namespace D3 {
+  export interface Where<S extends Source> {
+    (self: A.Query<S> | S): A.Query<S>;
+    readonly _filter: (s: S) => void;
+  }
+  export declare const where: <S extends Source>(
+    field: Field<CollectionsOf<S>>,
+    op: Op,
+    value: unknown,
+  ) => Where<S>;
+  export declare const or: <S extends Source>(...filters: Array<Where<S>>) => Where<S>;
+  export declare const and: <S extends Source>(...filters: Array<Where<S>>) => Where<S>;
+}
+const d3 = pipe(
+  AllPosts,
+  D3.where("published", "==", true),
+  D3.or(D3.where("tags", "array-contains", "effect"), D3.where("likes", ">=", 1000)),
+  A.orderBy("likes", "desc"),
+);
+// @ts-expect-error D3: a field the model lacks, nested inside `or`
+void pipe(AllPosts, D3.or(D3.where("nope", "==", 1)));
+
+export { d1, d2, d3 };
