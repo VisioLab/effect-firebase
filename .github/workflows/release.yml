@@ -29,8 +29,10 @@ jobs:
 
       - uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
+          version-script: vp run version-packages
           publish-script: vp exec changeset publish
           commit-message: "chore(release): version packages"
           pr-title: "chore(release): version packages"
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # changelog-github looks up PRs and authors
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

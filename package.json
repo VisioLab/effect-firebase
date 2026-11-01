@@ -5,9 +5,11 @@
     "emulator": "firebase emulators:start --only firestore --project demo-effect-firebase",
     "ready": "vp check && vp run -r test && vp run test-types && vp run -r build",
     "test-types": "TSTYCHE_TYPESCRIPT_MODULE=typescript6 tstyche",
+    "version-packages": "changeset version && vp fmt",
     "prepare": "vp config && effect-tsgo patch --typescript --oxlint"
   },
   "devDependencies": {
+    "@changesets/changelog-github": "catalog:",
     "@changesets/cli": "catalog:",
     "@effect/tsgo": "catalog:",
     "firebase-tools": "catalog:",
