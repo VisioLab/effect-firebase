@@ -275,6 +275,59 @@ void pipe(Comments.collection(), orderBy(desc(P.likes)));
 // @ts-expect-error a mixed-model group lacks Post-only fields
 void MixedPosts.fields.title;
 
+// ---------------------------------------------------------------------------
+// I - the same, through a separate function: `Query.fields(source)`
+// ---------------------------------------------------------------------------
+//
+// Owners come from the argument, so the plain definitions work as they are
+// (no `Plain` step), and a reference works too. A WeakMap keeps one fields
+// object per definition.
+
+type FieldsFor<X> =
+  X extends Collection.CollectionReference<infer C>
+    ? Fields<C, DocOf<C>>
+    : X extends Collection.Any
+      ? Fields<X, DocOf<X>>
+      : X extends CollectionGroup.CollectionGroup<infer M>
+        ? Fields<M, CommonShape<DocOf<M>>>
+        : never;
+const cache = new WeakMap<object, unknown>();
+const fieldsOf = <
+  X extends Collection.Any | Collection.CollectionReference<any> | CollectionGroup.Any,
+>(
+  x: X,
+): FieldsFor<X> => {
+  const key = Collection.isCollectionReference(x) ? x.collection : x;
+  if (!cache.has(key)) cache.set(key, makeFields());
+  return cache.get(key) as FieldsFor<X>;
+};
+
+const PlainUsers = Collection.make("users", User);
+const PlainUserPosts = PlainUsers.subcollection("posts", Post);
+const PlainOrgPosts = Collection.make("orgs", User).subcollection("posts", Post);
+const PlainAllPosts = CollectionGroup.make(PlainUserPosts, PlainOrgPosts);
+const PlainComments = Collection.make("comments", Comment);
+
+const p = fieldsOf(PlainUserPosts);
+const plainAlice = "alice" as Collection.Id<typeof PlainUsers>;
+const i1 = pipe(
+  PlainUserPosts.collection(plainAlice),
+  where(and(eq(p.published, true), gte(p.likes, 1000))),
+  orderBy(desc(p.likes)),
+);
+const plainPopular = gte(fieldsOf(PlainAllPosts).likes, 1000);
+const i2 = pipe(PlainUserPosts.collection(plainAlice), where(plainPopular));
+const i3 = pipe(PlainAllPosts, where(plainPopular));
+// from a reference: same owner as from its definition
+const i4 = pipe(
+  PlainUserPosts.collection(plainAlice),
+  where(eq(fieldsOf(PlainUserPosts.collection(plainAlice)).title, "x")),
+);
+// @ts-expect-error nominal, as with `.fields`
+void pipe(PlainComments.collection(), where(gte(p.likes, 1)));
+// @ts-expect-error a member's filter on its group
+void pipe(PlainAllPosts, where(gte(p.likes, 1)));
+
 type Same<X, Y> =
   (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? true : false;
 const assert = <_T extends true>() => {};
@@ -282,6 +335,8 @@ assert<Same<typeof h1, Query<Collection.CollectionReference<Plain<typeof UserPos
 assert<Same<typeof h3a, Query<typeof AllPosts>>>();
 assert<Same<typeof popular, Filter<Plain<typeof UserPosts | typeof OrgPosts>>>>();
 assert<Same<typeof h6, Query<typeof AllPosts>>>();
+assert<Same<typeof i1, Query<Collection.CollectionReference<typeof PlainUserPosts>>>>();
+assert<Same<typeof i3, Query<typeof PlainAllPosts>>>();
 
 // ---------------------------------------------------------------------------
 // Surface the state
@@ -300,3 +355,11 @@ show("H3c", h3c);
 show("H4", h4);
 show("H5", h5);
 show("H6", h6);
+show("I1", i1);
+show("I2", i2);
+show("I3", i3);
+show("I4", i4);
+console.log(
+  "same fields object:",
+  fieldsOf(PlainUserPosts) === fieldsOf(PlainUserPosts.collection(plainAlice)),
+);
