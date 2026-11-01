@@ -276,30 +276,24 @@ void pipe(Comments.collection(), orderBy(desc(P.likes)));
 void MixedPosts.fields.title;
 
 // ---------------------------------------------------------------------------
-// I - the same, through a separate function: `Query.fields(source)`
+// I - the same, through a separate function: `Query.fields(definition)`
 // ---------------------------------------------------------------------------
 //
 // Owners come from the argument, so the plain definitions work as they are
-// (no `Plain` step), and a reference works too. A WeakMap keeps one fields
+// (no `Plain` step). It takes a collection definition or a group, not a
+// reference: fields depend on the shape and owner alone, never on ancestor
+// ids, and `ref.collection` gives the definition. A WeakMap keeps one fields
 // object per definition.
 
-type FieldsFor<X> =
-  X extends Collection.CollectionReference<infer C>
-    ? Fields<C, DocOf<C>>
-    : X extends Collection.Any
-      ? Fields<X, DocOf<X>>
-      : X extends CollectionGroup.CollectionGroup<infer M>
-        ? Fields<M, CommonShape<DocOf<M>>>
-        : never;
+type FieldsFor<X> = X extends Collection.Any
+  ? Fields<X, DocOf<X>>
+  : X extends CollectionGroup.CollectionGroup<infer M>
+    ? Fields<M, CommonShape<DocOf<M>>>
+    : never;
 const cache = new WeakMap<object, unknown>();
-const fieldsOf = <
-  X extends Collection.Any | Collection.CollectionReference<any> | CollectionGroup.Any,
->(
-  x: X,
-): FieldsFor<X> => {
-  const key = Collection.isCollectionReference(x) ? x.collection : x;
-  if (!cache.has(key)) cache.set(key, makeFields());
-  return cache.get(key) as FieldsFor<X>;
+const fieldsOf = <X extends Collection.Any | CollectionGroup.Any>(x: X): FieldsFor<X> => {
+  if (!cache.has(x)) cache.set(x, makeFields());
+  return cache.get(x) as FieldsFor<X>;
 };
 
 const PlainUsers = Collection.make("users", User);
@@ -318,11 +312,11 @@ const i1 = pipe(
 const plainPopular = gte(fieldsOf(PlainAllPosts).likes, 1000);
 const i2 = pipe(PlainUserPosts.collection(plainAlice), where(plainPopular));
 const i3 = pipe(PlainAllPosts, where(plainPopular));
-// from a reference: same owner as from its definition
-const i4 = pipe(
-  PlainUserPosts.collection(plainAlice),
-  where(eq(fieldsOf(PlainUserPosts.collection(plainAlice)).title, "x")),
-);
+// holding only a reference: its definition gives the same fields
+const aliceRef = PlainUserPosts.collection(plainAlice);
+const i4 = pipe(aliceRef, where(eq(fieldsOf(aliceRef.collection).title, "x")));
+// @ts-expect-error a reference is not a definition
+void fieldsOf(aliceRef);
 // @ts-expect-error nominal, as with `.fields`
 void pipe(PlainComments.collection(), where(gte(p.likes, 1)));
 // @ts-expect-error a member's filter on its group
@@ -359,7 +353,4 @@ show("I1", i1);
 show("I2", i2);
 show("I3", i3);
 show("I4", i4);
-console.log(
-  "same fields object:",
-  fieldsOf(PlainUserPosts) === fieldsOf(PlainUserPosts.collection(plainAlice)),
-);
+console.log("same fields object:", fieldsOf(PlainUserPosts) === fieldsOf(aliceRef.collection));
