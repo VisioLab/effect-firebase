@@ -29,7 +29,15 @@ export {
   FirestoreError,
   /**
    * Raised when a read of a {@link CollectionGroup.CollectionGroup} finds a
-   * document at a path none of its collections define.
+   * document under the group's collection id at a path none of its
+   * collections define, such as a root-level `posts` when the group is made of
+   * `users/{id}/posts`.
+   *
+   * It is apart from {@link FirestoreError} because the call to Firestore
+   * succeeded: it is the data that contradicts the model. It is an error
+   * rather than a defect because what is in the database decides whether it
+   * happens, so correct code cannot rule it out. A caller who treats it as a
+   * bug can `orDie` it.
    *
    * @stability unstable
    * @category errors

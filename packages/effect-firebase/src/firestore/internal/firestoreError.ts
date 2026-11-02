@@ -6,13 +6,7 @@
  */
 import { Schema } from "effect";
 
-/**
- * Raised when a Firestore call fails.
- *
- * @stability unstable
- * @category errors
- * @since 0.2.0
- */
+/** @internal */
 export class FirestoreError extends Schema.TaggedError<
   FirestoreError,
   { readonly brand: unique symbol }
@@ -30,22 +24,7 @@ export class FirestoreError extends Schema.TaggedError<
   cause: Schema.optional(Schema.Defect()),
 }) {}
 
-/**
- * Raised when a read of a `CollectionGroup` finds a
- * document under the group's collection id at a path none of its collections
- * define, such as a root-level `posts` when the group is made of
- * `users/{id}/posts`.
- *
- * It is apart from {@link FirestoreError} because the call to Firestore
- * succeeded: it is the data that contradicts the model. It is an error rather
- * than a defect because what is in the database decides whether it happens, so
- * correct code cannot rule it out. A caller who treats it as a bug can `orDie`
- * it.
- *
- * @stability unstable
- * @category errors
- * @since 0.2.0
- */
+/** @internal */
 export class UndefinedCollectionError extends Schema.TaggedError<
   UndefinedCollectionError,
   { readonly brand: unique symbol }
