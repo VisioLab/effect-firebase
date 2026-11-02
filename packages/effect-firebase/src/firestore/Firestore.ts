@@ -6,6 +6,7 @@
  */
 import { Context } from "effect";
 import type { Effect, Schema, Stream } from "effect";
+import type * as Result from "effect/Result";
 import type * as Collection from "./Collection.ts";
 import type * as CollectionGroup from "./CollectionGroup.ts";
 import type * as DocumentSnapshot from "./DocumentSnapshot.ts";
@@ -15,6 +16,7 @@ import * as firestore from "./internal/firestore.ts";
 import type { FirestoreError, UndefinedCollectionError } from "./internal/firestoreError.ts";
 import * as transactionBridge from "./internal/transactionFromCallback.ts";
 import type * as QuerySnapshot from "./QuerySnapshot.ts";
+import * as listener from "./internal/streamFromListener.ts";
 
 export {
   /**
@@ -747,3 +749,39 @@ export interface TransactionFromCallbackOptions<T> {
 export const transactionFromCallback: <T>(
   options: TransactionFromCallbackOptions<T>,
 ) => MakeOptions["runTransaction"] = transactionBridge.transactionFromCallback;
+
+/**
+ * Builds the stream of a listen hook, such as {@link MakeOptions.streamDoc},
+ * from an SDK listener that hands back a function to stop listening.
+ *
+ * Each run of the stream attaches a listener of its own through `subscribe`,
+ * and detaches it when the run stops. A reader that falls behind sees only the
+ * latest snapshot. `map` turns each snapshot the listener hears into what the
+ * stream emits, and a snapshot it fails on fails the stream rather than
+ * throwing back into the SDK. An error the listener hears fails the stream
+ * with what `onError` builds from it.
+ *
+ * ```ts
+ * streamDoc: (path) =>
+ *   Firestore.streamFromListener({
+ *     subscribe: (onNext, onError) => sdk.doc(path).onSnapshot(onNext, onError),
+ *     onError: (cause) => new Firestore.FirestoreError({ message: `Failed to listen to "${path}"`, cause }),
+ *     map: (snapshot) => Result.map(readDocument(path, snapshot.data()), (data) => ({ data })),
+ *   }),
+ * ```
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.3.0
+ */
+export const streamFromListener: <S, A>(options: {
+  /** Attaches a listener, handing back the function that detaches it. */
+  readonly subscribe: (
+    onNext: (snapshot: S) => void,
+    onError: (error: unknown) => void,
+  ) => () => void;
+  /** Builds the error the stream fails with from what the listener heard. */
+  readonly onError: (error: unknown) => FirestoreError;
+  /** Maps a snapshot the listener heard to what the stream emits. */
+  readonly map: (snapshot: S) => Result.Result<A, FirestoreError>;
+}) => Stream.Stream<A, FirestoreError> = listener.streamFromListener;
