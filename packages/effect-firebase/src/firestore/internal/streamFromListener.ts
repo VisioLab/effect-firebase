@@ -1,15 +1,11 @@
 import { Cause, Effect, Queue, Result, Stream } from "effect";
+import type * as Firestore from "../Firestore.ts";
 import type { FirestoreError } from "./firestoreError.ts";
 
 /** @internal */
-export const streamFromListener = <S, A>(options: {
-  readonly subscribe: (
-    onNext: (snapshot: S) => void,
-    onError: (error: unknown) => void,
-  ) => () => void;
-  readonly onError: (error: unknown) => FirestoreError;
-  readonly map: (snapshot: S) => Result.Result<A, FirestoreError>;
-}): Stream.Stream<A, FirestoreError> =>
+export const streamFromListener = <S, A>(
+  options: Firestore.StreamFromListenerOptions<S, A>,
+): Stream.Stream<A, FirestoreError> =>
   Stream.callback<A, FirestoreError>(
     (queue) =>
       Effect.acquireRelease(

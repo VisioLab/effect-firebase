@@ -14,9 +14,9 @@ import type * as FirestoreModel from "./FirestoreModel.ts";
 import type { FirestoreValue } from "./FirestoreValue.ts";
 import * as firestore from "./internal/firestore.ts";
 import type { FirestoreError, UndefinedCollectionError } from "./internal/firestoreError.ts";
-import * as transactionBridge from "./internal/transactionFromCallback.ts";
+import * as internalStreamFromListener from "./internal/streamFromListener.ts";
+import * as internalTransactionFromCallback from "./internal/transactionFromCallback.ts";
 import type * as QuerySnapshot from "./QuerySnapshot.ts";
-import * as listener from "./internal/streamFromListener.ts";
 
 export {
   /**
@@ -743,12 +743,34 @@ export interface TransactionFromCallbackOptions<T> {
  * ```
  *
  * @stability unstable
- * @category transactions
+ * @category constructors
  * @since 0.3.0
  */
 export const transactionFromCallback: <T>(
   options: TransactionFromCallbackOptions<T>,
-) => MakeOptions["runTransaction"] = transactionBridge.transactionFromCallback;
+) => MakeOptions["runTransaction"] = internalTransactionFromCallback.transactionFromCallback;
+
+/**
+ * How {@link streamFromListener} listens through an SDK listener.
+ *
+ * `S` is the snapshot the SDK's listener hears, and `A` what the stream emits
+ * for it.
+ *
+ * @stability unstable
+ * @category options
+ * @since 0.3.0
+ */
+export interface StreamFromListenerOptions<S, A> {
+  /** Attaches a listener, handing back the function that detaches it. */
+  readonly subscribe: (
+    onNext: (snapshot: S) => void,
+    onError: (error: unknown) => void,
+  ) => () => void;
+  /** Builds the error the stream fails with from what the listener heard. */
+  readonly onError: (error: unknown) => FirestoreError;
+  /** Maps a snapshot the listener heard to what the stream emits. */
+  readonly map: (snapshot: S) => Result.Result<A, FirestoreError>;
+}
 
 /**
  * Builds the stream of a listen hook, such as {@link MakeOptions.streamDoc},
@@ -774,14 +796,6 @@ export const transactionFromCallback: <T>(
  * @category constructors
  * @since 0.3.0
  */
-export const streamFromListener: <S, A>(options: {
-  /** Attaches a listener, handing back the function that detaches it. */
-  readonly subscribe: (
-    onNext: (snapshot: S) => void,
-    onError: (error: unknown) => void,
-  ) => () => void;
-  /** Builds the error the stream fails with from what the listener heard. */
-  readonly onError: (error: unknown) => FirestoreError;
-  /** Maps a snapshot the listener heard to what the stream emits. */
-  readonly map: (snapshot: S) => Result.Result<A, FirestoreError>;
-}) => Stream.Stream<A, FirestoreError> = listener.streamFromListener;
+export const streamFromListener: <S, A>(
+  options: StreamFromListenerOptions<S, A>,
+) => Stream.Stream<A, FirestoreError> = internalStreamFromListener.streamFromListener;
