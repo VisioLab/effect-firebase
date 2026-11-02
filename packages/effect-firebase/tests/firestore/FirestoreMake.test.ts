@@ -1,5 +1,5 @@
 import { assert, describe, expect, it } from "@effect/vitest";
-import { Context, Effect, Option, Schema, Stream, type Tracer } from "effect";
+import { Context, Effect, Option, Schema, SchemaGetter, Stream, type Tracer } from "effect";
 import * as Collection from "../../src/firestore/Collection.ts";
 import * as CollectionGroup from "../../src/firestore/CollectionGroup.ts";
 import * as DocumentSnapshot from "../../src/firestore/DocumentSnapshot.ts";
@@ -351,6 +351,36 @@ describe("writes", () => {
 
       yield* firestore.updateDoc(Shops.doc(corner), patch, { mode: "unchecked" });
       expect(writes).toEqual([["updateDoc", "shops/corner", { "address.city": "Berlin" }]]);
+    }),
+  );
+
+  it.effect("encodes each write through the services the caller provides for the model", () =>
+    Effect.gen(function* () {
+      const Secrets = Context.Service<{ readonly seal: (value: string) => string }>("test/Secrets");
+      const Sealed = Schema.String.pipe(
+        Schema.decodeTo(Schema.String, {
+          decode: SchemaGetter.transform((s: string) => s),
+          encode: SchemaGetter.transformEffect((value: string) =>
+            Effect.map(Secrets, (secrets) => secrets.seal(value)),
+          ),
+        }),
+      );
+      class Vault extends FirestoreModel.Class<Vault>("Vault")({ token: Sealed }) {}
+      const Vaults = Collection.make("vaults", Vault);
+      const main = Vaults.doc(Vaults.id.make("main"));
+      const { firestore, writes } = recording();
+
+      yield* Effect.all([
+        firestore.setDoc(main, { token: "a" }),
+        firestore.addDoc(Vaults.collection(), { token: "b" }),
+        firestore.updateDoc(main, { token: "c" }),
+      ]).pipe(Effect.provideService(Secrets, { seal: (value) => `sealed:${value}` }));
+
+      expect(writes).toEqual([
+        ["setDoc", "vaults/main", { token: "sealed:a" }],
+        ["addDoc", "vaults", { token: "sealed:b" }],
+        ["updateDoc", "vaults/main", { token: "sealed:c" }],
+      ]);
     }),
   );
 
