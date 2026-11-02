@@ -1,7 +1,7 @@
 import { Inspectable, Option, Predicate, Result } from "effect";
 import type * as Collection from "../Collection.ts";
 import type * as CollectionGroup from "../CollectionGroup.ts";
-import { UndefinedCollectionError } from "../Firestore.ts";
+import { UndefinedCollectionError } from "./firestoreError.ts";
 import * as collection from "./collection.ts";
 
 /** @internal */

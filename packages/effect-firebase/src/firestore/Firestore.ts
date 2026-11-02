@@ -4,63 +4,47 @@
  * @stability unstable
  * @since 0.2.0
  */
-import { Context, Schema } from "effect";
-import type { Effect, Stream } from "effect";
+import { Context } from "effect";
+import type { Effect, Schema, Stream } from "effect";
+import type * as Result from "effect/Result";
 import type * as Collection from "./Collection.ts";
 import type * as CollectionGroup from "./CollectionGroup.ts";
 import type * as DocumentSnapshot from "./DocumentSnapshot.ts";
 import type * as FirestoreModel from "./FirestoreModel.ts";
+import type { FirestoreValue } from "./FirestoreValue.ts";
+import * as firestore from "./internal/firestore.ts";
+import type { FirestoreError, UndefinedCollectionError } from "./internal/firestoreError.ts";
+import * as internalStreamFromListener from "./internal/streamFromListener.ts";
+import * as internalTransactionFromCallback from "./internal/transactionFromCallback.ts";
 import type * as QuerySnapshot from "./QuerySnapshot.ts";
 
-/**
- * Raised when a Firestore call fails.
- *
- * @stability unstable
- * @category errors
- * @since 0.2.0
- */
-export class FirestoreError extends Schema.TaggedError<
-  FirestoreError,
-  { readonly brand: unique symbol }
->()("FirestoreError", {
-  message: Schema.String,
+export {
   /**
-   * The code the SDK reported, where it reported one it can be named by.
+   * Raised when a Firestore call fails.
    *
-   * The client SDK names every failure, such as `permission-denied`. The Admin
-   * SDK answers for Firestore over gRPC, which numbers its statuses rather than
-   * naming them, so there this is often absent even where something went wrong
-   * at the database.
+   * @stability unstable
+   * @category errors
+   * @since 0.2.0
    */
-  code: Schema.optional(Schema.String),
-  cause: Schema.optional(Schema.Defect()),
-}) {}
-
-/**
- * Raised when a read of a {@link CollectionGroup.CollectionGroup} finds a
- * document under the group's collection id at a path none of its collections
- * define, such as a root-level `posts` when the group is made of
- * `users/{id}/posts`.
- *
- * It is apart from {@link FirestoreError} because the call to Firestore
- * succeeded: it is the data that contradicts the model. It is an error rather
- * than a defect because what is in the database decides whether it happens, so
- * correct code cannot rule it out. A caller who treats it as a bug can `orDie`
- * it.
- *
- * @stability unstable
- * @category errors
- * @since 0.2.0
- */
-export class UndefinedCollectionError extends Schema.TaggedError<
+  FirestoreError,
+  /**
+   * Raised when a read of a {@link CollectionGroup.CollectionGroup} finds a
+   * document under the group's collection id at a path none of its
+   * collections define, such as a root-level `posts` when the group is made of
+   * `users/{id}/posts`.
+   *
+   * It is apart from {@link FirestoreError} because the call to Firestore
+   * succeeded: it is the data that contradicts the model. It is an error
+   * rather than a defect because what is in the database decides whether it
+   * happens, so correct code cannot rule it out. A caller who treats it as a
+   * bug can `orDie` it.
+   *
+   * @stability unstable
+   * @category errors
+   * @since 0.2.0
+   */
   UndefinedCollectionError,
-  { readonly brand: unique symbol }
->()("UndefinedCollectionError", {
-  /** The full path of the document no collection of the group defines. */
-  path: Schema.String,
-  /** The collection id of the group that was read. */
-  collectionId: Schema.String,
-}) {}
+} from "./internal/firestoreError.ts";
 
 /**
  * What writing a whole document in `C` takes: the `create` shape of the
@@ -420,3 +404,406 @@ export interface Firestore {
 export const Firestore = Context.Service<Firestore>(
   "@visiolab/effect-firebase/firestore/Firestore",
 );
+
+/**
+ * What a read of many documents reads from, as a {@link MakeOptions} hook is
+ * handed it: one collection, by its path, or every collection with one
+ * collection id, wherever it sits.
+ *
+ * {@link make} builds it from the collection reference or
+ * {@link CollectionGroup.CollectionGroup} the caller read, and keeps the group
+ * itself, so a hook only builds its backend's query from it.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export type CollectionSelector =
+  | {
+      readonly _tag: "Collection";
+      /** The collection's path, such as `users/alice/posts`. */
+      readonly path: string;
+    }
+  | {
+      readonly _tag: "CollectionGroup";
+      /** The collection id every collection read shares, such as `posts`. */
+      readonly id: string;
+    };
+
+/**
+ * A document's data as a {@link MakeOptions} hook reads and writes it: a map of
+ * Firestore Values.
+ *
+ * Written, it is either a whole document, for a create, or a map from field
+ * paths, such as `address.city`, to the values written there, for an update.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export type DocumentData = { readonly [field: string]: FirestoreValue };
+
+/**
+ * What a {@link MakeOptions} hook read for one document.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export interface DocumentRead {
+  /**
+   * The document's data, or `undefined` when it is not there. Data that is
+   * not made of Firestore Values fails the read with a {@link FirestoreError}.
+   */
+  readonly data: DocumentData | undefined;
+  /**
+   * What the backend knows about the read beyond the portable snapshot. Each
+   * of its fields is put on the snapshot, and shown when it prints, as
+   * {@link DocumentSnapshot.make} does with an `extra`. Its fields must not be
+   * named like the snapshot's own.
+   */
+  readonly extra?: object | undefined;
+}
+
+/**
+ * What a {@link MakeOptions} hook read for one document of many: always one
+ * that is there.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export interface QueryDocumentRead {
+  /**
+   * The document's full path, such as `users/alice/posts/hello`. It is what
+   * matches a document of a Collection Group back to the collection it lives
+   * in.
+   */
+  readonly path: string;
+  /** The document's data, as for {@link DocumentRead.data}. */
+  readonly data: DocumentData;
+  /** As for {@link DocumentRead.extra}. */
+  readonly extra?: object | undefined;
+}
+
+/**
+ * What a {@link MakeOptions} hook read for many documents.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export interface QueryRead {
+  /** Every document read. */
+  readonly docs: ReadonlyArray<QueryDocumentRead>;
+  /**
+   * What the backend knows about the read as a whole, put on the
+   * {@link QuerySnapshot.QuerySnapshot} as {@link QuerySnapshot.make} does
+   * with an `extra`.
+   */
+  readonly extra?: object | undefined;
+}
+
+/**
+ * The reads and writes of one attempt at a transaction, which the
+ * {@link MakeOptions.runTransaction} hook hands the body: {@link make} builds
+ * the {@link Transaction} the body reads and writes through from them.
+ *
+ * Writes into a transaction are queued until it commits, so a backend may
+ * answer them straight away.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export interface TransactionOperations {
+  /** Reads the document at `path` as part of the transaction. */
+  readonly getDoc: (path: string) => Effect.Effect<DocumentRead, FirestoreError>;
+  /** Queues a write of the whole document at `path`. */
+  readonly setDoc: (path: string, data: DocumentData) => Effect.Effect<void, FirestoreError>;
+  /** Queues an update of the document at `path`, `data` keyed by field path. */
+  readonly updateDoc: (path: string, data: DocumentData) => Effect.Effect<void, FirestoreError>;
+  /**
+   * Reads many documents as part of the transaction, for a backend that can.
+   * Where it is given, the transaction {@link make} builds has a `getDocs` that
+   * reads through it as {@link Firestore.getDocs} does, for
+   * {@link MakeOptions.transactionContext} to offer under a tag of its own.
+   */
+  readonly getDocs?:
+    | ((selector: CollectionSelector) => Effect.Effect<QueryRead, FirestoreError>)
+    | undefined;
+}
+
+/**
+ * The transaction {@link make} builds from {@link TransactionOperations}: the
+ * {@link Transaction} a body reads and writes through, with a `getDocs` where
+ * the operations read many documents.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export interface TransactionWithGetDocs extends Transaction {
+  /** Present exactly where {@link TransactionOperations.getDocs} is. */
+  readonly getDocs?: Firestore["getDocs"] | undefined;
+}
+
+/**
+ * The options the {@link MakeOptions.runTransaction} hook is handed.
+ *
+ * `maxAttempts` is only there where the caller set it, so a backend that
+ * passes these on as they are keeps its own default otherwise. The client
+ * SDK, for one, turns retrying off for a `maxAttempts` that is there but
+ * `undefined`.
+ *
+ * @stability unstable
+ * @category options
+ * @since 0.3.0
+ */
+export interface TransactionHookOptions {
+  readonly maxAttempts?: number;
+}
+
+/**
+ * The hooks {@link make} builds a {@link Firestore} from.
+ *
+ * Each speaks in Firestore's own terms - document paths, a
+ * {@link CollectionSelector} and {@link DocumentData} - and maps between its
+ * backend's values and Firestore Values. Each returns an `Effect`, or a
+ * `Stream` for listening, that fails with a {@link FirestoreError} it builds
+ * from what its backend raised, with the backend's `code` and `cause`:
+ * {@link make} hands that error on as it is.
+ *
+ * `ReadOptions` and `ListenOptions` are what a backend's richer service takes
+ * on top of the portable reads and listens, such as the client's read source.
+ * Whatever the caller passed is handed to the hook as it is, or `undefined`.
+ *
+ * @stability unstable
+ * @category options
+ * @since 0.3.0
+ */
+export interface MakeOptions<ReadOptions = never, ListenOptions = never> {
+  /** Reads the document at `path`. Backs {@link Firestore.getDoc}. */
+  readonly getDoc: (
+    path: string,
+    options: ReadOptions | undefined,
+  ) => Effect.Effect<DocumentRead, FirestoreError>;
+
+  /**
+   * Reads every document `selector` names. Backs {@link Firestore.getDocs},
+   * which matches each document of a Collection Group to its collection.
+   */
+  readonly getDocs: (
+    selector: CollectionSelector,
+    options: ReadOptions | undefined,
+  ) => Effect.Effect<QueryRead, FirestoreError>;
+
+  /**
+   * Writes the whole document at `path`, replacing whatever was there. Backs
+   * {@link Firestore.setDoc}.
+   */
+  readonly setDoc: (path: string, data: DocumentData) => Effect.Effect<void, FirestoreError>;
+
+  /**
+   * Updates the document at `path`, `data` keyed by field path. Backs
+   * {@link Firestore.updateDoc}.
+   */
+  readonly updateDoc: (path: string, data: DocumentData) => Effect.Effect<void, FirestoreError>;
+
+  /**
+   * Writes a document under a new id in the collection at `path`, and hands
+   * back that id. Backs {@link Firestore.addDoc}.
+   */
+  readonly addDoc: (path: string, data: DocumentData) => Effect.Effect<string, FirestoreError>;
+
+  /**
+   * Listens to the document at `path`, emitting what it read each time it
+   * changes. Backs {@link Firestore.streamDoc}.
+   *
+   * Running the stream should attach a listener of its own, and stopping it
+   * detach that listener, keeping only the latest read for a reader that falls
+   * behind.
+   */
+  readonly streamDoc: (
+    path: string,
+    options: ListenOptions | undefined,
+  ) => Stream.Stream<DocumentRead, FirestoreError>;
+
+  /**
+   * Listens to every document `selector` names, as
+   * {@link MakeOptions.streamDoc} listens to one. Backs
+   * {@link Firestore.streamDocs}.
+   */
+  readonly streamDocs: (
+    selector: CollectionSelector,
+    options: ListenOptions | undefined,
+  ) => Stream.Stream<QueryRead, FirestoreError>;
+
+  /**
+   * Runs `body` in a transaction, once per attempt, with that attempt's
+   * operations, and fails with what the body failed with or with a
+   * {@link FirestoreError} of its own. Backs {@link Firestore.runTransaction}.
+   *
+   * The body needs nothing from context: everything the caller's effect needs,
+   * the transaction's span included, is already provided to it, so it may run
+   * on a runtime of its own, such as inside an SDK's callback.
+   */
+  readonly runTransaction: <A, E>(
+    body: (operations: TransactionOperations) => Effect.Effect<A, E>,
+    options: TransactionHookOptions,
+  ) => Effect.Effect<A, E | FirestoreError>;
+
+  /**
+   * Further services a transaction body finds the transaction under, next to
+   * {@link Transaction}, such as a backend's own richer transaction. They hold
+   * the same object, so a body reads and writes through one transaction
+   * whichever tag it asks for.
+   */
+  readonly transactionContext?:
+    | ((transaction: TransactionWithGetDocs) => Context.Context<never>)
+    | undefined;
+}
+
+/**
+ * Builds a {@link Firestore} from the hooks of one backend.
+ *
+ * The hooks only move Firestore Values to and from the backend. Everything
+ * above them happens here, the same for every backend: encoding writes
+ * through the collection's model, in its `create` shape or its update shape
+ * for the mode asked for; decoding reads into snapshots, with any extra the
+ * hooks handed back; matching each document of a Collection Group to its
+ * collection; spans; and providing the {@link Transaction} a transaction body
+ * runs in.
+ *
+ * A backend's richer service widens what this returns, as an SDK package's
+ * does with its `instance`.
+ *
+ * ```ts
+ * const firestore = Firestore.make({
+ *   getDoc: (path) => Effect.succeed({ data: documents.get(path) }),
+ *   // ...and the other hooks.
+ * });
+ * ```
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.3.0
+ */
+export const make: <ReadOptions = never, ListenOptions = never>(
+  options: MakeOptions<ReadOptions, ListenOptions>,
+) => Firestore = (options) => firestore.make(options, Transaction);
+
+/**
+ * How {@link transactionFromCallback} drives a backend whose SDK runs a
+ * transaction as a callback, and retries it.
+ *
+ * `T` is the SDK's own transaction object, handed to each attempt.
+ *
+ * @stability unstable
+ * @category options
+ * @since 0.3.0
+ */
+export interface TransactionFromCallbackOptions<T> {
+  /**
+   * Runs `callback` in a transaction and retries it by the SDK's own rules,
+   * such as the Admin SDK's `firestore.runTransaction(callback, options)`.
+   * `options` are the hook's own, handed on as they are, so `maxAttempts` is
+   * only there where the caller set it.
+   */
+  readonly run: <A>(
+    callback: (transaction: T) => Promise<A>,
+    options: TransactionHookOptions,
+  ) => Promise<A>;
+  /** The reads and writes of one attempt, over the SDK's transaction. */
+  readonly operations: (transaction: T) => TransactionOperations;
+  /**
+   * The error for what `run` rejected with that has nothing to do with the
+   * body, such as a failed commit, with the SDK's `code` and `cause`.
+   */
+  readonly onError: (cause: unknown) => FirestoreError;
+}
+
+/**
+ * Builds the {@link MakeOptions.runTransaction} hook for an SDK that runs a
+ * callback in a transaction and retries it, the counterpart of Effect's
+ * `SqlClient.makeWithTransaction`.
+ *
+ * Each attempt runs the body over that attempt's operations, and what the
+ * callback throws for a failed body decides whether the SDK retries it:
+ *
+ * - A {@link FirestoreError} with a `cause` throws that cause, so the SDK
+ *   retries by its own rules, as for a read answered with ABORTED.
+ * - Any other failure throws a marker without a `code`, which the SDK never
+ *   retries, even for a body's own error that carries one.
+ *
+ * A failure the SDK hands back without retrying it comes back as the body's
+ * own, unwrapped. Anything else the SDK rejects with goes through `onError`.
+ * Interrupting the transaction interrupts the body, and waits for the SDK to
+ * roll back.
+ *
+ * ```ts
+ * const runTransaction = Firestore.transactionFromCallback({
+ *   run: (callback, options) => db.runTransaction(callback, options),
+ *   operations: (tx) => ({ getDoc, setDoc, updateDoc }),
+ *   onError: (cause) =>
+ *     new Firestore.FirestoreError({ message: "Failed to run a transaction", cause }),
+ * });
+ * ```
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.3.0
+ */
+export const transactionFromCallback: <T>(
+  options: TransactionFromCallbackOptions<T>,
+) => MakeOptions["runTransaction"] = internalTransactionFromCallback.transactionFromCallback;
+
+/**
+ * How {@link streamFromListener} listens through an SDK listener.
+ *
+ * `S` is the snapshot the SDK's listener hears, and `A` what the stream emits
+ * for it.
+ *
+ * @stability unstable
+ * @category options
+ * @since 0.3.0
+ */
+export interface StreamFromListenerOptions<S, A> {
+  /** Attaches a listener, handing back the function that detaches it. */
+  readonly subscribe: (
+    onNext: (snapshot: S) => void,
+    onError: (error: unknown) => void,
+  ) => () => void;
+  /** Builds the error the stream fails with from what the listener heard. */
+  readonly onError: (error: unknown) => FirestoreError;
+  /** Maps a snapshot the listener heard to what the stream emits. */
+  readonly map: (snapshot: S) => Result.Result<A, FirestoreError>;
+}
+
+/**
+ * Builds the stream of a listen hook, such as {@link MakeOptions.streamDoc},
+ * from an SDK listener that hands back a function to stop listening.
+ *
+ * Each run of the stream attaches a listener of its own through `subscribe`,
+ * and detaches it when the run stops. A reader that falls behind sees only the
+ * latest snapshot. `map` turns each snapshot the listener hears into what the
+ * stream emits, and a snapshot it fails on fails the stream rather than
+ * throwing back into the SDK. An error the listener hears fails the stream
+ * with what `onError` builds from it.
+ *
+ * ```ts
+ * streamDoc: (path) =>
+ *   Firestore.streamFromListener({
+ *     subscribe: (onNext, onError) => sdk.doc(path).onSnapshot(onNext, onError),
+ *     onError: (cause) => new Firestore.FirestoreError({ message: `Failed to listen to "${path}"`, cause }),
+ *     map: (snapshot) => Result.map(readDocument(path, snapshot.data()), (data) => ({ data })),
+ *   }),
+ * ```
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.3.0
+ */
+export const streamFromListener: <S, A>(
+  options: StreamFromListenerOptions<S, A>,
+) => Stream.Stream<A, FirestoreError> = internalStreamFromListener.streamFromListener;

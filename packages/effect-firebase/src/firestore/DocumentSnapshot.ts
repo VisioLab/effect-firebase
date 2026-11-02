@@ -142,34 +142,64 @@ export const isMissing: <C extends Collection.Any>(
  * for one that is, so this is all an SDK needs to turn its own snapshot into
  * one of these.
  *
- * @stability unstable
- * @category constructors
- * @since 0.2.0
- */
-export const make: <C extends Collection.Any>(
-  ref: Collection.DocumentReference<C>,
-  data: unknown,
-) => DocumentSnapshot<C> = documentSnapshot.make;
-
-/**
- * A snapshot of a document known to be there, such as one a query returned.
+ * An SDK that knows more about the read than the portable snapshot holds, such
+ * as the client's `metadata`, passes it as `extra`: each of its fields is put
+ * on the snapshot, and shown when it prints. Its fields must not be named like
+ * the snapshot's own.
+ *
+ * ```ts
+ * const snapshot = DocumentSnapshot.make(Users.doc(alice), sdkSnapshot.data(), {
+ *   metadata: { fromCache: false, hasPendingWrites: false },
+ * });
+ *
+ * snapshot.metadata.fromCache; // false
+ * ```
  *
  * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
-export const existing: <C extends Collection.Any>(
-  ref: Collection.DocumentReference<C>,
-  data: unknown,
-) => Existing<C> = documentSnapshot.existing;
+export const make: {
+  <C extends Collection.Any>(
+    ref: Collection.DocumentReference<C>,
+    data: unknown,
+  ): DocumentSnapshot<C>;
+  <C extends Collection.Any, E extends object>(
+    ref: Collection.DocumentReference<C>,
+    data: unknown,
+    extra: E,
+  ): DocumentSnapshot<C> & E;
+} = documentSnapshot.make;
 
 /**
- * A snapshot of a document known not to be there.
+ * A snapshot of a document known to be there, such as one a query returned,
+ * with the fields of `extra`, when it is given, as for {@link make}.
  *
  * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
-export const missing: <C extends Collection.Any>(
-  ref: Collection.DocumentReference<C>,
-) => Missing<C> = documentSnapshot.missing;
+export const existing: {
+  <C extends Collection.Any>(ref: Collection.DocumentReference<C>, data: unknown): Existing<C>;
+  <C extends Collection.Any, E extends object>(
+    ref: Collection.DocumentReference<C>,
+    data: unknown,
+    extra: E,
+  ): Existing<C> & E;
+} = documentSnapshot.existing;
+
+/**
+ * A snapshot of a document known not to be there, with the fields of `extra`,
+ * when it is given, as for {@link make}.
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.2.0
+ */
+export const missing: {
+  <C extends Collection.Any>(ref: Collection.DocumentReference<C>): Missing<C>;
+  <C extends Collection.Any, E extends object>(
+    ref: Collection.DocumentReference<C>,
+    extra: E,
+  ): Missing<C> & E;
+} = documentSnapshot.missing;

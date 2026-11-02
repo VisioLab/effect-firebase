@@ -313,3 +313,76 @@ describe("Update", () => {
     expect(patch).type.toBeAssignableTo<Firestore.Update<typeof Profiles, "unchecked">>();
   });
 });
+
+declare const hooks: Firestore.MakeOptions;
+
+interface ReadOptions {
+  readonly source?: "server" | "cache";
+}
+interface ListenOptions {
+  readonly includeMetadataChanges?: boolean;
+}
+interface RichTransaction extends Firestore.Transaction {
+  readonly getDocs: Firestore.Firestore["getDocs"];
+}
+const RichTransaction = Context.Service<RichTransaction>("RichTransaction");
+
+declare const richHooks: Firestore.MakeOptions<ReadOptions, ListenOptions>;
+
+describe("make", () => {
+  test("builds the portable Firestore", () => {
+    expect(Firestore.make(hooks)).type.toBe<Firestore.Firestore>();
+  });
+
+  test("leaves the services a document encodes through to the caller of each write", () => {
+    const made = Firestore.make(hooks);
+    const set = made.setDoc(Secret.doc(Secret.id.make("a")), { token: "t" });
+    const add = made.addDoc(Secret.collection(), { token: "t" });
+    const update = made.updateDoc(Secret.doc(Secret.id.make("a")), { token: "t" });
+    expect<Effect.Services<typeof set>>().type.toBe<Secrets>();
+    expect<Effect.Services<typeof add>>().type.toBe<Secrets>();
+    expect<Effect.Services<typeof update>>().type.toBe<Secrets>();
+  });
+
+  test("hands the read and listen hooks the options a richer service takes", () => {
+    expect(
+      Firestore.make({
+        ...richHooks,
+        getDoc: (path, options) => {
+          expect(options).type.toBe<ReadOptions | undefined>();
+          return Effect.succeed({ data: undefined });
+        },
+        streamDoc: (path, options) => {
+          expect(options).type.toBe<ListenOptions | undefined>();
+          return richHooks.streamDoc(path, options);
+        },
+      }),
+    ).type.toBe<Firestore.Firestore>();
+  });
+
+  test("hands the read and listen hooks only undefined where no options are named", () => {
+    void Firestore.make({
+      ...hooks,
+      getDocs: (selector, options) => {
+        expect(options).type.toBe<undefined>();
+        return hooks.getDocs(selector, options);
+      },
+    });
+  });
+
+  test("takes a transactionContext offering the transaction under a tag of its own", () => {
+    void Firestore.make({
+      ...hooks,
+      transactionContext: (transaction) =>
+        Context.make(RichTransaction, transaction as RichTransaction),
+    });
+  });
+
+  test("refuses a hook failing with anything but a FirestoreError", () => {
+    void Firestore.make({
+      ...hooks,
+      // @ts-expect-error Type 'string' is not assignable to type 'FirestoreError'
+      setDoc: () => Effect.fail("nope"), // oxlint-disable-line effecttsgo/missing-effect-error
+    });
+  });
+});

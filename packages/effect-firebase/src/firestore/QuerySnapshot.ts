@@ -73,10 +73,19 @@ export const isQuerySnapshot: (u: unknown) => u is QuerySnapshot<Collection.Any>
 /**
  * A snapshot of the documents a read of many found.
  *
+ * An SDK that knows more about the read as a whole, such as the client's
+ * `metadata`, passes it as `extra`: each of its fields is put on the snapshot,
+ * and shown when it prints, as {@link DocumentSnapshot.make} does for one
+ * document. Its fields must not be named like the snapshot's own.
+ *
  * @stability unstable
  * @category constructors
  * @since 0.2.0
  */
-export const make: <C extends Collection.Any>(
-  docs: ReadonlyArray<DocumentSnapshot.Existing<C>>,
-) => QuerySnapshot<C> = querySnapshot.make;
+export const make: {
+  <C extends Collection.Any>(docs: ReadonlyArray<DocumentSnapshot.Existing<C>>): QuerySnapshot<C>;
+  <C extends Collection.Any, E extends object>(
+    docs: ReadonlyArray<DocumentSnapshot.Existing<C>>,
+    extra: E,
+  ): QuerySnapshot<C> & E;
+} = querySnapshot.make;

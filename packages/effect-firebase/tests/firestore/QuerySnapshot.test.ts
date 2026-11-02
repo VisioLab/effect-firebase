@@ -49,3 +49,31 @@ describe("toJSON", () => {
     });
   });
 });
+
+describe("extra", () => {
+  it("is carried by a query snapshot, and shown when it prints next to its documents' own", () => {
+    const carol = DocumentSnapshot.existing(
+      Users.doc(Users.id.make("carol")),
+      { name: "Carol" },
+      { metadata: { fromCache: false, hasPendingWrites: true } },
+    );
+    const snapshot = QuerySnapshot.make([carol], {
+      metadata: { fromCache: true, hasPendingWrites: false },
+    });
+    expect(snapshot.metadata).toEqual({ fromCache: true, hasPendingWrites: false });
+    expect(snapshot.docs[0]).toBe(carol);
+    expect(snapshot.toJSON()).toEqual({
+      _id: "QuerySnapshot",
+      docs: [
+        {
+          _id: "DocumentSnapshot",
+          _tag: "Existing",
+          ref: "users/carol",
+          raw: { name: "Carol" },
+          metadata: { fromCache: false, hasPendingWrites: true },
+        },
+      ],
+      metadata: { fromCache: true, hasPendingWrites: false },
+    });
+  });
+});
