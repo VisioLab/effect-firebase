@@ -13,6 +13,7 @@ import type * as FirestoreModel from "./FirestoreModel.ts";
 import type { FirestoreValue } from "./FirestoreValue.ts";
 import * as firestore from "./internal/firestore.ts";
 import type { FirestoreError, UndefinedCollectionError } from "./internal/firestoreError.ts";
+import * as transactionBridge from "./internal/transactionFromCallback.ts";
 import type * as QuerySnapshot from "./QuerySnapshot.ts";
 
 export {
@@ -681,3 +682,68 @@ export interface MakeOptions<ReadOptions = never, ListenOptions = never> {
 export const make: <ReadOptions = never, ListenOptions = never>(
   options: MakeOptions<ReadOptions, ListenOptions>,
 ) => Firestore = (options) => firestore.make(options, Transaction);
+
+/**
+ * How {@link transactionFromCallback} drives a backend whose SDK runs a
+ * transaction as a callback, and retries it.
+ *
+ * `T` is the SDK's own transaction object, handed to each attempt.
+ *
+ * @stability unstable
+ * @category options
+ * @since 0.3.0
+ */
+export interface TransactionFromCallbackOptions<T> {
+  /**
+   * Runs `callback` in a transaction and retries it by the SDK's own rules,
+   * such as the Admin SDK's `firestore.runTransaction(callback, options)`.
+   * `options` are the hook's own, handed on as they are, so `maxAttempts` is
+   * only there where the caller set it.
+   */
+  readonly run: <A>(
+    callback: (transaction: T) => Promise<A>,
+    options: TransactionHookOptions,
+  ) => Promise<A>;
+  /** The reads and writes of one attempt, over the SDK's transaction. */
+  readonly operations: (transaction: T) => TransactionOperations;
+  /**
+   * The error for what `run` rejected with that has nothing to do with the
+   * body, such as a failed commit, with the SDK's `code` and `cause`.
+   */
+  readonly onError: (cause: unknown) => FirestoreError;
+}
+
+/**
+ * Builds the {@link MakeOptions.runTransaction} hook for an SDK that runs a
+ * callback in a transaction and retries it, the counterpart of Effect's
+ * `SqlClient.makeWithTransaction`.
+ *
+ * Each attempt runs the body over that attempt's operations, and what the
+ * callback throws for a failed body decides whether the SDK retries it:
+ *
+ * - A {@link FirestoreError} with a `cause` throws that cause, so the SDK
+ *   retries by its own rules, as for a read answered with ABORTED.
+ * - Any other failure throws a marker without a `code`, which the SDK never
+ *   retries, even for a body's own error that carries one.
+ *
+ * A failure the SDK hands back without retrying it comes back as the body's
+ * own, unwrapped. Anything else the SDK rejects with goes through `onError`.
+ * Interrupting the transaction interrupts the body, and waits for the SDK to
+ * roll back.
+ *
+ * ```ts
+ * const runTransaction = Firestore.transactionFromCallback({
+ *   run: (callback, options) => db.runTransaction(callback, options),
+ *   operations: (tx) => ({ getDoc, setDoc, updateDoc }),
+ *   onError: (cause) =>
+ *     new Firestore.FirestoreError({ message: "Failed to run a transaction", cause }),
+ * });
+ * ```
+ *
+ * @stability unstable
+ * @category transactions
+ * @since 0.3.0
+ */
+export const transactionFromCallback: <T>(
+  options: TransactionFromCallbackOptions<T>,
+) => MakeOptions["runTransaction"] = transactionBridge.transactionFromCallback;
