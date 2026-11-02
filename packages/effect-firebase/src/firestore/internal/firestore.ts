@@ -118,28 +118,15 @@ const encodeUpdate = <C extends Collection.Any, Mode extends FirestoreModel.Upda
 
 /**
  * Where reads and writes go: straight to the database, or into one attempt at
- * a transaction. `name` prefixes the span of each.
+ * a transaction, through the hooks of {@link Firestore.MakeOptions}, with
+ * `getDocs` only where the backend can read many documents there. `name`
+ * prefixes the span of each.
  */
-interface Target<ReadOptions> {
+interface Target<ReadOptions>
+  extends
+    Pick<Firestore.MakeOptions<ReadOptions>, "getDoc" | "setDoc" | "updateDoc">,
+    Partial<Pick<Firestore.MakeOptions<ReadOptions>, "getDocs">> {
   readonly name: string;
-  readonly getDoc: (
-    path: string,
-    options: ReadOptions | undefined,
-  ) => Effect.Effect<Firestore.DocumentRead, Firestore.FirestoreError>;
-  readonly getDocs?:
-    | ((
-        selector: Firestore.CollectionSelector,
-        options: ReadOptions | undefined,
-      ) => Effect.Effect<Firestore.QueryRead, Firestore.FirestoreError>)
-    | undefined;
-  readonly setDoc: (
-    path: string,
-    data: Firestore.DocumentData,
-  ) => Effect.Effect<void, Firestore.FirestoreError>;
-  readonly updateDoc: (
-    path: string,
-    data: Firestore.DocumentData,
-  ) => Effect.Effect<void, Firestore.FirestoreError>;
 }
 
 /**
