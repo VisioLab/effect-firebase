@@ -5,7 +5,7 @@
  * kind of value in {@link kinds} becomes the SDK's own, and back.
  */
 import { Equal, Result } from "effect";
-import { FirestoreError } from "../Firestore.ts";
+import { FirestoreError } from "./firestoreError.ts";
 import type * as FirestoreValue from "../FirestoreValue.ts";
 import * as documentPath from "./documentPath.ts";
 import * as fieldValue from "./fieldValue.ts";
@@ -324,3 +324,26 @@ export const readDocument = (
             cause: error.cause,
           }),
       );
+
+/**
+ * Reads Firestore Values as they are, walking into the values a kind holds,
+ * so that only a value outside the union fails.
+ */
+const asIs: Reader = (u, { walk }) => {
+  const kind = kindOf(u);
+  if (kind === "arrayUnion" || kind === "arrayRemove") {
+    (u as Kinds["arrayUnion"]).elements.forEach((element, i) => walk(element, i));
+  }
+  return kind === undefined ? undefined : (u as FirestoreValue.FirestoreValue);
+};
+
+/**
+ * Checks that what a backend read for the document at `path` is made of
+ * Firestore Values, failing as {@link readDocument} does on one that is not.
+ * It hands back `data` itself, so `undefined` - a document that is not there -
+ * stays as it is.
+ *
+ * @internal
+ */
+export const checkDocument = <A>(path: string, data: A): Result.Result<A, FirestoreError> =>
+  Result.map(readDocument(path, data, asIs), () => data);
