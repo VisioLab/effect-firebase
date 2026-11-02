@@ -372,7 +372,7 @@ describe("make", () => {
     void Firestore.make({
       ...hooks,
       // @ts-expect-error Type 'string' is not assignable to type 'FirestoreError'
-      setDoc: () => Effect.fail("nope"),
+      setDoc: () => Effect.fail("nope"), // oxlint-disable-line effecttsgo/missing-effect-error
     });
   });
 });
