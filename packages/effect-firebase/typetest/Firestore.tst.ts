@@ -334,6 +334,16 @@ describe("make", () => {
     expect(Firestore.make(hooks)).type.toBe<Firestore.Firestore>();
   });
 
+  test("leaves the services a document encodes through to the caller of each write", () => {
+    const made = Firestore.make(hooks);
+    const set = made.setDoc(Secret.doc(Secret.id.make("a")), { token: "t" });
+    const add = made.addDoc(Secret.collection(), { token: "t" });
+    const update = made.updateDoc(Secret.doc(Secret.id.make("a")), { token: "t" });
+    expect<Effect.Services<typeof set>>().type.toBe<Secrets>();
+    expect<Effect.Services<typeof add>>().type.toBe<Secrets>();
+    expect<Effect.Services<typeof update>>().type.toBe<Secrets>();
+  });
+
   test("hands the read and listen hooks the options a richer service takes", () => {
     expect(
       Firestore.make({
