@@ -215,7 +215,9 @@ export const fromDatabase = (
     }),
   });
 
-  // Every transaction body is handed the Admin Transaction too, which is what
-  // the restated `runTransaction` takes out of what it asks for.
-  return Object.assign(service, { instance: firestore }) as AdminFirestore.AdminFirestore;
+  // `make` infers from the transaction hook's `context` that every body is
+  // handed the Admin Transaction too, so the Admin interface is checked
+  // against what it built here.
+  const admin: AdminFirestore.AdminFirestore = Object.assign(service, { instance: firestore });
+  return admin;
 };

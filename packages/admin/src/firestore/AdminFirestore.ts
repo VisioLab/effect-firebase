@@ -10,12 +10,8 @@
  * @since 0.2.0
  */
 import { Context, Effect, Layer } from "effect";
-import { Firestore } from "@visiolab/effect-firebase/firestore/Firestore";
-import type {
-  FirestoreError,
-  Transaction,
-  TransactionOptions,
-} from "@visiolab/effect-firebase/firestore/Firestore";
+import { Firestore, type With } from "@visiolab/effect-firebase/firestore/Firestore";
+import type { Transaction } from "@visiolab/effect-firebase/firestore/Firestore";
 import type * as Admin from "firebase-admin/firestore";
 import type * as App from "../App.ts";
 import * as internalFirestore from "./internal/firestore.ts";
@@ -24,13 +20,17 @@ import * as internalFirestore from "./internal/firestore.ts";
  * A {@link Firestore} that also offers what only the Admin SDK can do.
  *
  * It only ever widens {@link Firestore}, so it can be handed to portable code
- * as it is.
+ * as it is. A {@link Firestore.runTransaction} body finds its transaction both
+ * as the {@link AdminTransaction} and as the portable {@link Transaction}: the
+ * same transaction, so portable transaction helpers and ones that need the
+ * Admin SDK can run in the same body, and neither is left for the caller to
+ * provide.
  *
  * @stability unstable
  * @category models
  * @since 0.2.0
  */
-export interface AdminFirestore extends Firestore {
+export interface AdminFirestore extends With<never, never, {}, AdminTransaction> {
   /**
    * The Admin SDK's own Firestore, for the database the service was opened
    * on.
@@ -39,20 +39,6 @@ export interface AdminFirestore extends Firestore {
    * collection's model and comes back as the SDK's own values and errors.
    */
   readonly instance: Admin.Firestore;
-
-  /**
-   * Runs `effect` in a transaction, as {@link Firestore.runTransaction} does,
-   * with the transaction provided both as the {@link AdminTransaction} and as
-   * the portable {@link Transaction}.
-   *
-   * Both are the same transaction, so portable transaction helpers and ones
-   * that need the Admin SDK can run in the same body, and neither is left for
-   * the caller to provide.
-   */
-  readonly runTransaction: <A, E, R>(
-    effect: Effect.Effect<A, E, R>,
-    options?: TransactionOptions,
-  ) => Effect.Effect<A, E | FirestoreError, Exclude<R, AdminTransaction | Transaction>>;
 }
 
 /**

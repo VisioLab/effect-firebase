@@ -10,22 +10,22 @@
  * @since 0.1.0
  */
 import { Context, Effect, Layer } from "effect";
-import type { Stream } from "effect";
-import { Firestore } from "@visiolab/effect-firebase/firestore/Firestore";
-import type {
-  FirestoreError,
-  UndefinedCollectionError,
-} from "@visiolab/effect-firebase/firestore/Firestore";
-import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
-import type * as CollectionGroup from "@visiolab/effect-firebase/firestore/CollectionGroup";
+import { Firestore, type With } from "@visiolab/effect-firebase/firestore/Firestore";
 import type { Firestore as SdkFirestore, FirestoreLocalCache } from "firebase/firestore";
 import type * as App from "../App.ts";
 import type * as ClientDocumentSnapshot from "./ClientDocumentSnapshot.ts";
-import type * as ClientQuerySnapshot from "./ClientQuerySnapshot.ts";
 import * as internalFirestore from "./internal/firestore.ts";
 
 /**
  * A {@link Firestore} that also offers what only the client SDK can do.
+ *
+ * Its reads take {@link ReadOptions} and its listens {@link ListenOptions}.
+ * Every document snapshot it hands back, each document of a query snapshot,
+ * and each query snapshot as a whole carry the
+ * {@link ClientDocumentSnapshot.SnapshotMetadata} of the read or of the
+ * snapshot the listener received, as a
+ * {@link ClientDocumentSnapshot.ClientDocumentSnapshot} or a
+ * `ClientQuerySnapshot` does.
  *
  * It is assignable wherever a {@link Firestore} is expected, so it can be
  * handed to portable code as is.
@@ -34,7 +34,11 @@ import * as internalFirestore from "./internal/firestore.ts";
  * @category models
  * @since 0.1.0
  */
-export interface ClientFirestore extends Firestore {
+export interface ClientFirestore extends With<
+  ReadOptions,
+  ListenOptions,
+  { readonly metadata: ClientDocumentSnapshot.SnapshotMetadata }
+> {
   /**
    * The client SDK's own Firestore object behind this service.
    *
@@ -42,99 +46,17 @@ export interface ClientFirestore extends Firestore {
    * on. What is done through it goes around the schemas and the typed errors.
    */
   readonly instance: SdkFirestore;
-
-  /**
-   * Reads one document, as {@link Firestore.getDoc} does, with the
-   * {@link ClientDocumentSnapshot.SnapshotMetadata} of the read.
-   *
-   * With `source: "cache"`, a document the cache has never seen fails with a
-   * `FirestoreError` whose code is `unavailable`: not being cached is not the
-   * same as not existing. One the cache knows was deleted reads as `Missing`.
-   *
-   * @see {@link ReadOptions} for where a read can be served from.
-   */
-  readonly getDoc: <C extends Collection.Any>(
-    ref: Collection.DocumentReference<C>,
-    options?: ReadOptions,
-  ) => Effect.Effect<ClientDocumentSnapshot.ClientDocumentSnapshot<C>, FirestoreError>;
-
-  /**
-   * Reads every document in one collection, or in a Collection Group, as
-   * {@link Firestore.getDocs} does, with the
-   * {@link ClientDocumentSnapshot.SnapshotMetadata} of the read as a whole and
-   * of each document.
-   *
-   * With `source: "cache"`, it never fails for what the cache lacks: it hands
-   * back whatever the cache holds, which may be nothing, with `fromCache:
-   * true`. Unlike {@link getDoc}, an empty result cannot tell "nothing cached"
-   * from "nothing there".
-   *
-   * @see {@link ReadOptions} for where a read can be served from.
-   */
-  readonly getDocs: {
-    /** Reads every document in the collection at `ref`. */
-    <C extends Collection.Any>(
-      ref: Collection.CollectionReference<C>,
-      options?: ReadOptions,
-    ): Effect.Effect<ClientQuerySnapshot.ClientQuerySnapshot<C>, FirestoreError>;
-    /**
-     * Reads every document of a {@link CollectionGroup.CollectionGroup}, as
-     * {@link Firestore.getDocs} does, failing with an
-     * {@link UndefinedCollectionError} on a document at a path none of its
-     * collections define.
-     */
-    <G extends CollectionGroup.Any>(
-      group: G,
-      options?: ReadOptions,
-    ): Effect.Effect<
-      ClientQuerySnapshot.ClientQuerySnapshot<CollectionGroup.Members<G>>,
-      FirestoreError | UndefinedCollectionError
-    >;
-  };
-
-  /**
-   * Listens to one document, as {@link Firestore.streamDoc} does, each
-   * snapshot with the {@link ClientDocumentSnapshot.SnapshotMetadata} it
-   * arrived with, listening as `options` says.
-   */
-  readonly streamDoc: <C extends Collection.Any>(
-    ref: Collection.DocumentReference<C>,
-    options?: ListenOptions,
-  ) => Stream.Stream<ClientDocumentSnapshot.ClientDocumentSnapshot<C>, FirestoreError>;
-
-  /**
-   * Listens to one collection, or to a Collection Group, as
-   * {@link Firestore.streamDocs} does, each snapshot with the
-   * {@link ClientDocumentSnapshot.SnapshotMetadata} it arrived with, listening
-   * as `options` says.
-   */
-  readonly streamDocs: {
-    /** Listens to every document in the collection at `ref`. */
-    <C extends Collection.Any>(
-      ref: Collection.CollectionReference<C>,
-      options?: ListenOptions,
-    ): Stream.Stream<ClientQuerySnapshot.ClientQuerySnapshot<C>, FirestoreError>;
-    /**
-     * Listens to every document of a {@link CollectionGroup.CollectionGroup},
-     * as {@link Firestore.streamDocs} does, failing with an
-     * {@link UndefinedCollectionError} at the first snapshot holding a
-     * document at a path none of its collections define.
-     */
-    <G extends CollectionGroup.Any>(
-      group: G,
-      options?: ListenOptions,
-    ): Stream.Stream<
-      ClientQuerySnapshot.ClientQuerySnapshot<CollectionGroup.Members<G>>,
-      FirestoreError | UndefinedCollectionError
-    >;
-  };
 }
 
 /**
  * How {@link ClientFirestore.streamDoc} and {@link ClientFirestore.streamDocs}
- * listen, named as in the client SDK's own listen options.
+ * listen to a document, a collection, or a Collection Group, named as in the
+ * client SDK's own listen options.
  *
- * Leaving them out listens as the SDK does by default. The Admin SDK's
+ * Each snapshot a listener emits carries the
+ * {@link ClientDocumentSnapshot.SnapshotMetadata} it arrived with. Leaving
+ * these out listens as the SDK does by default, emitting only when what was
+ * read changes. The Admin SDK's
  * listeners take no options, which is why the portable streams do not either.
  *
  * @stability unstable
@@ -192,7 +114,22 @@ export const ClientFirestore = Context.Service<ClientFirestore>(
 export type ReadSource = "default" | "server" | "cache";
 
 /**
- * How {@link ClientFirestore.getDoc} and {@link ClientFirestore.getDocs} read.
+ * How {@link ClientFirestore.getDoc} and {@link ClientFirestore.getDocs} read:
+ * a document, a collection, or a Collection Group. Leaving them out reads as
+ * the SDK does by default.
+ *
+ * With `source: "cache"`, a document the cache has never seen fails
+ * {@link ClientFirestore.getDoc} with a `FirestoreError` whose code is
+ * `unavailable`: not being cached is not the same as not existing. One the
+ * cache knows was deleted reads as `Missing`. {@link ClientFirestore.getDocs}
+ * never fails for what the cache lacks: it hands back whatever the cache
+ * holds, which may be nothing, with `fromCache: true`, so unlike `getDoc` an
+ * empty result cannot tell "nothing cached" from "nothing there".
+ *
+ * The Admin SDK's reads take no options, which is why the portable reads do
+ * not either.
+ *
+ * @see {@link ReadSource} for where a read can be served from.
  *
  * @stability unstable
  * @category models
