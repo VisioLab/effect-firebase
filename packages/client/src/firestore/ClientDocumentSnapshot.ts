@@ -21,6 +21,7 @@
  */
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import * as snapshotMetadata from "./internal/snapshotMetadata.ts";
 
 /**
  * What the client SDK reports about where a snapshot came from.
@@ -89,7 +90,8 @@ export const make = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
   data: unknown,
   metadata: SnapshotMetadata,
-): ClientDocumentSnapshot<C> => DocumentSnapshot.make(ref, data, extraOf(metadata));
+): ClientDocumentSnapshot<C> =>
+  DocumentSnapshot.make(ref, data, snapshotMetadata.extraOf(metadata));
 
 /**
  * A snapshot of a document known to be there, such as one a query returned.
@@ -102,7 +104,7 @@ export const existing = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
   data: unknown,
   metadata: SnapshotMetadata,
-): Existing<C> => DocumentSnapshot.existing(ref, data, extraOf(metadata));
+): Existing<C> => DocumentSnapshot.existing(ref, data, snapshotMetadata.extraOf(metadata));
 
 /**
  * A snapshot of a document known not to be there.
@@ -114,12 +116,4 @@ export const existing = <C extends Collection.Any>(
 export const missing = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
   metadata: SnapshotMetadata,
-): Missing<C> => DocumentSnapshot.missing(ref, extraOf(metadata));
-
-/**
- * The extra a client snapshot is built with: its metadata, copied out of the
- * SDK's own object so that it holds, and prints, only these two fields.
- */
-const extraOf = (metadata: SnapshotMetadata): { readonly metadata: SnapshotMetadata } => ({
-  metadata: { fromCache: metadata.fromCache, hasPendingWrites: metadata.hasPendingWrites },
-});
+): Missing<C> => DocumentSnapshot.missing(ref, snapshotMetadata.extraOf(metadata));

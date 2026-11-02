@@ -3,9 +3,9 @@ import * as Firestore from "@visiolab/effect-firebase/firestore/Firestore";
 import { FirebaseError } from "firebase/app";
 import * as Client from "firebase/firestore";
 import * as App from "../../App.ts";
-import type * as ClientDocumentSnapshot from "../ClientDocumentSnapshot.ts";
 import type * as ClientFirestore from "../ClientFirestore.ts";
 import * as firestoreValue from "./firestoreValue.ts";
+import * as snapshotMetadata from "./snapshotMetadata.ts";
 
 /**
  * Opens the database the options name.
@@ -83,23 +83,13 @@ const dataOf = (
     snapshot.data({ serverTimestamps: "estimate" }),
   ) as Result.Result<Firestore.DocumentData | undefined, Firestore.FirestoreError>;
 
-/**
- * The extra a client snapshot carries: the SDK's metadata, copied out of its
- * own object so that the snapshot holds, and prints, only these two fields.
- */
-const extraOf = (
-  metadata: Client.SnapshotMetadata,
-): { readonly metadata: ClientDocumentSnapshot.SnapshotMetadata } => ({
-  metadata: { fromCache: metadata.fromCache, hasPendingWrites: metadata.hasPendingWrites },
-});
-
 /** A read of one document, with the metadata the SDK reported for it. */
 const documentReadOf = (
   snapshot: Client.DocumentSnapshot,
 ): Result.Result<Firestore.DocumentRead, Firestore.FirestoreError> =>
   Result.map(dataOf(snapshot.ref.path, snapshot), (data) => ({
     data,
-    extra: extraOf(snapshot.metadata),
+    extra: snapshotMetadata.extraOf(snapshot.metadata),
   }));
 
 /** A read of many documents, each and as a whole with the metadata the SDK reported. */
@@ -113,11 +103,11 @@ const queryReadOf = (
           path: snapshot.ref.path,
           // A query only hands back documents that are there.
           data: data as Firestore.DocumentData,
-          extra: extraOf(snapshot.metadata),
+          extra: snapshotMetadata.extraOf(snapshot.metadata),
         })),
       ),
     ),
-    (docs) => ({ docs, extra: extraOf(query.metadata) }),
+    (docs) => ({ docs, extra: snapshotMetadata.extraOf(query.metadata) }),
   );
 
 /** The client SDK query `selector` names, and what it is called in a failure. */

@@ -23,6 +23,7 @@
 import * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
 import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import type * as ClientDocumentSnapshot from "./ClientDocumentSnapshot.ts";
+import * as snapshotMetadata from "./internal/snapshotMetadata.ts";
 
 /**
  * A client snapshot of a document that was there when it was read, in
@@ -71,6 +72,4 @@ export const make = <C extends Collection.Any>(
 ): ClientQuerySnapshot<C> =>
   // The portable `make` types its documents as portable snapshots, though it
   // holds the client ones it was given as they are.
-  QuerySnapshot.make(docs, {
-    metadata: { fromCache: metadata.fromCache, hasPendingWrites: metadata.hasPendingWrites },
-  }) as ClientQuerySnapshot<C>;
+  QuerySnapshot.make(docs, snapshotMetadata.extraOf(metadata)) as ClientQuerySnapshot<C>;
