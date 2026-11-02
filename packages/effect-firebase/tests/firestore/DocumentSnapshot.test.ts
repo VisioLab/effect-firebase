@@ -108,3 +108,54 @@ describe("toJSON", () => {
     });
   });
 });
+
+describe("extra", () => {
+  const extra = { metadata: { fromCache: true, hasPendingWrites: false } };
+
+  it("is carried by an existing snapshot, and shown when it prints", () => {
+    const snapshot = DocumentSnapshot.existing(Users.doc(alice), { name: "Alice" }, extra);
+    expect(snapshot.metadata).toEqual({ fromCache: true, hasPendingWrites: false });
+    expect(snapshot.toJSON()).toEqual({
+      _id: "DocumentSnapshot",
+      _tag: "Existing",
+      ref: "users/alice",
+      raw: { name: "Alice" },
+      metadata: { fromCache: true, hasPendingWrites: false },
+    });
+  });
+
+  it("is carried by a missing snapshot, and shown when it prints", () => {
+    const snapshot = DocumentSnapshot.missing(Users.doc(alice), extra);
+    expect(snapshot.metadata).toEqual({ fromCache: true, hasPendingWrites: false });
+    expect(snapshot.toJSON()).toEqual({
+      _id: "DocumentSnapshot",
+      _tag: "Missing",
+      ref: "users/alice",
+      metadata: { fromCache: true, hasPendingWrites: false },
+    });
+  });
+
+  it("is carried by whichever snapshot make builds, without changing which it is", () => {
+    const missing = DocumentSnapshot.make(Users.doc(alice), undefined, extra);
+    assert(DocumentSnapshot.isMissing(missing));
+    expect(missing.metadata).toEqual(extra.metadata);
+
+    const existing = DocumentSnapshot.make(Users.doc(alice), { name: "Alice" }, extra);
+    assert(DocumentSnapshot.isExisting(existing));
+    expect(existing.raw).toEqual({ name: "Alice" });
+    expect(existing.metadata).toEqual(extra.metadata);
+  });
+
+  it.effect("leaves an existing snapshot decoding its data as it would without one", () =>
+    Effect.gen(function* () {
+      const snapshot = DocumentSnapshot.existing(
+        Users.doc(alice),
+        { name: "Alice", createdAt: Timestamp.makeUnsafe(1, 2) },
+        extra,
+      );
+      expect(DocumentSnapshot.isDocumentSnapshot(snapshot)).toBe(true);
+      const user = yield* snapshot.data;
+      expect(user.name).toBe("Alice");
+    }),
+  );
+});

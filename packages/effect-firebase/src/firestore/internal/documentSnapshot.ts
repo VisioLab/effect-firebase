@@ -2,6 +2,7 @@ import { Effect, Inspectable, Predicate, Schema } from "effect";
 import type * as Collection from "../Collection.ts";
 import type * as DocumentSnapshot from "../DocumentSnapshot.ts";
 import * as firestoreValue from "./firestoreValue.ts";
+import { attach, extraToJson, type WithExtra } from "./snapshotExtra.ts";
 
 /** @internal */
 export const TypeId = "~@visiolab/effect-firebase/firestore/DocumentSnapshot";
@@ -28,7 +29,7 @@ export const isMissing = <C extends Collection.Any>(
  * left of the collection's own once its type is erased: `Existing<C>` is what
  * puts the real ones back.
  */
-interface ExistingImpl {
+interface ExistingImpl extends WithExtra {
   readonly ref: {
     readonly path: string;
     readonly collection: { readonly schema: Schema.Decoder<unknown> };
@@ -37,7 +38,7 @@ interface ExistingImpl {
   readonly raw: unknown;
 }
 
-interface MissingImpl {
+interface MissingImpl extends WithExtra {
   readonly ref: Collection.DocumentReference<Collection.Any>;
   readonly id: string;
 }
@@ -52,6 +53,7 @@ const ExistingProto = {
       _tag: "Existing",
       ref: this.ref.path,
       raw: Inspectable.toJson(this.raw),
+      ...extraToJson(this),
     };
   },
   // A getter rather than a field, so that nothing is built until it is asked
@@ -76,7 +78,7 @@ const MissingProto = {
   [TypeId]: TypeId,
   _tag: "Missing" as const,
   toJSON(this: MissingImpl) {
-    return { _id: "DocumentSnapshot", _tag: "Missing", ref: this.ref.path };
+    return { _id: "DocumentSnapshot", _tag: "Missing", ref: this.ref.path, ...extraToJson(this) };
   },
 };
 
@@ -84,29 +86,32 @@ const MissingProto = {
 export const existing = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
   data: unknown,
+  extra?: object,
 ): DocumentSnapshot.Existing<C> => {
   const self = Object.assign(Object.create(ExistingProto) as typeof ExistingProto, {
     ref,
     id: ref.id,
     raw: data,
   });
-  return self as unknown as DocumentSnapshot.Existing<C>;
+  return attach(self, extra) as unknown as DocumentSnapshot.Existing<C>;
 };
 
 /** @internal */
 export const missing = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
+  extra?: object,
 ): DocumentSnapshot.Missing<C> => {
   const self: MissingImpl = Object.assign(Object.create(MissingProto) as typeof MissingProto, {
     ref,
     id: ref.id,
   });
-  return self as unknown as DocumentSnapshot.Missing<C>;
+  return attach(self, extra) as unknown as DocumentSnapshot.Missing<C>;
 };
 
 /** @internal */
 export const make = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
   data: unknown,
+  extra?: object,
 ): DocumentSnapshot.DocumentSnapshot<C> =>
-  data === undefined ? missing(ref) : existing(ref, data);
+  data === undefined ? missing(ref, extra) : existing(ref, data, extra);
