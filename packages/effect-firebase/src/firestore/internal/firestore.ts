@@ -43,21 +43,29 @@ const resolve = (
         refOf: (path) => Result.succeed(source.doc(source.collection.id.make(idOf(path)))),
       };
 
-/** A snapshot of the document at `ref`, as a hook read it. */
-const documentSnapshotOf = <C extends Collection.Any>(
+// The snapshot constructors put each field of the `extra` they are handed on
+// the snapshot, but are typed without it, so the two below say it is there.
+
+/** A snapshot of the document at `ref`, as a hook read it, with its extra. */
+const documentSnapshotOf = <C extends Collection.Any, Extra extends object>(
   ref: Collection.DocumentReference<C>,
-  read: Firestore.DocumentRead,
-): Result.Result<DocumentSnapshot.DocumentSnapshot<C>, Firestore.FirestoreError> =>
-  Result.map(firestoreValueWalk.checkDocument(ref.path, read.data), (data) =>
-    documentSnapshot.make(ref, data, read.extra),
+  read: Firestore.DocumentRead<Extra>,
+): Result.Result<DocumentSnapshot.DocumentSnapshot<C> & Extra, Firestore.FirestoreError> =>
+  Result.map(
+    firestoreValueWalk.checkDocument(ref.path, read.data),
+    (data) =>
+      documentSnapshot.make(ref, data, read.extra) as DocumentSnapshot.DocumentSnapshot<C> & Extra,
   );
 
-/** A snapshot of the documents a hook read, each addressed by `refOf`. */
-const querySnapshotOf = (
+/**
+ * A snapshot of the documents a hook read, each addressed by `refOf`, with the
+ * extra of each and of the read as a whole.
+ */
+const querySnapshotOf = <Extra extends object>(
   refOf: ReturnType<typeof resolve>["refOf"],
-  read: Firestore.QueryRead,
+  read: Firestore.QueryRead<Extra>,
 ): Result.Result<
-  QuerySnapshot.QuerySnapshot<Collection.Any>,
+  QuerySnapshot.QuerySnapshot<Collection.Any, Extra> & Extra,
   Firestore.FirestoreError | Firestore.UndefinedCollectionError
 > =>
   Result.map(
@@ -70,7 +78,9 @@ const querySnapshotOf = (
         ),
       ),
     ),
-    (docs) => querySnapshot.make(docs, read.extra),
+    (docs) =>
+      querySnapshot.make(docs, read.extra) as QuerySnapshot.QuerySnapshot<Collection.Any, Extra> &
+        Extra,
   );
 
 /**
@@ -122,10 +132,10 @@ const encodeUpdate = <C extends Collection.Any, Mode extends FirestoreModel.Upda
  * `getDocs` only where the backend can read many documents there. `name`
  * prefixes the span of each.
  */
-interface Target<ReadOptions>
+interface Target<ReadOptions, Extra extends object>
   extends
-    Pick<Firestore.MakeOptions<ReadOptions>, "getDoc" | "setDoc" | "updateDoc">,
-    Partial<Pick<Firestore.MakeOptions<ReadOptions>, "getDocs">> {
+    Pick<Firestore.MakeOptions<ReadOptions, never, Extra>, "getDoc" | "setDoc" | "updateDoc">,
+    Partial<Pick<Firestore.MakeOptions<ReadOptions, never, Extra>, "getDocs">> {
   readonly name: string;
 }
 
@@ -134,7 +144,7 @@ interface Target<ReadOptions>
  * made against `target`. Each runs in a span named after it, so traces read
  * the same whichever backend answered.
  */
-const operations = <ReadOptions>(target: Target<ReadOptions>) => {
+const operations = <ReadOptions, Extra extends object>(target: Target<ReadOptions, Extra>) => {
   const span = (name: string) => Effect.withSpan(`${target.name}.${name}`);
 
   const getDocs = target.getDocs;
@@ -185,7 +195,7 @@ const transactionOf = <Operations extends Firestore.TransactionOperations>(
   transaction: Operations,
 ): Firestore.BuiltTransaction<Operations> => {
   const readMany = transaction.getDocs;
-  const { getDoc, getDocs, setDoc, updateDoc } = operations<never>({
+  const { getDoc, getDocs, setDoc, updateDoc } = operations<never, {}>({
     name: "Firestore.Transaction",
     getDoc: (path) => transaction.getDoc(path),
     getDocs: readMany === undefined ? undefined : (selector) => readMany(selector),
@@ -210,13 +220,20 @@ const transactionOf = <Operations extends Firestore.TransactionOperations>(
 export const make = <
   ReadOptions,
   ListenOptions,
+  Extra extends object,
   Operations extends Firestore.TransactionOperations,
   TransactionServices,
 >(
-  options: Firestore.MakeOptions<ReadOptions, ListenOptions, Operations, TransactionServices>,
+  options: Firestore.MakeOptions<
+    ReadOptions,
+    ListenOptions,
+    Extra,
+    Operations,
+    TransactionServices
+  >,
   Transaction: typeof Firestore.Transaction,
-): Firestore.Firestore => {
-  const { getDoc, getDocs, setDoc, updateDoc } = operations<ReadOptions>({
+): Firestore.With<ReadOptions, ListenOptions, Extra, TransactionServices> => {
+  const { getDoc, getDocs, setDoc, updateDoc } = operations<ReadOptions, Extra>({
     name: "Firestore",
     getDoc: options.getDoc,
     getDocs: options.getDocs,
@@ -256,7 +273,8 @@ export const make = <
     // Captured inside the span, so the body's own spans hang off it, and
     // handed to the body whole, so it needs nothing from wherever the hook
     // runs it.
-    const context = yield* Effect.context<Exclude<R, Firestore.Transaction>>();
+    const context =
+      yield* Effect.context<Exclude<R, Firestore.Transaction | TransactionServices>>();
     const offer = options.runTransaction.context;
     const maxAttempts = transactionOptions?.maxAttempts;
 
@@ -281,12 +299,12 @@ export const make = <
 
   return {
     getDoc,
-    getDocs: getDocs as Firestore.Firestore["getDocs"],
+    getDocs: getDocs as Firestore.With<ReadOptions, never, Extra>["getDocs"],
     setDoc,
     updateDoc,
     addDoc,
     streamDoc,
-    streamDocs: streamDocs as Firestore.Firestore["streamDocs"],
+    streamDocs: streamDocs as Firestore.With<never, ListenOptions, Extra>["streamDocs"],
     runTransaction,
   };
 };

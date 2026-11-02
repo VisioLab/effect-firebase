@@ -326,6 +326,13 @@ interface RichTransaction extends Firestore.Transaction {
   readonly getDocs: Firestore.Firestore["getDocs"];
 }
 const RichTransaction = Context.Service<RichTransaction>("RichTransaction");
+/**
+ * A key for the transaction that is not itself a Transaction, so that a body
+ * asking for it is told apart from one asking for Transaction.
+ */
+class AuditedTransaction extends Context.Service<AuditedTransaction, RichTransaction>()(
+  "AuditedTransaction",
+) {}
 
 declare const richHooks: Firestore.MakeOptions<ReadOptions, ListenOptions>;
 
@@ -340,9 +347,25 @@ declare const readsMany: Required<Firestore.TransactionOperations>;
 /** The operations of a backend that reads one document at a time in a transaction. */
 declare const readsOne: Omit<Firestore.TransactionOperations, "getDocs">;
 
+/** What a backend knows about each read beyond the portable snapshot. */
+interface Meta {
+  readonly metadata: { readonly fromCache: boolean };
+}
+/** Another backend's extra. */
+interface Other {
+  readonly origin: string;
+}
+declare const extraHooks: Firestore.MakeOptions<never, never, Meta>;
+declare const metaRead: Firestore.DocumentRead<Meta>;
+declare const metaQueryRead: Firestore.QueryRead<Meta>;
+declare const metaReads: Stream.Stream<Firestore.DocumentRead<Meta>, Firestore.FirestoreError>;
+declare const metaQueryReads: Stream.Stream<Firestore.QueryRead<Meta>, Firestore.FirestoreError>;
+declare const otherReads: Stream.Stream<Firestore.DocumentRead<Other>, Firestore.FirestoreError>;
+declare const plainQueryReads: Stream.Stream<Firestore.QueryRead, Firestore.FirestoreError>;
+
 describe("make", () => {
-  test("builds the portable Firestore", () => {
-    expect(Firestore.make(hooks)).type.toBe<Firestore.Firestore>();
+  test("builds the portable Firestore from hooks with no options, extras or services", () => {
+    expect(Firestore.make(hooks)).type.toBeAssignableTo<Firestore.Firestore>();
   });
 
   test("leaves the services a document encodes through to the caller of each write", () => {
@@ -368,7 +391,7 @@ describe("make", () => {
           return richHooks.streamDoc(path, options);
         },
       }),
-    ).type.toBe<Firestore.Firestore>();
+    ).type.toBe<Firestore.With<ReadOptions, ListenOptions>>();
   });
 
   test("hands the read and listen hooks only undefined where no options are named", () => {
@@ -437,10 +460,159 @@ describe("make", () => {
     void Firestore.make({ ...hooks, runTransaction });
   });
 
+  test("asks a transaction body's caller for neither Transaction nor the services context offers", () => {
+    const made = Firestore.make({
+      ...hooks,
+      runTransaction: Firestore.transactionFromCallback({
+        run,
+        operations: () => readsMany,
+        onError,
+        context: (transaction) => Context.make(AuditedTransaction, transaction),
+      }),
+    });
+    const body = Effect.gen(function* () {
+      const { by } = yield* Step;
+      const audited = yield* AuditedTransaction;
+      const tx = yield* Firestore.Transaction;
+      yield* tx.setDoc(hello, { title: "Hello", views: by });
+      return yield* audited.getDocs(Posts.collection());
+    });
+    expect<Effect.Services<typeof body>>().type.toBe<
+      Step | AuditedTransaction | Firestore.Transaction
+    >();
+    const ran = made.runTransaction(body);
+    expect<Effect.Services<typeof ran>>().type.toBe<Step>();
+  });
+
   test("takes a transaction hook written as a value, with no context", () => {
     void Firestore.make({
       ...hooks,
       runTransaction: { run: (body) => body(readsOne) },
+    });
+  });
+
+  test("takes the read and listen options the hooks are handed", () => {
+    const made = Firestore.make(richHooks);
+    expect(made.getDoc(hello, { source: "cache" })).type.toBe<
+      Effect.Effect<DocumentSnapshot.DocumentSnapshot<typeof Posts>, Firestore.FirestoreError>
+    >();
+    expect(made.getDocs(Posts.collection(), { source: "server" })).type.toBe<
+      Effect.Effect<QuerySnapshot.QuerySnapshot<typeof Posts>, Firestore.FirestoreError>
+    >();
+    void made.getDocs(AllUserPosts, { source: "server" });
+    expect(made.streamDoc(hello, { includeMetadataChanges: true })).type.toBe<
+      Stream.Stream<DocumentSnapshot.DocumentSnapshot<typeof Posts>, Firestore.FirestoreError>
+    >();
+    void made.streamDocs(Posts.collection(), { includeMetadataChanges: true });
+    void made.streamDocs(AllUserPosts, { includeMetadataChanges: true });
+  });
+
+  test("refuses read options of the wrong type", () => {
+    const made = Firestore.make(richHooks);
+    expect(made.getDoc).type.not.toBeCallableWith(hello, { source: "nowhere" });
+    expect(made.streamDoc).type.not.toBeCallableWith(hello, { source: "cache" });
+  });
+
+  test("takes no read or listen options where the hooks name none", () => {
+    const made = Firestore.make(hooks);
+    expect(made.getDoc).type.not.toBeCallableWith(hello, { source: "cache" });
+    expect(made.getDocs).type.not.toBeCallableWith(Posts.collection(), { source: "cache" });
+    expect(made.streamDoc).type.not.toBeCallableWith(hello, { includeMetadataChanges: true });
+    expect(made.streamDocs).type.not.toBeCallableWith(AllUserPosts, {
+      includeMetadataChanges: true,
+    });
+  });
+
+  test("puts the extra the hooks read on each document snapshot", () => {
+    const made = Firestore.make(extraHooks);
+    expect(made.getDoc(hello)).type.toBe<
+      Effect.Effect<
+        DocumentSnapshot.DocumentSnapshot<typeof Posts> & Meta,
+        Firestore.FirestoreError
+      >
+    >();
+    expect(made.streamDoc(hello)).type.toBe<
+      Stream.Stream<
+        DocumentSnapshot.DocumentSnapshot<typeof Posts> & Meta,
+        Firestore.FirestoreError
+      >
+    >();
+  });
+
+  test("puts the extra the hooks read on a query snapshot of a collection and on each of its documents", () => {
+    const made = Firestore.make(extraHooks);
+    const read = made.getDocs(Posts.collection());
+    expect(read).type.toBe<
+      Effect.Effect<
+        QuerySnapshot.QuerySnapshot<typeof Posts, Meta> & Meta,
+        Firestore.FirestoreError
+      >
+    >();
+    expect<Effect.Success<typeof read>["docs"][number]>().type.toBe<
+      DocumentSnapshot.Existing<typeof Posts> & Meta
+    >();
+    expect(made.streamDocs(Posts.collection())).type.toBe<
+      Stream.Stream<
+        QuerySnapshot.QuerySnapshot<typeof Posts, Meta> & Meta,
+        Firestore.FirestoreError
+      >
+    >();
+  });
+
+  test("puts the extra the hooks read on a query snapshot of a Collection Group and on each of its documents", () => {
+    const made = Firestore.make(extraHooks);
+    const read = made.getDocs(AllUserPosts);
+    expect(read).type.toBe<
+      Effect.Effect<
+        QuerySnapshot.QuerySnapshot<typeof UserPosts, Meta> & Meta,
+        Firestore.FirestoreError | Firestore.UndefinedCollectionError
+      >
+    >();
+    expect<Effect.Success<typeof read>["docs"][number]>().type.toBe<
+      DocumentSnapshot.Existing<typeof UserPosts> & Meta
+    >();
+    const stream = made.streamDocs(AllUserPosts);
+    expect(stream).type.toBe<
+      Stream.Stream<
+        QuerySnapshot.QuerySnapshot<typeof UserPosts, Meta> & Meta,
+        Firestore.FirestoreError | Firestore.UndefinedCollectionError
+      >
+    >();
+    expect<Stream.Success<typeof stream>["docs"][number]>().type.toBe<
+      DocumentSnapshot.Existing<typeof UserPosts> & Meta
+    >();
+  });
+
+  test("infers the extra from what the read and listen hooks hand back", () => {
+    const made = Firestore.make({
+      ...hooks,
+      getDoc: () => Effect.succeed(metaRead),
+      getDocs: () => Effect.succeed(metaQueryRead),
+      streamDoc: () => metaReads,
+      streamDocs: () => metaQueryReads,
+    });
+    expect(made).type.toBe<Firestore.With<never, never, Meta>>();
+  });
+
+  test("refuses hooks that hand back different extras", () => {
+    void Firestore.make({
+      ...hooks,
+      getDoc: () => Effect.succeed(metaRead),
+      getDocs: () => Effect.succeed(metaQueryRead),
+      // @ts-expect-error Property 'metadata' is missing
+      streamDoc: () => otherReads,
+      streamDocs: () => metaQueryReads,
+    });
+  });
+
+  test("refuses a hook that hands back no extra where the others do", () => {
+    void Firestore.make({
+      ...hooks,
+      getDoc: () => Effect.succeed(metaRead),
+      getDocs: () => Effect.succeed(metaQueryRead),
+      streamDoc: () => metaReads,
+      // @ts-expect-error Type 'undefined' is not assignable to type 'Meta'
+      streamDocs: () => plainQueryReads,
     });
   });
 

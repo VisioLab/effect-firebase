@@ -189,16 +189,50 @@ export const Transaction = Context.Service<Transaction>(
 );
 
 /**
- * Firestore for a single app.
+ * The parameters a {@link With} read or listen takes for its options: none
+ * where `Options` is `never`, so the portable reads take a reference alone, and
+ * otherwise an optional `options`.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export type OptionsParameter<Options> = [Options] extends [never] ? [] : [options?: Options];
+
+/**
+ * Firestore for a single app, with what one backend adds to the portable
+ * {@link Firestore}: the options its reads and listens take, the extra its
+ * snapshots carry, and further services a transaction body finds the
+ * transaction under.
  *
  * Reads are addressed by the references a {@link Collection.Collection} builds,
  * which is what ties a snapshot back to the model its data decodes through.
  *
+ * - `ReadOptions` is what {@link With.getDoc} and {@link With.getDocs} take
+ *   beyond a reference, such as the client's read source. None by default.
+ * - `ListenOptions` is what {@link With.streamDoc} and {@link With.streamDocs}
+ *   take beyond a reference. None by default.
+ * - `Extra` is what a backend knows about a read beyond the portable snapshot,
+ *   such as the client's `metadata`. It is on every document snapshot, on each
+ *   document of a query snapshot, and on the query snapshot as a whole.
+ * - `TransactionServices` are the services a {@link With.runTransaction} body
+ *   finds the transaction under next to {@link Transaction}, such as a
+ *   backend's own richer transaction.
+ *
+ * The portable {@link Firestore} is this with every parameter at its default.
+ * {@link make} returns it with what it inferred from its hooks, and a
+ * backend's richer service extends it with its own arguments.
+ *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.3.0
  */
-export interface Firestore {
+export interface With<
+  ReadOptions = never,
+  ListenOptions = never,
+  Extra extends object = {},
+  TransactionServices = never,
+> {
   /**
    * Reads one document.
    *
@@ -208,7 +242,8 @@ export interface Firestore {
    */
   readonly getDoc: <C extends Collection.Any>(
     ref: Collection.DocumentReference<C>,
-  ) => Effect.Effect<DocumentSnapshot.DocumentSnapshot<C>, FirestoreError>;
+    ...options: OptionsParameter<ReadOptions>
+  ) => Effect.Effect<DocumentSnapshot.DocumentSnapshot<C> & Extra, FirestoreError>;
 
   /**
    * Reads every document in one collection, or in a Collection Group.
@@ -227,7 +262,8 @@ export interface Firestore {
     /** Reads every document in the collection at `ref`. */
     <C extends Collection.Any>(
       ref: Collection.CollectionReference<C>,
-    ): Effect.Effect<QuerySnapshot.QuerySnapshot<C>, FirestoreError>;
+      ...options: OptionsParameter<ReadOptions>
+    ): Effect.Effect<QuerySnapshot.QuerySnapshot<C, Extra> & Extra, FirestoreError>;
     /**
      * Reads every document of a {@link CollectionGroup.CollectionGroup}: every
      * document in each of its collections, under every parent.
@@ -240,8 +276,9 @@ export interface Firestore {
      */
     <G extends CollectionGroup.Any>(
       group: G,
+      ...options: OptionsParameter<ReadOptions>
     ): Effect.Effect<
-      QuerySnapshot.QuerySnapshot<CollectionGroup.Members<G>>,
+      QuerySnapshot.QuerySnapshot<CollectionGroup.Members<G>, Extra> & Extra,
       FirestoreError | UndefinedCollectionError
     >;
   };
@@ -264,7 +301,8 @@ export interface Firestore {
    */
   readonly streamDoc: <C extends Collection.Any>(
     ref: Collection.DocumentReference<C>,
-  ) => Stream.Stream<DocumentSnapshot.DocumentSnapshot<C>, FirestoreError>;
+    ...options: OptionsParameter<ListenOptions>
+  ) => Stream.Stream<DocumentSnapshot.DocumentSnapshot<C> & Extra, FirestoreError>;
 
   /**
    * Listens to every document in one collection, or in a Collection Group,
@@ -282,7 +320,8 @@ export interface Firestore {
     /** Listens to every document in the collection at `ref`. */
     <C extends Collection.Any>(
       ref: Collection.CollectionReference<C>,
-    ): Stream.Stream<QuerySnapshot.QuerySnapshot<C>, FirestoreError>;
+      ...options: OptionsParameter<ListenOptions>
+    ): Stream.Stream<QuerySnapshot.QuerySnapshot<C, Extra> & Extra, FirestoreError>;
     /**
      * Listens to every document of a {@link CollectionGroup.CollectionGroup},
      * emitting the whole group each time a document in any of its collections,
@@ -294,8 +333,9 @@ export interface Firestore {
      */
     <G extends CollectionGroup.Any>(
       group: G,
+      ...options: OptionsParameter<ListenOptions>
     ): Stream.Stream<
-      QuerySnapshot.QuerySnapshot<CollectionGroup.Members<G>>,
+      QuerySnapshot.QuerySnapshot<CollectionGroup.Members<G>, Extra> & Extra,
       FirestoreError | UndefinedCollectionError
     >;
   };
@@ -387,12 +427,30 @@ export interface Firestore {
    *
    * Interrupting it interrupts `effect`, rolls the transaction back, and only
    * returns once the rollback is done.
+   *
+   * The transaction is also provided under each of `TransactionServices`, as
+   * the same object, so `effect` asks its caller for none of them either.
    */
   readonly runTransaction: <A, E, R>(
     effect: Effect.Effect<A, E, R>,
     options?: TransactionOptions,
-  ) => Effect.Effect<A, E | FirestoreError, Exclude<R, Transaction>>;
+  ) => Effect.Effect<A, E | FirestoreError, Exclude<R, Transaction | TransactionServices>>;
 }
+
+/**
+ * Firestore for a single app: the portable one, which every backend offers.
+ *
+ * Reads are addressed by the references a {@link Collection.Collection} builds,
+ * which is what ties a snapshot back to the model its data decodes through.
+ *
+ * @see {@link With} for each of its methods, and for what a backend's richer
+ * service adds to them.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface Firestore extends With {}
 
 /**
  * Service key for Firestore.
@@ -444,65 +502,82 @@ export type CollectionSelector =
 export type DocumentData = { readonly [field: string]: FirestoreValue };
 
 /**
- * What a {@link MakeOptions} hook read for one document.
+ * The `extra` of what a {@link MakeOptions} hook read: what the backend knows
+ * about the read beyond the portable snapshot. Each of its fields is put on
+ * the snapshot, and shown when it prints, as {@link DocumentSnapshot.make}
+ * does with an `extra`. Its fields must not be named like the snapshot's own.
+ *
+ * It may be left out where `Extra` has no fields, and must be there where it
+ * has some, so that a snapshot never claims an extra its read did not hand
+ * back.
  *
  * @stability unstable
  * @category models
  * @since 0.3.0
  */
-export interface DocumentRead {
+export type ReadExtra<Extra extends object> = {} extends Extra
+  ? { readonly extra?: Extra | undefined }
+  : { readonly extra: Extra };
+
+/**
+ * What a {@link MakeOptions} hook read for one document, with the `Extra` the
+ * backend knows about it, none by default.
+ *
+ * @see {@link ReadExtra} for its `extra`.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export type DocumentRead<Extra extends object = {}> = {
   /**
    * The document's data, or `undefined` when it is not there. Data that is
    * not made of Firestore Values fails the read with a {@link FirestoreError}.
    */
   readonly data: DocumentData | undefined;
-  /**
-   * What the backend knows about the read beyond the portable snapshot. Each
-   * of its fields is put on the snapshot, and shown when it prints, as
-   * {@link DocumentSnapshot.make} does with an `extra`. Its fields must not be
-   * named like the snapshot's own.
-   */
-  readonly extra?: object | undefined;
-}
+} & ReadExtra<Extra>;
 
 /**
  * What a {@link MakeOptions} hook read for one document of many: always one
- * that is there.
+ * that is there, with the `Extra` the backend knows about it, none by default.
+ *
+ * @see {@link ReadExtra} for its `extra`.
  *
  * @stability unstable
  * @category models
  * @since 0.3.0
  */
-export interface QueryDocumentRead {
+export type QueryDocumentRead<Extra extends object = {}> = {
   /**
    * The document's full path, such as `users/alice/posts/hello`. It is what
    * matches a document of a Collection Group back to the collection it lives
    * in.
    */
   readonly path: string;
-  /** The document's data, as for {@link DocumentRead.data}. */
+  /**
+   * The document's data. Data that is not made of Firestore Values fails the
+   * read with a {@link FirestoreError}.
+   */
   readonly data: DocumentData;
-  /** As for {@link DocumentRead.extra}. */
-  readonly extra?: object | undefined;
-}
+} & ReadExtra<Extra>;
 
 /**
- * What a {@link MakeOptions} hook read for many documents.
+ * What a {@link MakeOptions} hook read for many documents, with the `Extra` the
+ * backend knows about each of them and about the read as a whole, none by
+ * default. The read's own `extra` is put on the
+ * {@link QuerySnapshot.QuerySnapshot} as {@link QuerySnapshot.make} does with
+ * an `extra`.
+ *
+ * @see {@link ReadExtra} for its `extra`.
  *
  * @stability unstable
  * @category models
  * @since 0.3.0
  */
-export interface QueryRead {
+export type QueryRead<Extra extends object = {}> = {
   /** Every document read. */
-  readonly docs: ReadonlyArray<QueryDocumentRead>;
-  /**
-   * What the backend knows about the read as a whole, put on the
-   * {@link QuerySnapshot.QuerySnapshot} as {@link QuerySnapshot.make} does
-   * with an `extra`.
-   */
-  readonly extra?: object | undefined;
-}
+  readonly docs: ReadonlyArray<QueryDocumentRead<Extra>>;
+} & ReadExtra<Extra>;
 
 /**
  * The reads and writes of one attempt at a transaction, which the
@@ -623,6 +698,13 @@ export interface TransactionHookOptions {
  * on top of the portable reads and listens, such as the client's read source.
  * Whatever the caller passed is handed to the hook as it is, or `undefined`.
  *
+ * `Extra` is what the read and listen hooks know about each read beyond the
+ * portable snapshot, such as the client's `metadata`: the same for all four
+ * of them, for one document, for each document of many, and for a read of
+ * many as a whole. It is inferred from what `getDoc` hands back, and the other
+ * three must hand back the same, so a hook that hands back none, or another,
+ * does not compile.
+ *
  * `Operations` and `TransactionServices` are those of the
  * {@link RunTransaction} hook.
  *
@@ -633,6 +715,7 @@ export interface TransactionHookOptions {
 export interface MakeOptions<
   ReadOptions = never,
   ListenOptions = never,
+  Extra extends object = {},
   Operations extends TransactionOperations = TransactionOperations,
   TransactionServices = never,
 > {
@@ -640,7 +723,7 @@ export interface MakeOptions<
   readonly getDoc: (
     path: string,
     options: ReadOptions | undefined,
-  ) => Effect.Effect<DocumentRead, FirestoreError>;
+  ) => Effect.Effect<DocumentRead<Extra>, FirestoreError>;
 
   /**
    * Reads every document `selector` names. Backs {@link Firestore.getDocs},
@@ -649,7 +732,7 @@ export interface MakeOptions<
   readonly getDocs: (
     selector: CollectionSelector,
     options: ReadOptions | undefined,
-  ) => Effect.Effect<QueryRead, FirestoreError>;
+  ) => Effect.Effect<QueryRead<NoInfer<Extra>>, FirestoreError>;
 
   /**
    * Writes the whole document at `path`, replacing whatever was there. Backs
@@ -680,7 +763,7 @@ export interface MakeOptions<
   readonly streamDoc: (
     path: string,
     options: ListenOptions | undefined,
-  ) => Stream.Stream<DocumentRead, FirestoreError>;
+  ) => Stream.Stream<DocumentRead<NoInfer<Extra>>, FirestoreError>;
 
   /**
    * Listens to every document `selector` names, as
@@ -690,7 +773,7 @@ export interface MakeOptions<
   readonly streamDocs: (
     selector: CollectionSelector,
     options: ListenOptions | undefined,
-  ) => Stream.Stream<QueryRead, FirestoreError>;
+  ) => Stream.Stream<QueryRead<NoInfer<Extra>>, FirestoreError>;
 
   /**
    * Runs a transaction, and offers it under further tags. Backs
@@ -712,6 +795,13 @@ export interface MakeOptions<
  * collection; spans; and providing the {@link Transaction} a transaction body
  * runs in.
  *
+ * What it returns is inferred from the hooks: the {@link With} that takes the
+ * options its read and listen hooks are handed, carries the extra they hand
+ * back, and provides a transaction body with the services the transaction
+ * hook's `context` offers. Hooks with none of those build something assignable
+ * to the portable {@link Firestore}. Read and listen hooks that hand back
+ * different extras do not compile.
+ *
  * A backend's richer service widens what this returns, as an SDK package's
  * does with its `instance`.
  *
@@ -729,11 +819,13 @@ export interface MakeOptions<
 export const make: <
   ReadOptions = never,
   ListenOptions = never,
+  Extra extends object = {},
   Operations extends TransactionOperations = TransactionOperations,
   TransactionServices = never,
 >(
-  options: MakeOptions<ReadOptions, ListenOptions, Operations, TransactionServices>,
-) => Firestore = (options) => firestore.make(options, Transaction);
+  options: MakeOptions<ReadOptions, ListenOptions, Extra, Operations, TransactionServices>,
+) => With<ReadOptions, ListenOptions, Extra, TransactionServices> = (options) =>
+  firestore.make(options, Transaction);
 
 /**
  * How {@link transactionFromCallback} drives a backend whose SDK runs a
