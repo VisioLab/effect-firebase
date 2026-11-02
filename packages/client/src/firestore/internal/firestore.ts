@@ -218,9 +218,10 @@ export const fromDatabase = (firestore: Client.Firestore): ClientFirestore.Clien
       });
     },
 
-    runTransaction: Firestore.transactionFromCallback<Client.Transaction>({
-      run: (callback, options) => Client.runTransaction(firestore, callback, options),
-      operations: (tx) => ({
+    runTransaction: Firestore.transactionFromCallback({
+      // Before `run`, so that the SDK's transaction is known from it when
+      // `run`'s callback is typed.
+      operations: (tx: Client.Transaction) => ({
         // A transaction reads from the server alone and never holds writes of
         // its own that are pending, so its metadata says nothing and is left
         // out: what it hands back is the portable snapshot.
@@ -241,6 +242,7 @@ export const fromDatabase = (firestore: Client.Firestore): ClientFirestore.Clien
             tx.update(docOf(path), toClient(data));
           }),
       }),
+      run: (callback, options) => Client.runTransaction(firestore, callback, options),
       onError: firestoreError("Failed to run a transaction"),
     }),
   });

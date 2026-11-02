@@ -28,22 +28,24 @@ const currentSpan = Effect.orDie(Effect.currentSpan);
 /** A hook no test scripted: reaching it is a bug in the test. */
 const unscripted = (name: string) => () => Effect.die(`The ${name} hook was not scripted`);
 
+/** Hooks that each die, as no test scripted them. */
+const scriptedHooks: Firestore.MakeOptions<unknown, unknown> = {
+  getDoc: unscripted("getDoc"),
+  getDocs: unscripted("getDocs"),
+  setDoc: unscripted("setDoc"),
+  updateDoc: unscripted("updateDoc"),
+  addDoc: unscripted("addDoc"),
+  streamDoc: () => Stream.die("The streamDoc hook was not scripted"),
+  streamDocs: () => Stream.die("The streamDocs hook was not scripted"),
+  runTransaction: { run: unscripted("runTransaction") },
+};
+
 /**
  * Hooks that answer only what a test scripts, and die on anything else, so a
  * test says exactly which hooks it expects to be called.
  */
 const scripted = (hooks: Partial<Firestore.MakeOptions<unknown, unknown>>) =>
-  Firestore.make({
-    getDoc: unscripted("getDoc"),
-    getDocs: unscripted("getDocs"),
-    setDoc: unscripted("setDoc"),
-    updateDoc: unscripted("updateDoc"),
-    addDoc: unscripted("addDoc"),
-    streamDoc: () => Stream.die("The streamDoc hook was not scripted"),
-    streamDocs: () => Stream.die("The streamDocs hook was not scripted"),
-    runTransaction: unscripted("runTransaction"),
-    ...hooks,
-  });
+  Firestore.make({ ...scriptedHooks, ...hooks });
 
 describe("getDoc", () => {
   it.effect("reads a document the hook found no data for as missing", () =>
@@ -532,40 +534,51 @@ describe("streamDocs", () => {
 
 describe("runTransaction", () => {
   /** A richer transaction a backend offers under a tag of its own. */
-  const RichTransaction = Context.Service<Firestore.TransactionWithGetDocs>("test/RichTransaction");
+  interface RichTransaction extends Firestore.Transaction {
+    readonly getDocs: Firestore.Firestore["getDocs"];
+  }
+  const RichTransaction = Context.Service<RichTransaction>("test/RichTransaction");
+
+  /** The transaction offered under a tag of its own, whatever it can do. */
+  const OwnTransaction = Context.Service<Firestore.Transaction>("test/OwnTransaction");
+
+  /** The operations every attempt has, which a test may add to or replace. */
+  type BaseOperations = Omit<Firestore.TransactionOperations, "getDocs">;
 
   /**
    * A transaction hook that runs each body once, on a runtime of its own as an
-   * SDK's callback would, over operations that record what they were asked.
+   * SDK's callback would, over operations that record what they were asked,
+   * and offers the transaction under the tags `context` provides.
    */
-  const transactional = (
-    operations: Partial<Firestore.TransactionOperations> = {},
-    more: Partial<Firestore.MakeOptions<unknown, unknown>> = {},
+  const transactional = <
+    More extends Partial<Firestore.TransactionOperations> = {},
+    TransactionServices = never,
+  >(
+    operations?: More,
+    context?: Firestore.RunTransaction<BaseOperations & More, TransactionServices>["context"],
   ) => {
     const calls: Array<unknown> = [];
     const hookOptions: Array<Firestore.TransactionHookOptions> = [];
-    const firestore = scripted({
-      runTransaction: (body, options) => {
+    const base: BaseOperations = {
+      getDoc: (path) => {
+        calls.push(["getDoc", path]);
+        return Effect.succeed({ data: { name: "Alice" } });
+      },
+      setDoc: (path, data) => Effect.sync(() => void calls.push(["setDoc", path, data])),
+      updateDoc: (path, data) => Effect.sync(() => void calls.push(["updateDoc", path, data])),
+    };
+    const runTransaction: Firestore.RunTransaction<BaseOperations & More, TransactionServices> = {
+      run: (body, options) => {
         hookOptions.push(options);
         return Effect.flatten(
           Effect.promise(() =>
-            Effect.runPromiseExit(
-              body({
-                getDoc: (path) => {
-                  calls.push(["getDoc", path]);
-                  return Effect.succeed({ data: { name: "Alice" } });
-                },
-                setDoc: (path, data) => Effect.sync(() => void calls.push(["setDoc", path, data])),
-                updateDoc: (path, data) =>
-                  Effect.sync(() => void calls.push(["updateDoc", path, data])),
-                ...operations,
-              }),
-            ),
+            Effect.runPromiseExit(body({ ...base, ...operations } as BaseOperations & More)),
           ),
         );
       },
-      ...more,
-    });
+      context,
+    };
+    const firestore = Firestore.make({ ...scriptedHooks, runTransaction });
     return { firestore, calls, hookOptions };
   };
 
@@ -594,13 +607,25 @@ describe("runTransaction", () => {
     }),
   );
 
-  it.effect("provides the transactionContext's tags, holding the same transaction", () =>
+  it.effect("provides the hook context's tags, holding the same transaction as Transaction", () =>
+    Effect.gen(function* () {
+      const { firestore } = transactional({}, (transaction) =>
+        Context.make(OwnTransaction, transaction),
+      );
+
+      const [portable, own] = yield* firestore.runTransaction(
+        Effect.all([Effect.service(Firestore.Transaction), Effect.service(OwnTransaction)]),
+      );
+
+      expect(own).toBe(portable);
+    }),
+  );
+
+  it.effect("provides a transaction that reads many under the context's tags as Transaction", () =>
     Effect.gen(function* () {
       const { firestore } = transactional(
-        {},
-        {
-          transactionContext: (transaction) => Context.make(RichTransaction, transaction),
-        },
+        { getDocs: () => Effect.succeed({ docs: [] }) },
+        (transaction) => Context.make(RichTransaction, transaction),
       );
 
       const [portable, rich] = yield* firestore.runTransaction(
@@ -616,20 +641,19 @@ describe("runTransaction", () => {
       const selectors: Array<Firestore.CollectionSelector> = [];
       const { firestore } = transactional(
         {
-          getDocs: (selector) => {
+          getDocs: (selector: Firestore.CollectionSelector) => {
             selectors.push(selector);
             return Effect.succeed({
               docs: [{ path: "users/alice/posts/hello", data: { title: "Hello" } }],
             });
           },
         },
-        { transactionContext: (transaction) => Context.make(RichTransaction, transaction) },
+        (transaction) => Context.make(RichTransaction, transaction),
       );
 
       const paths = yield* firestore.runTransaction(
         Effect.gen(function* () {
           const tx = yield* RichTransaction;
-          assert(tx.getDocs !== undefined);
           const snapshot = yield* tx.getDocs(Posts);
           assert(snapshot.docs.every((doc) => UserPosts.contains(doc)));
           return snapshot.docs.map((doc) => doc.ref.path);
@@ -643,14 +667,13 @@ describe("runTransaction", () => {
 
   it.effect("has no read of many where the operations have none", () =>
     Effect.gen(function* () {
-      const { firestore } = transactional(
-        {},
-        { transactionContext: (transaction) => Context.make(RichTransaction, transaction) },
+      const { firestore } = transactional({}, (transaction) =>
+        Context.make(OwnTransaction, transaction),
       );
 
-      const tx = yield* firestore.runTransaction(Effect.service(RichTransaction));
+      const tx = yield* firestore.runTransaction(Effect.service(OwnTransaction));
 
-      expect(tx.getDocs).toBeUndefined();
+      expect("getDocs" in tx).toBe(false);
     }),
   );
 
@@ -682,7 +705,7 @@ describe("runTransaction", () => {
       );
       expect(read).toBe(failure);
 
-      const hook = scripted({ runTransaction: () => Effect.fail(failure) });
+      const hook = scripted({ runTransaction: { run: () => Effect.fail(failure) } });
       expect(yield* Effect.flip(hook.runTransaction(Effect.void))).toBe(failure);
     }),
   );

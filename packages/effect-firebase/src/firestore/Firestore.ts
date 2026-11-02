@@ -527,7 +527,7 @@ export interface TransactionOperations {
    * Reads many documents as part of the transaction, for a backend that can.
    * Where it is given, the transaction {@link make} builds has a `getDocs` that
    * reads through it as {@link Firestore.getDocs} does, for
-   * {@link MakeOptions.transactionContext} to offer under a tag of its own.
+   * {@link RunTransaction.context} to offer under a tag of its own.
    */
   readonly getDocs?:
     | ((selector: CollectionSelector) => Effect.Effect<QueryRead, FirestoreError>)
@@ -535,17 +535,62 @@ export interface TransactionOperations {
 }
 
 /**
- * The transaction {@link make} builds from {@link TransactionOperations}: the
- * {@link Transaction} a body reads and writes through, with a `getDocs` where
- * the operations read many documents.
+ * The transaction {@link make} builds from `Operations`, as
+ * {@link RunTransaction.context} is handed it: the {@link Transaction} a body
+ * reads and writes through, with a `getDocs` that reads as
+ * {@link Firestore.getDocs} does exactly where `Operations` has a `getDocs`.
  *
  * @stability unstable
  * @category models
  * @since 0.3.0
  */
-export interface TransactionWithGetDocs extends Transaction {
-  /** Present exactly where {@link TransactionOperations.getDocs} is. */
-  readonly getDocs?: Firestore["getDocs"] | undefined;
+export type BuiltTransaction<Operations extends TransactionOperations> = Transaction &
+  (Operations extends { readonly getDocs: NonNullable<TransactionOperations["getDocs"]> }
+    ? { readonly getDocs: Firestore["getDocs"] }
+    : {});
+
+/**
+ * The {@link MakeOptions.runTransaction} hook: how a backend runs a
+ * transaction, over each attempt's `Operations`, and the further services a
+ * body finds the transaction under.
+ *
+ * `Operations` is what the backend can do in a transaction, which decides
+ * whether the transaction {@link make} builds can read many documents.
+ * {@link transactionFromCallback} builds one for an SDK that runs a
+ * transaction as a callback.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export interface RunTransaction<
+  Operations extends TransactionOperations = TransactionOperations,
+  TransactionServices = never,
+> {
+  /**
+   * Runs `body` in a transaction, once per attempt, with that attempt's
+   * operations, and fails with what the body failed with or with a
+   * {@link FirestoreError} of its own. Backs {@link Firestore.runTransaction}.
+   *
+   * The body needs nothing from context: everything the caller's effect needs,
+   * the transaction's span included, is already provided to it, so it may run
+   * on a runtime of its own, such as inside an SDK's callback.
+   */
+  readonly run: <A, E>(
+    body: (operations: Operations) => Effect.Effect<A, E>,
+    options: TransactionHookOptions,
+  ) => Effect.Effect<A, E | FirestoreError>;
+
+  /**
+   * Further services a transaction body finds the transaction under, next to
+   * {@link Transaction}, such as a backend's own richer transaction. It is
+   * handed the transaction {@link make} built for the attempt, and the
+   * services hold that same object, so a body reads and writes through one
+   * transaction whichever tag it asks for.
+   */
+  readonly context?:
+    | ((transaction: BuiltTransaction<Operations>) => Context.Context<TransactionServices>)
+    | undefined;
 }
 
 /**
@@ -578,11 +623,19 @@ export interface TransactionHookOptions {
  * on top of the portable reads and listens, such as the client's read source.
  * Whatever the caller passed is handed to the hook as it is, or `undefined`.
  *
+ * `Operations` and `TransactionServices` are those of the
+ * {@link RunTransaction} hook.
+ *
  * @stability unstable
  * @category options
  * @since 0.3.0
  */
-export interface MakeOptions<ReadOptions = never, ListenOptions = never> {
+export interface MakeOptions<
+  ReadOptions = never,
+  ListenOptions = never,
+  Operations extends TransactionOperations = TransactionOperations,
+  TransactionServices = never,
+> {
   /** Reads the document at `path`. Backs {@link Firestore.getDoc}. */
   readonly getDoc: (
     path: string,
@@ -640,28 +693,12 @@ export interface MakeOptions<ReadOptions = never, ListenOptions = never> {
   ) => Stream.Stream<QueryRead, FirestoreError>;
 
   /**
-   * Runs `body` in a transaction, once per attempt, with that attempt's
-   * operations, and fails with what the body failed with or with a
-   * {@link FirestoreError} of its own. Backs {@link Firestore.runTransaction}.
+   * Runs a transaction, and offers it under further tags. Backs
+   * {@link Firestore.runTransaction}.
    *
-   * The body needs nothing from context: everything the caller's effect needs,
-   * the transaction's span included, is already provided to it, so it may run
-   * on a runtime of its own, such as inside an SDK's callback.
+   * @see {@link RunTransaction}
    */
-  readonly runTransaction: <A, E>(
-    body: (operations: TransactionOperations) => Effect.Effect<A, E>,
-    options: TransactionHookOptions,
-  ) => Effect.Effect<A, E | FirestoreError>;
-
-  /**
-   * Further services a transaction body finds the transaction under, next to
-   * {@link Transaction}, such as a backend's own richer transaction. They hold
-   * the same object, so a body reads and writes through one transaction
-   * whichever tag it asks for.
-   */
-  readonly transactionContext?:
-    | ((transaction: TransactionWithGetDocs) => Context.Context<never>)
-    | undefined;
+  readonly runTransaction: RunTransaction<Operations, TransactionServices>;
 }
 
 /**
@@ -689,8 +726,13 @@ export interface MakeOptions<ReadOptions = never, ListenOptions = never> {
  * @category constructors
  * @since 0.3.0
  */
-export const make: <ReadOptions = never, ListenOptions = never>(
-  options: MakeOptions<ReadOptions, ListenOptions>,
+export const make: <
+  ReadOptions = never,
+  ListenOptions = never,
+  Operations extends TransactionOperations = TransactionOperations,
+  TransactionServices = never,
+>(
+  options: MakeOptions<ReadOptions, ListenOptions, Operations, TransactionServices>,
 ) => Firestore = (options) => firestore.make(options, Transaction);
 
 /**
@@ -698,12 +740,18 @@ export const make: <ReadOptions = never, ListenOptions = never>(
  * transaction as a callback, and retries it.
  *
  * `T` is the SDK's own transaction object, handed to each attempt.
+ * `Operations` and `TransactionServices` are those of the
+ * {@link RunTransaction} hook it builds.
  *
  * @stability unstable
  * @category options
  * @since 0.3.0
  */
-export interface TransactionFromCallbackOptions<T> {
+export interface TransactionFromCallbackOptions<
+  T,
+  Operations extends TransactionOperations = TransactionOperations,
+  TransactionServices = never,
+> {
   /**
    * Runs `callback` in a transaction and retries it by the SDK's own rules,
    * such as the Admin SDK's `firestore.runTransaction(callback, options)`.
@@ -715,12 +763,18 @@ export interface TransactionFromCallbackOptions<T> {
     options: TransactionHookOptions,
   ) => Promise<A>;
   /** The reads and writes of one attempt, over the SDK's transaction. */
-  readonly operations: (transaction: T) => TransactionOperations;
+  readonly operations: (transaction: T) => Operations;
   /**
    * The error for what `run` rejected with that has nothing to do with the
    * body, such as a failed commit, with the SDK's `code` and `cause`.
    */
   readonly onError: (cause: unknown) => FirestoreError;
+  /**
+   * Further services a body finds the transaction under.
+   *
+   * @see {@link RunTransaction.context}
+   */
+  readonly context?: RunTransaction<Operations, TransactionServices>["context"];
 }
 
 /**
@@ -741,12 +795,16 @@ export interface TransactionFromCallbackOptions<T> {
  * Interrupting the transaction interrupts the body, and waits for the SDK to
  * roll back.
  *
+ * `Operations` is inferred from `operations`, so `context` is handed a
+ * transaction with a `getDocs` exactly where `operations` has one.
+ *
  * ```ts
  * const runTransaction = Firestore.transactionFromCallback({
  *   run: (callback, options) => db.runTransaction(callback, options),
- *   operations: (tx) => ({ getDoc, setDoc, updateDoc }),
+ *   operations: (tx) => ({ getDoc, getDocs, setDoc, updateDoc }),
  *   onError: (cause) =>
  *     new Firestore.FirestoreError({ message: "Failed to run a transaction", cause }),
+ *   context: (transaction) => Context.make(RichTransaction, transaction),
  * });
  * ```
  *
@@ -754,9 +812,14 @@ export interface TransactionFromCallbackOptions<T> {
  * @category constructors
  * @since 0.3.0
  */
-export const transactionFromCallback: <T>(
-  options: TransactionFromCallbackOptions<T>,
-) => MakeOptions["runTransaction"] = internalTransactionFromCallback.transactionFromCallback;
+export const transactionFromCallback: <
+  T,
+  Operations extends TransactionOperations,
+  TransactionServices = never,
+>(
+  options: TransactionFromCallbackOptions<T, Operations, TransactionServices>,
+) => RunTransaction<Operations, TransactionServices> =
+  internalTransactionFromCallback.transactionFromCallback;
 
 /**
  * How {@link streamFromListener} listens through an SDK listener.

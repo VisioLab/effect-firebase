@@ -35,57 +35,69 @@ const thrownFor = (cause: Cause.Cause<unknown>): unknown => {
 };
 
 /** @internal */
-export const transactionFromCallback =
-  <T>(
-    options: Firestore.TransactionFromCallbackOptions<T>,
-  ): Firestore.MakeOptions["runTransaction"] =>
-  <A, E>(
-    body: (operations: Firestore.TransactionOperations) => Effect.Effect<A, E>,
-    hookOptions: Firestore.TransactionHookOptions,
-  ): Effect.Effect<A, E | FirestoreError> =>
-    Effect.uninterruptibleMask((restore) => {
-      const controller = new AbortController();
-      // The last thing the body failed with, and what was thrown for it, so
-      // that a failure the SDK hands back without retrying it comes back as
-      // the body's own rather than wrapped.
-      let failure: { readonly thrown: unknown; readonly cause: Cause.Cause<unknown> } | undefined;
-      const callback = async (transaction: T): Promise<A> => {
-        // The body has everything it needs provided, so it runs on a runtime
-        // of its own here, inside the SDK's callback.
-        const exit = await Effect.runPromiseExit(body(options.operations(transaction)), {
-          signal: controller.signal,
-        });
-        if (Exit.isSuccess(exit)) return exit.value;
-        const thrown = thrownFor(exit.cause);
-        failure = { thrown, cause: exit.cause };
-        throw thrown;
-      };
-      let running: Promise<A>;
-      try {
-        running = options.run(callback, hookOptions);
-      } catch (cause) {
-        running = Promise.reject(cause);
-      }
+export const transactionFromCallback = <
+  T,
+  Operations extends Firestore.TransactionOperations,
+  TransactionServices = never,
+>(
+  options: Firestore.TransactionFromCallbackOptions<T, Operations, TransactionServices>,
+): Firestore.RunTransaction<Operations, TransactionServices> => ({
+  run: (body, hookOptions) => runOver(options, body, hookOptions),
+  context: options.context,
+});
 
-      return restore(
-        Effect.tryPromise({
-          try: () => running,
-          catch: (cause) =>
-            failure !== undefined && cause === failure.thrown
-              ? new BodyFailed(failure.cause)
-              : options.onError(cause),
-        }),
-      ).pipe(
-        // Interrupting the body is what makes the callback reject, and so what
-        // makes the SDK roll back - which is waited for, so that nothing of
-        // the transaction is left running once this is done.
-        Effect.onInterrupt(() => {
-          controller.abort();
-          return Effect.promise(() => running.then(constVoid, constVoid));
-        }),
-        Effect.catchIf(
-          (error): error is BodyFailed => error instanceof BodyFailed,
-          (failed) => Effect.failCause(failed.cause as Cause.Cause<E>),
-        ),
-      );
-    });
+/** Runs `body` in a transaction through `options.run`, once per attempt. */
+const runOver = <T, Operations extends Firestore.TransactionOperations, A, E>(
+  options: Pick<
+    Firestore.TransactionFromCallbackOptions<T, Operations>,
+    "run" | "operations" | "onError"
+  >,
+  body: (operations: Operations) => Effect.Effect<A, E>,
+  hookOptions: Firestore.TransactionHookOptions,
+): Effect.Effect<A, E | FirestoreError> =>
+  Effect.uninterruptibleMask((restore) => {
+    const controller = new AbortController();
+    // The last thing the body failed with, and what was thrown for it, so
+    // that a failure the SDK hands back without retrying it comes back as
+    // the body's own rather than wrapped.
+    let failure: { readonly thrown: unknown; readonly cause: Cause.Cause<unknown> } | undefined;
+    const callback = async (transaction: T): Promise<A> => {
+      // The body has everything it needs provided, so it runs on a runtime
+      // of its own here, inside the SDK's callback.
+      const exit = await Effect.runPromiseExit(body(options.operations(transaction)), {
+        signal: controller.signal,
+      });
+      if (Exit.isSuccess(exit)) return exit.value;
+      const thrown = thrownFor(exit.cause);
+      failure = { thrown, cause: exit.cause };
+      throw thrown;
+    };
+    let running: Promise<A>;
+    try {
+      running = options.run(callback, hookOptions);
+    } catch (cause) {
+      running = Promise.reject(cause);
+    }
+
+    return restore(
+      Effect.tryPromise({
+        try: () => running,
+        catch: (cause) =>
+          failure !== undefined && cause === failure.thrown
+            ? new BodyFailed(failure.cause)
+            : options.onError(cause),
+      }),
+    ).pipe(
+      // Interrupting the body is what makes the callback reject, and so what
+      // makes the SDK roll back - which is waited for, so that nothing of
+      // the transaction is left running once this is done.
+      Effect.onInterrupt(() => {
+        controller.abort();
+        return Effect.promise(() => running.then(constVoid, constVoid));
+      }),
+      Effect.catchIf(
+        (error): error is BodyFailed => error instanceof BodyFailed,
+        (failed) => Effect.failCause(failed.cause as Cause.Cause<E>),
+      ),
+    );
+  });

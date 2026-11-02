@@ -181,23 +181,23 @@ const operations = <ReadOptions>(target: Target<ReadOptions>) => {
  * The transaction a body reads and writes through, over the operations of one
  * attempt.
  */
-const transactionOf = (
-  transaction: Firestore.TransactionOperations,
-): Firestore.TransactionWithGetDocs => {
+const transactionOf = <Operations extends Firestore.TransactionOperations>(
+  transaction: Operations,
+): Firestore.BuiltTransaction<Operations> => {
+  const readMany = transaction.getDocs;
   const { getDoc, getDocs, setDoc, updateDoc } = operations<never>({
     name: "Firestore.Transaction",
     getDoc: (path) => transaction.getDoc(path),
-    getDocs:
-      transaction.getDocs === undefined ? undefined : (selector) => transaction.getDocs!(selector),
+    getDocs: readMany === undefined ? undefined : (selector) => readMany(selector),
     setDoc: transaction.setDoc,
     updateDoc: transaction.updateDoc,
   });
-  return {
-    getDoc,
-    setDoc,
-    updateDoc,
-    getDocs: getDocs as Firestore.Firestore["getDocs"] | undefined,
-  } as Firestore.TransactionWithGetDocs;
+  // `getDocs` is there exactly where `Operations` has one, which is what
+  // `BuiltTransaction` says, though the compiler cannot follow it into the
+  // conditional type.
+  return (
+    getDocs === undefined ? { getDoc, setDoc, updateDoc } : { getDoc, setDoc, updateDoc, getDocs }
+  ) as Firestore.BuiltTransaction<Operations>;
 };
 
 /**
@@ -207,8 +207,13 @@ const transactionOf = (
  *
  * @internal
  */
-export const make = <ReadOptions, ListenOptions>(
-  options: Firestore.MakeOptions<ReadOptions, ListenOptions>,
+export const make = <
+  ReadOptions,
+  ListenOptions,
+  Operations extends Firestore.TransactionOperations,
+  TransactionServices,
+>(
+  options: Firestore.MakeOptions<ReadOptions, ListenOptions, Operations, TransactionServices>,
   Transaction: typeof Firestore.Transaction,
 ): Firestore.Firestore => {
   const { getDoc, getDocs, setDoc, updateDoc } = operations<ReadOptions>({
@@ -252,10 +257,10 @@ export const make = <ReadOptions, ListenOptions>(
     // handed to the body whole, so it needs nothing from wherever the hook
     // runs it.
     const context = yield* Effect.context<Exclude<R, Firestore.Transaction>>();
-    const transactionContext = options.transactionContext;
+    const offer = options.runTransaction.context;
     const maxAttempts = transactionOptions?.maxAttempts;
 
-    return yield* options.runTransaction(
+    return yield* options.runTransaction.run(
       (operations) => {
         // One transaction, under every tag, so that helpers asking for any of
         // them read and write through it alike.
@@ -263,12 +268,9 @@ export const make = <ReadOptions, ListenOptions>(
         const withTransaction = Context.add(context, Transaction, transaction);
         return Effect.provideContext(
           effect,
-          (transactionContext === undefined
+          (offer === undefined
             ? withTransaction
-            : Context.merge(
-                withTransaction,
-                transactionContext(transaction),
-              )) as Context.Context<R>,
+            : Context.merge(withTransaction, offer(transaction))) as Context.Context<R>,
         );
       },
       // Left out rather than `undefined` where it is not set, since some

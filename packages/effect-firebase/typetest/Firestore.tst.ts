@@ -329,6 +329,17 @@ const RichTransaction = Context.Service<RichTransaction>("RichTransaction");
 
 declare const richHooks: Firestore.MakeOptions<ReadOptions, ListenOptions>;
 
+/** An SDK's own transaction object, as `transactionFromCallback` is handed it. */
+interface SdkTransaction {
+  readonly id: string;
+}
+declare const run: Firestore.TransactionFromCallbackOptions<SdkTransaction>["run"];
+declare const onError: (cause: unknown) => Firestore.FirestoreError;
+/** The operations of a backend that can read many documents in a transaction. */
+declare const readsMany: Required<Firestore.TransactionOperations>;
+/** The operations of a backend that reads one document at a time in a transaction. */
+declare const readsOne: Omit<Firestore.TransactionOperations, "getDocs">;
+
 describe("make", () => {
   test("builds the portable Firestore", () => {
     expect(Firestore.make(hooks)).type.toBe<Firestore.Firestore>();
@@ -370,11 +381,66 @@ describe("make", () => {
     });
   });
 
-  test("takes a transactionContext offering the transaction under a tag of its own", () => {
+  test("hands context a transaction that reads many where the operations do", () => {
     void Firestore.make({
       ...hooks,
-      transactionContext: (transaction) =>
-        Context.make(RichTransaction, transaction as RichTransaction),
+      runTransaction: Firestore.transactionFromCallback({
+        run,
+        operations: () => readsMany,
+        onError,
+        context: (transaction) => {
+          expect(transaction.getDocs).type.toBe<Firestore.Firestore["getDocs"]>();
+          return Context.make(RichTransaction, transaction);
+        },
+      }),
+    });
+  });
+
+  test("hands context a transaction that cannot read many where the operations cannot", () => {
+    void Firestore.make({
+      ...hooks,
+      runTransaction: Firestore.transactionFromCallback({
+        run,
+        operations: () => readsOne,
+        onError,
+        context: (transaction) => {
+          expect(transaction).type.not.toHaveProperty("getDocs");
+          return Context.empty();
+        },
+      }),
+    });
+  });
+
+  test("refuses to offer a transaction that cannot read many as one that can", () => {
+    void Firestore.make({
+      ...hooks,
+      runTransaction: Firestore.transactionFromCallback({
+        run,
+        operations: () => readsOne,
+        onError,
+        // @ts-expect-error Property 'getDocs' is missing
+        context: (transaction) => Context.make(RichTransaction, transaction),
+      }),
+    });
+  });
+
+  test("hands context a transaction that reads many from a hook built beforehand", () => {
+    const runTransaction = Firestore.transactionFromCallback({
+      run,
+      operations: () => readsMany,
+      onError,
+      context: (transaction) => Context.make(RichTransaction, transaction),
+    });
+    expect(runTransaction).type.toBe<
+      Firestore.RunTransaction<Required<Firestore.TransactionOperations>, RichTransaction>
+    >();
+    void Firestore.make({ ...hooks, runTransaction });
+  });
+
+  test("takes a transaction hook written as a value, with no context", () => {
+    void Firestore.make({
+      ...hooks,
+      runTransaction: { run: (body) => body(readsOne) },
     });
   });
 

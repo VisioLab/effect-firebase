@@ -115,11 +115,14 @@ const getDocs =
     );
   };
 
-/** The reads and writes of one attempt at a transaction. */
+/**
+ * The reads and writes of one attempt at a transaction, which, unlike the
+ * client's, can read many documents.
+ */
 const transactionOperations = (
   firestore: Admin.Firestore,
   tx: Admin.Transaction,
-): Firestore.TransactionOperations => ({
+): Required<Firestore.TransactionOperations> => ({
   getDoc: (path) =>
     Effect.flatMap(
       call(`Failed to read the document "${path}"`, () => tx.get(firestore.doc(path))),
@@ -202,16 +205,14 @@ export const fromDatabase = (
       });
     },
 
-    runTransaction: Firestore.transactionFromCallback<Admin.Transaction>({
+    runTransaction: Firestore.transactionFromCallback({
       run: (callback, options) => firestore.runTransaction(callback, options),
-      operations: (tx) => transactionOperations(firestore, tx),
+      operations: (tx: Admin.Transaction) => transactionOperations(firestore, tx),
       onError: firestoreError("Failed to run a transaction"),
+      // The operations read many documents, so the transaction core builds
+      // has a `getDocs`, and is an Admin Transaction as it is.
+      context: (transaction) => Context.make(AdminTransaction, transaction),
     }),
-
-    // The transaction core builds reads many through the operations' own
-    // `getDocs`, so it is an Admin Transaction as it is.
-    transactionContext: (transaction) =>
-      Context.make(AdminTransaction, transaction as AdminFirestore.AdminTransaction),
   });
 
   // Every transaction body is handed the Admin Transaction too, which is what
