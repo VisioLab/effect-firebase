@@ -181,7 +181,9 @@ const operations = <ReadOptions>(target: Target<ReadOptions>) => {
  * The transaction a body reads and writes through, over the operations of one
  * attempt.
  */
-const transactionOf = (transaction: Firestore.TransactionOperations): Firestore.MadeTransaction => {
+const transactionOf = (
+  transaction: Firestore.TransactionOperations,
+): Firestore.TransactionWithGetDocs => {
   const { getDoc, getDocs, setDoc, updateDoc } = operations<never>({
     name: "Firestore.Transaction",
     getDoc: (path) => transaction.getDoc(path),
@@ -195,7 +197,7 @@ const transactionOf = (transaction: Firestore.TransactionOperations): Firestore.
     setDoc,
     updateDoc,
     getDocs: getDocs as Firestore.Firestore["getDocs"] | undefined,
-  } as Firestore.MadeTransaction;
+  } as Firestore.TransactionWithGetDocs;
 };
 
 /**

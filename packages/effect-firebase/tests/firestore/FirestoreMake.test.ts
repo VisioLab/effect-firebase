@@ -502,7 +502,7 @@ describe("streamDocs", () => {
 
 describe("runTransaction", () => {
   /** A richer transaction a backend offers under a tag of its own. */
-  const RichTransaction = Context.Service<Firestore.MadeTransaction>("test/RichTransaction");
+  const RichTransaction = Context.Service<Firestore.TransactionWithGetDocs>("test/RichTransaction");
 
   /**
    * A transaction hook that runs each body once, on a runtime of its own as an

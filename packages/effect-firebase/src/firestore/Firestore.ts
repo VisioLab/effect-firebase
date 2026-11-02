@@ -543,7 +543,7 @@ export interface TransactionOperations {
  * @category models
  * @since 0.3.0
  */
-export interface MadeTransaction extends Transaction {
+export interface TransactionWithGetDocs extends Transaction {
   /** Present exactly where {@link TransactionOperations.getDocs} is. */
   readonly getDocs?: Firestore["getDocs"] | undefined;
 }
@@ -660,7 +660,7 @@ export interface MakeOptions<ReadOptions = never, ListenOptions = never> {
    * whichever tag it asks for.
    */
   readonly transactionContext?:
-    | ((transaction: MadeTransaction) => Context.Context<never>)
+    | ((transaction: TransactionWithGetDocs) => Context.Context<never>)
     | undefined;
 }
 
