@@ -1,5 +1,5 @@
 ---
-"@visiolab/effect-firebase-client": patch
+"@visiolab/effect-firebase-client": minor
 ---
 
-Client Firestore is now built through core's `Firestore.make`, with its transactions run through `Firestore.transactionFromCallback` and its streams through `Firestore.streamFromListener`. Its own copies of the transaction and listener bridges, Collection Group matching, snapshot assembly and write encoding are gone. Read source and listen options still apply, and snapshots still carry Snapshot Metadata. Error messages, codes and causes are unchanged, and each span now also covers encoding and decoding.
+`ClientFirestore` is now built on core's `Firestore.make`, so it requires `@visiolab/effect-firebase` 0.3.0. Its methods, options and types are unchanged: read source and listen options still apply, and snapshots still carry and print Snapshot Metadata. One difference you may notice is that each `Firestore.*` span now covers encoding and decoding as well as the SDK call.
