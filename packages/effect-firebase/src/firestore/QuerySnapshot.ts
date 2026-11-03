@@ -46,7 +46,7 @@ export type Existing<C extends Collection.Any> = C extends Collection.Any
  * `C` is a union when the read was of a Collection Group made of several
  * collections, and each document is then one of theirs.
  *
- * `Extra` is what an SDK knows about each document beyond the portable
+ * `DocumentExtra` is what an SDK knows about each document beyond the portable
  * snapshot, such as the client's `metadata`, and is on every one of them. What
  * it knows about the read as a whole is not part of this type: it is an
  * intersection where the snapshot is used, as `QuerySnapshot<C, E> & E`.
@@ -55,7 +55,7 @@ export type Existing<C extends Collection.Any> = C extends Collection.Any
  * @category models
  * @since 0.2.0
  */
-export interface QuerySnapshot<C extends Collection.Any, Extra extends object = {}>
+export interface QuerySnapshot<C extends Collection.Any, DocumentExtra extends object = {}>
   extends Inspectable.Inspectable {
   readonly [TypeId]: typeof TypeId;
   /**
@@ -63,9 +63,9 @@ export interface QuerySnapshot<C extends Collection.Any, Extra extends object = 
    *
    * Each was there when it was read, which is why these are
    * {@link DocumentSnapshot.Existing}, each of the one collection of `C` it
-   * is in, with the `Extra` each carries.
+   * is in, with the `DocumentExtra` each carries.
    */
-  readonly docs: ReadonlyArray<Existing<C> & Extra>;
+  readonly docs: ReadonlyArray<Existing<C> & DocumentExtra>;
 }
 
 /**
