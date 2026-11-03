@@ -334,6 +334,11 @@ class AuditedTransaction extends Context.Service<AuditedTransaction, RichTransac
   "AuditedTransaction",
 ) {}
 
+/** An SDK's Firestore, which promises that transactions offer AuditedTransaction. */
+interface AuditedFirestore extends Firestore.With<never, never, {}, AuditedTransaction> {
+  readonly instance: "sdk";
+}
+
 declare const richHooks: Firestore.MakeOptions<ReadOptions, ListenOptions>;
 
 /** An SDK's own transaction object, as `transactionFromCallback` is handed it. */
@@ -482,6 +487,26 @@ describe("make", () => {
     >();
     const ran = made.runTransaction(body);
     expect<Effect.Services<typeof ran>>().type.toBe<Step>();
+  });
+
+  test("refuses a Firestore whose transaction hook offers no services as one whose does", () => {
+    const made = Firestore.make(hooks);
+    // @ts-expect-error Type 'AuditedTransaction' is not assignable to type 'never'
+    const promised: Firestore.With<never, never, {}, AuditedTransaction> = made;
+    void promised;
+  });
+
+  test("refuses a Firestore whose transaction hook offers no services as an SDK's that promises some", () => {
+    const made = Firestore.make(hooks);
+    // @ts-expect-error Type 'AuditedTransaction' is not assignable to type 'never'
+    const promised: AuditedFirestore = Object.assign(made, { instance: "sdk" as const });
+    void promised;
+  });
+
+  test("is a Firestore wherever its transaction hook offers further services", () => {
+    expect<
+      Firestore.With<never, never, {}, AuditedTransaction>
+    >().type.toBeAssignableTo<Firestore.Firestore>();
   });
 
   test("takes a transaction hook written as a value, with no context", () => {

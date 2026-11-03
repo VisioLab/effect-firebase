@@ -42,40 +42,37 @@ export interface AdminFirestore extends With<never, never, {}, AdminTransaction>
 }
 
 /**
- * A {@link Transaction} that can also read every document in a collection or
- * a Collection Group, which only the Admin SDK's transactions can.
+ * Service key for a {@link Transaction} that can also read every document in
+ * a collection or a Collection Group, which only the Admin SDK's transactions
+ * can. An {@link AdminFirestore.runTransaction} body runs in one. The
+ * transaction itself is an `AdminTransaction["Service"]`.
  *
  * It holds to the same rules as {@link Transaction}: a read of many is a
  * read, so it comes before every write.
  *
- * @stability unstable
- * @category models
- * @since 0.2.0
- */
-export interface AdminTransaction extends Transaction {
-  /**
-   * Reads every document in a collection or a Collection Group, as
-   * {@link Firestore.getDocs} does, as part of the transaction.
-   *
-   * Every document it hands back is locked for the rest of the transaction,
-   * so another write to one of them makes the transaction run again. A group
-   * read that fails with an `UndefinedCollectionError` fails the body,
-   * which rolls the transaction back without running it again.
-   */
-  readonly getDocs: Firestore["getDocs"];
-}
-
-/**
- * Service key for the {@link AdminTransaction} an
- * {@link AdminFirestore.runTransaction} body runs in.
+ * The key is a class, not the transaction's own type, so a body asking for it
+ * is told apart from one asking for {@link Transaction}: run through the
+ * portable {@link Firestore}, such a body still asks its caller for it.
  *
  * @stability unstable
  * @category services
  * @since 0.2.0
  */
-export const AdminTransaction = Context.Service<AdminTransaction>(
-  "@visiolab/effect-firebase-admin/firestore/AdminFirestore/AdminTransaction",
-);
+export class AdminTransaction extends Context.Service<
+  AdminTransaction,
+  Transaction & {
+    /**
+     * Reads every document in a collection or a Collection Group, as
+     * {@link Firestore.getDocs} does, as part of the transaction.
+     *
+     * Every document it hands back is locked for the rest of the transaction,
+     * so another write to one of them makes the transaction run again. A group
+     * read that fails with an `UndefinedCollectionError` fails the body,
+     * which rolls the transaction back without running it again.
+     */
+    readonly getDocs: Firestore["getDocs"];
+  }
+>()("@visiolab/effect-firebase-admin/firestore/AdminFirestore/AdminTransaction") {}
 
 /**
  * Service key for {@link AdminFirestore}.

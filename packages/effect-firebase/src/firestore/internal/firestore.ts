@@ -11,6 +11,15 @@ import * as firestoreValue from "./firestoreValue.ts";
 import * as firestoreValueWalk from "./firestoreValueWalk.ts";
 import * as querySnapshot from "./querySnapshot.ts";
 
+/**
+ * The key of `Firestore.With`'s member that holds its transaction services
+ * for the compiler alone. Nothing is ever stored under it.
+ *
+ * @internal
+ */
+export const TransactionServicesTypeId =
+  "~@visiolab/effect-firebase/firestore/Firestore/TransactionServices";
+
 /** What `getDocs` and `streamDocs` read from: a collection, or a group. */
 type Source = Collection.CollectionReference<Collection.Any> | CollectionGroup.Any;
 
