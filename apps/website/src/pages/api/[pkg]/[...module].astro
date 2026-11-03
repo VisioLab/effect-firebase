@@ -3,8 +3,10 @@ import { Code, Icon } from "@astrojs/starlight/components";
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
 import type { GetStaticPaths } from "astro";
 import { getCollection } from "astro:content";
+import { packagePath } from "../../../api/reference.ts";
 import ApiDeclaration from "../../../components/ApiDeclaration.astro";
 import RichContent from "../../../components/RichContent.astro";
+import Since from "../../../components/Since.astro";
 
 export const getStaticPaths = (async () =>
   (await getCollection("api")).flatMap(({ data }) =>
@@ -37,7 +39,7 @@ const headings = module.categories.flatMap((category) => [
     api: {
       breadcrumbs: [
         { label: "API reference" },
-        { label: pkg.name, href: `/api/${pkg.dir}/` },
+        { label: pkg.name, href: packagePath(pkg) },
         { label: module.name },
       ],
       stability: module.doc?.stability,
@@ -70,7 +72,13 @@ const headings = module.categories.flatMap((category) => [
 
   <p>
     {module.exportCount} exports
-    {module.doc?.since !== undefined && ` · Since v${module.doc.since}`} ·{" "}
+    {module.doc?.since !== undefined && (
+      <>
+        {" · "}
+        <Since doc={module.doc} />
+      </>
+    )}{" "}
+    ·{" "}
     <a class="api-icon-link" href={module.sourceUrl} target="_blank" rel="noopener noreferrer">
       <Icon name="github" />
       <span>Source</span>

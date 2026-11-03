@@ -1,0 +1,33 @@
+---
+/**
+ * The version an export was added in, marked unreleased while that version is
+ * newer than the package's last release: the site is built from `main`, which
+ * can be ahead of the registry.
+ */
+import { Badge } from "@astrojs/starlight/components";
+import type { Doc } from "../api/reference.ts";
+
+interface Props {
+  doc: Doc;
+}
+
+const { doc } = Astro.props;
+---
+
+{
+  doc.since !== undefined && (
+    <span>
+      Since v{doc.since}
+      {doc.unreleased && (
+        <>
+          {" "}
+          <Badge
+            text="unreleased"
+            variant="caution"
+            title="Added on main after the package's last release. Not on npm yet."
+          />
+        </>
+      )}
+    </span>
+  )
+}

@@ -22,15 +22,26 @@ export const packages: ReadonlyArray<Package> = [
 
 export const packageRoot = (dir: string): string => resolve("../../packages", dir);
 
+interface Manifest {
+  readonly version: string;
+  readonly exports: Record<string, string>;
+}
+
+const manifest = (dir: string): Manifest =>
+  JSON.parse(readFileSync(resolve(packageRoot(dir), "package.json"), "utf8")) as Manifest;
+
+/**
+ * The package's version as last released. Changesets bumps it only in the
+ * release's version PR, so on `main` it is the version on the registry.
+ */
+export const packageVersion = (dir: string): string => manifest(dir).version;
+
 /**
  * The package's public modules, as its `exports` name them (`firestore/Collection`),
  * leaving out the barrels, which only re-export the modules.
  */
 export const publicModules = (dir: string): ReadonlyArray<string> => {
-  const manifest = JSON.parse(readFileSync(resolve(packageRoot(dir), "package.json"), "utf8")) as {
-    readonly exports: Record<string, string>;
-  };
-  return Object.entries(manifest.exports)
+  return Object.entries(manifest(dir).exports)
     .filter(([, source]) => source.endsWith(".ts") && !source.endsWith("/index.ts"))
     .map(([subpath]) => subpath.slice("./".length));
 };

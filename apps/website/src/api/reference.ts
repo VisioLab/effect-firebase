@@ -11,7 +11,8 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { format } from "oxfmt";
 import ts from "typescript";
-import { packageRoot, packages, publicModules } from "./packages.ts";
+import { base } from "../site.ts";
+import { packageRoot, packageVersion, packages, publicModules } from "./packages.ts";
 
 /**
  * Rendered Markdown, with its code blocks kept apart so the page renders them
@@ -25,6 +26,8 @@ export type Rich = ReadonlyArray<
 export interface Doc {
   readonly body: Rich;
   readonly since: string | undefined;
+  /** Whether `since` is newer than the package's last release. */
+  readonly unreleased: boolean;
   readonly stability: string | undefined;
   /** Tags rendered as sections of their own, such as `@see` and `@deprecated`. */
   readonly sections: ReadonlyArray<{ readonly title: string; readonly body: Rich }>;
@@ -78,8 +81,10 @@ export interface PackageReference {
   readonly modules: ReadonlyArray<Module>;
 }
 
+export const packagePath = (pkg: { readonly dir: string }) => `${base}/api/${pkg.dir}/`;
+
 export const modulePath = (pkg: { readonly dir: string }, module: { readonly path: string }) =>
-  `/api/${pkg.dir}/${module.path}/`;
+  `${packagePath(pkg)}${module.path}/`;
 
 // Parsing -------------------------------------------------------------------
 
@@ -388,8 +393,9 @@ const readPackage = (dir: string): ReadonlyArray<RawModule> => {
 
 const markdown = await createMarkdownProcessor();
 
+// A link to `/api/…` in a JSDoc comment points into the site, under its base.
 const renderMarkdown = async (source: string): Promise<string> =>
-  source.trim() === "" ? "" : (await markdown.render(source)).code;
+  source.trim() === "" ? "" : (await markdown.render(source.replaceAll("](/", `](${base}/`))).code;
 
 const renderRich = async (source: string): Promise<Rich> => {
   // Splitting on a fence with a capture group alternates prose and code:
@@ -460,20 +466,31 @@ const resolveLinks = (source: string, resolveLink: LinkResolver) =>
     },
   );
 
-const renderDoc = async (doc: RawDoc, resolveLink: LinkResolver): Promise<Doc> => ({
-  body: await renderRich(resolveLinks(doc.description, resolveLink)),
-  since: tagText(doc, "since"),
-  stability: tagText(doc, "stability"),
-  sections: await Promise.all(
-    doc.tags
-      .filter(({ tag }) => !metadataTags.has(tag))
-      .map(async ({ tag, text }) => ({
-        title: sectionTitles[tag] ?? tag[0]!.toUpperCase() + tag.slice(1),
-        body: await renderRich(resolveLinks(text, resolveLink)),
-      })),
-  ),
-  examples: doc.tags.filter(({ tag }) => tag === "example").map(({ text }) => example(text)),
-});
+/** Whether `version` comes after `release`, comparing `major.minor.patch`. */
+const isAfter = (version: string, release: string) => {
+  const [left, right] = [version, release].map((v) => v.split(".").map(Number));
+  const index = left!.findIndex((part, i) => part !== right![i]);
+  return index !== -1 && left![index]! > right![index]!;
+};
+
+const renderDoc = async (doc: RawDoc, resolveLink: LinkResolver, release: string): Promise<Doc> => {
+  const since = tagText(doc, "since");
+  return {
+    body: await renderRich(resolveLinks(doc.description, resolveLink)),
+    since,
+    unreleased: since !== undefined && isAfter(since, release),
+    stability: tagText(doc, "stability"),
+    sections: await Promise.all(
+      doc.tags
+        .filter(({ tag }) => !metadataTags.has(tag))
+        .map(async ({ tag, text }) => ({
+          title: sectionTitles[tag] ?? tag[0]!.toUpperCase() + tag.slice(1),
+          body: await renderRich(resolveLinks(text, resolveLink)),
+        })),
+    ),
+    examples: doc.tags.filter(({ tag }) => tag === "example").map(({ text }) => example(text)),
+  };
+};
 
 const sourceUrl = (dir: string, path: string) =>
   `https://github.com/VisioLab/effect-firebase/blob/main/packages/${dir}/src/${path}.ts`;
@@ -548,6 +565,7 @@ export const readApiReference = async (): Promise<ReadonlyArray<PackageReference
   return Promise.all(
     raw.map(async (current) => {
       const { pkg, modules } = current;
+      const release = packageVersion(pkg.dir);
       const readme = readFileSync(resolve(packageRoot(pkg.dir), "README.md"), "utf8")
         // The page has the package's name as its title already.
         .replace(/^# .*\n/, "");
@@ -568,13 +586,13 @@ export const readApiReference = async (): Promise<ReadonlyArray<PackageReference
                     anchor,
                     kind: declaration.kind,
                     signature: await formatSignature(declaration.signature),
-                    doc: await renderDoc(declaration.doc, resolveLink),
+                    doc: await renderDoc(declaration.doc, resolveLink, release),
                     members: await Promise.all(
                       declaration.members.map(async (member) => ({
                         name: member.name,
                         anchor: memberAnchor(anchor, member.name),
                         signature: await formatMemberSignature(member.signature),
-                        doc: await renderDoc(member.doc, resolveLink),
+                        doc: await renderDoc(member.doc, resolveLink, release),
                       })),
                     ),
                     sourceUrl: `${sourceUrl(pkg.dir, module.path)}#L${declaration.line}`,
@@ -586,7 +604,10 @@ export const readApiReference = async (): Promise<ReadonlyArray<PackageReference
             return {
               path: module.path,
               name: module.path.split("/").at(-1)!,
-              doc: module.doc === undefined ? undefined : await renderDoc(module.doc, resolveLink),
+              doc:
+                module.doc === undefined
+                  ? undefined
+                  : await renderDoc(module.doc, resolveLink, release),
               exportCount: module.declarations.length,
               sourceUrl: sourceUrl(pkg.dir, module.path),
               categories: [...categories]
