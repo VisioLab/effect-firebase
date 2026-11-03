@@ -112,9 +112,9 @@ To use the emulator, pass `emulator: { host: "127.0.0.1", port: 8080 }` to
 
 ## Next steps
 
-- [`Firestore`](../../api/effect-firebase/firestore/Firestore/): every read, write,
+- [`Firestore`](/api/effect-firebase/firestore/Firestore/): every read, write,
   listener and transaction.
-- [`FirestoreModel`](../../api/effect-firebase/firestore/FirestoreModel/): optional
+- [`FirestoreModel`](/api/effect-firebase/firestore/FirestoreModel/): optional
   fields, server timestamps, counters, unions and nested structs.
-- [`Collection`](../../api/effect-firebase/firestore/Collection/): subcollections and
+- [`Collection`](/api/effect-firebase/firestore/Collection/): subcollections and
   typed ids.

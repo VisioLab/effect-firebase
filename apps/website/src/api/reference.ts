@@ -11,7 +11,6 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { format } from "oxfmt";
 import ts from "typescript";
-import { base } from "../site.ts";
 import { packageRoot, packageVersion, packages, publicModules } from "./packages.ts";
 
 /**
@@ -81,7 +80,7 @@ export interface PackageReference {
   readonly modules: ReadonlyArray<Module>;
 }
 
-export const packagePath = (pkg: { readonly dir: string }) => `${base}/api/${pkg.dir}/`;
+export const packagePath = (pkg: { readonly dir: string }) => `/api/${pkg.dir}/`;
 
 export const modulePath = (pkg: { readonly dir: string }, module: { readonly path: string }) =>
   `${packagePath(pkg)}${module.path}/`;
@@ -393,9 +392,8 @@ const readPackage = (dir: string): ReadonlyArray<RawModule> => {
 
 const markdown = await createMarkdownProcessor();
 
-// A link to `/api/…` in a JSDoc comment points into the site, under its base.
 const renderMarkdown = async (source: string): Promise<string> =>
-  source.trim() === "" ? "" : (await markdown.render(source.replaceAll("](/", `](${base}/`))).code;
+  source.trim() === "" ? "" : (await markdown.render(source)).code;
 
 const renderRich = async (source: string): Promise<Rich> => {
   // Splitting on a fence with a capture group alternates prose and code:

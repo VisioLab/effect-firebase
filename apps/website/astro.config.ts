@@ -2,7 +2,6 @@ import starlight from "@astrojs/starlight";
 import catppuccin from "@catppuccin/starlight";
 import { defineConfig } from "astro/config";
 import { packages, publicModules } from "./src/api/packages.ts";
-import { base, site } from "./src/site.ts";
 
 type SidebarLink = { label: string; link: string };
 
@@ -34,8 +33,6 @@ const moduleItems = (dir: string) => {
 };
 
 export default defineConfig({
-  site,
-  base,
   integrations: [
     starlight({
       title: "Effect Firebase",
