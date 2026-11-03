@@ -641,6 +641,19 @@ describe("make", () => {
     });
   });
 
+  test("refuses hooks that hand back an extra where getDoc hands back none", () => {
+    void Firestore.make({
+      ...hooks,
+      getDoc: () => Effect.succeed({ data: undefined }),
+      // @ts-expect-error Type 'Meta' is not assignable to type 'undefined'
+      getDocs: () => Effect.succeed(metaQueryRead),
+      // @ts-expect-error Type 'Meta' is not assignable to type 'undefined'
+      streamDoc: () => metaReads,
+      // @ts-expect-error Type 'Meta' is not assignable to type 'undefined'
+      streamDocs: () => metaQueryReads,
+    });
+  });
+
   test("refuses a hook failing with anything but a FirestoreError", () => {
     void Firestore.make({
       ...hooks,

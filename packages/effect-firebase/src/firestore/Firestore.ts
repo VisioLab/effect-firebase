@@ -524,17 +524,21 @@ export type DocumentData = { readonly [field: string]: FirestoreValue };
  * the snapshot, and shown when it prints, as {@link DocumentSnapshot.make}
  * does with an `extra`. Its fields must not be named like the snapshot's own.
  *
- * It may be left out where `Extra` has no fields, and must be there where it
- * has some, so that a snapshot never claims an extra its read did not hand
- * back.
+ * It must be there where `Extra` has required fields, so that a snapshot never
+ * claims an extra its read did not hand back. It may be left out where every
+ * field is optional. Where `Extra` has no fields at all it is never there, so
+ * that a read handing back an extra its snapshots do not carry does not
+ * compile either.
  *
  * @stability unstable
  * @category models
  * @since 0.3.0
  */
-export type ReadExtra<Extra extends object> = {} extends Extra
-  ? { readonly extra?: Extra | undefined }
-  : { readonly extra: Extra };
+export type ReadExtra<Extra extends object> = [keyof Extra] extends [never]
+  ? { readonly extra?: undefined }
+  : {} extends Extra
+    ? { readonly extra?: Extra | undefined }
+    : { readonly extra: Extra };
 
 /**
  * What a {@link MakeOptions} hook read for one document, with the `Extra` the
@@ -720,7 +724,8 @@ export interface TransactionHookOptions {
  * of them, for one document, for each document of many, and for a read of
  * many as a whole. It is inferred from what `getDoc` hands back, and the other
  * three must hand back the same, so a hook that hands back none, or another,
- * does not compile.
+ * does not compile. Nor does one that hands back an extra where `getDoc`
+ * hands back none, as an extra with no fields is never there.
  *
  * `Operations` and `TransactionServices` are those of the
  * {@link RunTransaction} hook.

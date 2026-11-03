@@ -41,11 +41,17 @@ const scriptedHooks: Firestore.MakeOptions<unknown, unknown> = {
 };
 
 /**
+ * The extra a scripted read may hand back, or not: these tests check that
+ * whatever a hook hands back reaches the snapshot.
+ */
+type ScriptedExtra = { readonly metadata?: unknown };
+
+/**
  * Hooks that answer only what a test scripts, and die on anything else, so a
  * test says exactly which hooks it expects to be called.
  */
-const scripted = (hooks: Partial<Firestore.MakeOptions<unknown, unknown>>) =>
-  Firestore.make({ ...scriptedHooks, ...hooks });
+const scripted = (hooks: Partial<Firestore.MakeOptions<unknown, unknown, ScriptedExtra>>) =>
+  Firestore.make<unknown, unknown, ScriptedExtra>({ ...scriptedHooks, ...hooks });
 
 describe("getDoc", () => {
   it.effect("reads a document the hook found no data for as missing", () =>
