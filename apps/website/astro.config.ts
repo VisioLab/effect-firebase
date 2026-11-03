@@ -33,9 +33,6 @@ const moduleItems = (dir: string) => {
 };
 
 export default defineConfig({
-  // The repository is private, so GitHub Pages serves the site from this
-  // domain's root rather than under the repository's name.
-  site: "https://super-doodle-1g6qwkp.pages.github.io",
   integrations: [
     starlight({
       title: "Effect Firebase",
