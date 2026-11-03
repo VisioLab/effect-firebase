@@ -82,7 +82,7 @@ const firestoreOver = (
     streamDocs: () => Stream.die("The streamDocs hook was not scripted"),
     runTransaction: Firestore.transactionFromCallback({
       run,
-      operations: (transaction) => ({
+      operations: (transaction: SdkTransaction) => ({
         getDoc: () => Effect.succeed({ data: { name: "Alice" } }),
         setDoc: () => Effect.void,
         updateDoc: () => Effect.void,

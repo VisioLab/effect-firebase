@@ -14,6 +14,16 @@ const Users = Collection.make("users", User);
 const alice = DocumentSnapshot.existing(Users.doc(Users.id.make("alice")), { name: "Alice" });
 const bob = DocumentSnapshot.existing(Users.doc(Users.id.make("bob")), { name: "Bob" });
 
+/** What an SDK might know about each document it read. */
+interface Metadata {
+  readonly fromCache: boolean;
+}
+const carol = DocumentSnapshot.existing(
+  Users.doc(Users.id.make("carol")),
+  { name: "Carol" },
+  { metadata: { fromCache: false } as Metadata },
+);
+
 describe("make", () => {
   test("holds the documents of the collection they were read from", () => {
     expect(QuerySnapshot.make([alice, bob])).type.toBe<QuerySnapshot.QuerySnapshot<typeof Users>>();
@@ -22,6 +32,19 @@ describe("make", () => {
   test("yields existing Document Snapshots of that collection", () => {
     expect(QuerySnapshot.make([alice, bob]).docs).type.toBe<
       ReadonlyArray<DocumentSnapshot.Existing<typeof Users>>
+    >();
+  });
+
+  test("keeps the extra its documents carry on each of them", () => {
+    expect(QuerySnapshot.make([carol])).type.toBe<
+      QuerySnapshot.QuerySnapshot<typeof Users, { metadata: Metadata }>
+    >();
+    expect(QuerySnapshot.make([carol]).docs[0].metadata).type.toBe<Metadata>();
+  });
+
+  test("keeps the read's own extra beside its documents' extra", () => {
+    expect(QuerySnapshot.make([carol], { metadata: { fromCache: true } as Metadata })).type.toBe<
+      QuerySnapshot.QuerySnapshot<typeof Users, { metadata: Metadata }> & { metadata: Metadata }
     >();
   });
 });
@@ -34,6 +57,18 @@ const UserPosts = Users.subcollection("posts", UserPost);
 const OrgPosts = Collection.make("orgs", Org).subcollection("posts", OrgPost);
 
 describe("QuerySnapshot", () => {
+  test("with no extra holds documents that carry none", () => {
+    expect<QuerySnapshot.QuerySnapshot<typeof Users>>().type.toBe<
+      QuerySnapshot.QuerySnapshot<typeof Users, {}>
+    >();
+  });
+
+  test("holds each document with the extra it carries", () => {
+    expect<QuerySnapshot.QuerySnapshot<typeof Users, { metadata: Metadata }>["docs"]>().type.toBe<
+      ReadonlyArray<DocumentSnapshot.Existing<typeof Users> & { metadata: Metadata }>
+    >();
+  });
+
   test("holds each document as a snapshot of the one collection it is in", () => {
     expect<QuerySnapshot.QuerySnapshot<typeof UserPosts | typeof OrgPosts>["docs"]>().type.toBe<
       ReadonlyArray<

@@ -10,7 +10,8 @@ import type * as AdminSdk from "firebase-admin/firestore";
 import { describe, expect, test } from "tstyche";
 
 declare const firestore: Firestore.Firestore;
-declare const adminTx: AdminFirestore.AdminTransaction;
+declare const adminFirestore: AdminFirestore.AdminFirestore;
+declare const adminTx: AdminFirestore.AdminTransaction["Service"];
 declare const portableTx: Firestore.Transaction;
 
 class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
@@ -41,7 +42,9 @@ describe("AdminFirestore", () => {
 
 describe("AdminTransaction", () => {
   test("is a Transaction", () => {
-    expect<AdminFirestore.AdminTransaction>().type.toBeAssignableTo<Firestore.Transaction>();
+    expect<
+      AdminFirestore.AdminTransaction["Service"]
+    >().type.toBeAssignableTo<Firestore.Transaction>();
   });
 
   test("reads a whole collection on Admin Transaction and not on Transaction", () => {
@@ -77,19 +80,23 @@ describe("layer", () => {
   });
 });
 
-const adminRun = firestore.runTransaction(
-  Effect.gen(function* () {
-    yield* Step;
-    const admin = yield* AdminFirestore.AdminTransaction;
-    const portable = yield* Firestore.Transaction;
-    return admin === portable;
-  }),
-);
+const adminBody = Effect.gen(function* () {
+  yield* Step;
+  const admin = yield* AdminFirestore.AdminTransaction;
+  const portable = yield* Firestore.Transaction;
+  return admin === portable;
+});
 
 describe("runTransaction", () => {
-  // AdminTransaction extends Transaction, so excluding Transaction alone would
-  // already drop it: this can't tell the two signatures apart.
   test("hands the body the services of the caller, and asks for no Admin Transaction", () => {
-    expect(adminRun).type.toBe<Effect.Effect<boolean, Firestore.FirestoreError, Step>>();
+    expect(adminFirestore.runTransaction(adminBody)).type.toBe<
+      Effect.Effect<boolean, Firestore.FirestoreError, Step>
+    >();
+  });
+
+  test("leaves the Admin Transaction to the caller of the portable Firestore", () => {
+    expect(firestore.runTransaction(adminBody)).type.toBe<
+      Effect.Effect<boolean, Firestore.FirestoreError, Step | AdminFirestore.AdminTransaction>
+    >();
   });
 });

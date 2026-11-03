@@ -83,10 +83,13 @@ const dataOf = (
     snapshot.data({ serverTimestamps: "estimate" }),
   ) as Result.Result<Firestore.DocumentData | undefined, Firestore.FirestoreError>;
 
+/** What the client knows about a read beyond the portable snapshot. */
+type Extra = ReturnType<typeof snapshotMetadata.extraOf>;
+
 /** A read of one document, with the metadata the SDK reported for it. */
 const documentReadOf = (
   snapshot: Client.DocumentSnapshot,
-): Result.Result<Firestore.DocumentRead, Firestore.FirestoreError> =>
+): Result.Result<Firestore.DocumentRead<Extra>, Firestore.FirestoreError> =>
   Result.map(dataOf(snapshot.ref.path, snapshot), (data) => ({
     data,
     extra: snapshotMetadata.extraOf(snapshot.metadata),
@@ -95,7 +98,7 @@ const documentReadOf = (
 /** A read of many documents, each and as a whole with the metadata the SDK reported. */
 const queryReadOf = (
   query: Client.QuerySnapshot,
-): Result.Result<Firestore.QueryRead, Firestore.FirestoreError> =>
+): Result.Result<Firestore.QueryRead<Extra>, Firestore.FirestoreError> =>
   Result.map(
     Result.all(
       query.docs.map((snapshot) =>
@@ -164,14 +167,14 @@ export const fromDatabase = (firestore: Client.Firestore): ClientFirestore.Clien
   const toClient = (data: Firestore.DocumentData) =>
     firestoreValue.toClient(data, firestore) as Client.DocumentData;
 
-  const made = Firestore.make<ClientFirestore.ReadOptions, ClientFirestore.ListenOptions>({
-    getDoc: (path, options) =>
+  const made = Firestore.make({
+    getDoc: (path, options: ClientFirestore.ReadOptions | undefined) =>
       Effect.flatMap(
         call(`Failed to read the document "${path}"`, () => readsFrom(options).getDoc(docOf(path))),
         (snapshot) => Effect.fromResult(documentReadOf(snapshot)),
       ),
 
-    getDocs: (selector, options) => {
+    getDocs: (selector, options: ClientFirestore.ReadOptions | undefined) => {
       const { query, name } = queryOf(firestore, selector);
       return Effect.flatMap(
         call(`Failed to read ${name}`, () => readsFrom(options).getDocs(query)),
@@ -200,7 +203,7 @@ export const fromDatabase = (firestore: Client.Firestore): ClientFirestore.Clien
     // The client SDK hands a listener the documents as this client last wrote
     // them, before the database has taken the writes, so each write is seen
     // straight away rather than once it is acknowledged.
-    streamDoc: (path, options) =>
+    streamDoc: (path, options: ClientFirestore.ListenOptions | undefined) =>
       Firestore.streamFromListener({
         subscribe: (onNext, onError) =>
           Client.onSnapshot(docOf(path), snapshotListenOptions(options), onNext, onError),
@@ -208,7 +211,7 @@ export const fromDatabase = (firestore: Client.Firestore): ClientFirestore.Clien
         map: documentReadOf,
       }),
 
-    streamDocs: (selector, options) => {
+    streamDocs: (selector, options: ClientFirestore.ListenOptions | undefined) => {
       const { query, name } = queryOf(firestore, selector);
       return Firestore.streamFromListener({
         subscribe: (onNext, onError) =>
@@ -218,9 +221,9 @@ export const fromDatabase = (firestore: Client.Firestore): ClientFirestore.Clien
       });
     },
 
-    runTransaction: Firestore.transactionFromCallback<Client.Transaction>({
+    runTransaction: Firestore.transactionFromCallback({
       run: (callback, options) => Client.runTransaction(firestore, callback, options),
-      operations: (tx) => ({
+      operations: (tx: Client.Transaction) => ({
         // A transaction reads from the server alone and never holds writes of
         // its own that are pending, so its metadata says nothing and is left
         // out: what it hands back is the portable snapshot.
@@ -245,15 +248,9 @@ export const fromDatabase = (firestore: Client.Firestore): ClientFirestore.Clien
     }),
   });
 
-  // `make` types its reads as portable ones, though each forwards the read
-  // source or listen options it is called with to the hooks above, and each
-  // snapshot holds the metadata they read with it: the client's own types
-  // restate that.
-  return Object.assign(made, {
-    instance: firestore,
-    getDoc: made.getDoc as ClientFirestore.ClientFirestore["getDoc"],
-    getDocs: made.getDocs as ClientFirestore.ClientFirestore["getDocs"],
-    streamDoc: made.streamDoc as ClientFirestore.ClientFirestore["streamDoc"],
-    streamDocs: made.streamDocs as ClientFirestore.ClientFirestore["streamDocs"],
-  });
+  // `make` infers the read source and listen options its hooks are handed and
+  // the metadata they read with each snapshot, so the client's interface is
+  // checked against what it built here.
+  const service: ClientFirestore.ClientFirestore = Object.assign(made, { instance: firestore });
+  return service;
 };

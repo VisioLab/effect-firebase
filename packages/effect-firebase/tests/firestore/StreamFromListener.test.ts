@@ -85,7 +85,7 @@ const listeningTo = (source: ReturnType<typeof listenable>) =>
     setDoc: () => Effect.die("unscripted"),
     updateDoc: () => Effect.die("unscripted"),
     addDoc: () => Effect.die("unscripted"),
-    runTransaction: () => Effect.die("unscripted"),
+    runTransaction: { run: () => Effect.die("unscripted") },
     streamDoc: () =>
       Firestore.streamFromListener({
         subscribe: source.subscribe,
