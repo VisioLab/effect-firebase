@@ -6,16 +6,23 @@ packages:
 catalogMode: prefer
 
 catalog:
+  "@astrojs/markdown-remark": ^7.3.1
+  "@astrojs/starlight": ^0.42.8
+  "@catppuccin/starlight": ^2.1.0
   "@changesets/changelog-github": ^1.0.1
   "@changesets/cli": ^3.0.3
   "@effect/tsgo": 0.63.0
   "@effect/vitest": ^4.1.0
+  astro: ^7.4.5
   # The version the packages are developed and tested against. Consumers get
   # the range in `catalogs.peers` instead.
   effect: 4.1.0
   firebase: ^13.0.0
   firebase-admin: ^14.5.0
   firebase-tools: 15.34.0
+  # The version vite-plus formats the repo with, which the website also
+  # formats API signatures with.
+  oxfmt: 0.74.0
   tstyche: ^7.2.5
   typescript: ^7.0.2
   # TSTyche 7 cannot load the native TypeScript 7 package, so type tests run on
@@ -26,6 +33,10 @@ catalog:
   vite-plus: 1.4.0
   vitest: 5.0.5
 catalogs:
+  # The website reads the packages through TypeScript's compiler API to build
+  # its API reference, and TypeScript 7 no longer ships that API.
+  website:
+    typescript: 6.0.3
   # Published peer ranges, apart from the exact versions above so a dev bump
   # does not narrow what consumers may install.
   peers:

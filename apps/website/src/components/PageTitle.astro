@@ -1,0 +1,30 @@
+---
+/**
+ * Starlight's page title, except on API reference pages: those get a
+ * breadcrumb above the title, and the module's stability badge beside it.
+ */
+import Default from "@astrojs/starlight/components/PageTitle.astro";
+import StabilityBadge from "./StabilityBadge.astro";
+
+const { title, api } = Astro.locals.starlightRoute.entry.data;
+---
+
+{
+  api === undefined ? (
+    <Default />
+  ) : (
+    <>
+      <nav aria-label="Breadcrumb" class="api-breadcrumb">
+        {api.breadcrumbs.map(({ label, href }, index) => (
+          <>
+            {index > 0 && " / "}
+            {href === undefined ? label : <a href={href}>{label}</a>}
+          </>
+        ))}
+      </nav>
+      <h1 id="_top" class="api-title">
+        {title} <StabilityBadge stability={api.stability} />
+      </h1>
+    </>
+  )
+}

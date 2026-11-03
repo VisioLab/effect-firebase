@@ -1,0 +1,20 @@
+---
+import { Code } from "@astrojs/starlight/components";
+import type { Rich } from "../api/reference.ts";
+
+interface Props {
+  content: Rich;
+}
+
+const { content } = Astro.props;
+---
+
+{
+  content.map((block) =>
+    block.kind === "html" ? (
+      <Fragment set:html={block.html} />
+    ) : (
+      <Code code={block.code} lang={block.lang} />
+    ),
+  )
+}

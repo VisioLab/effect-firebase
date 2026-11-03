@@ -1,0 +1,31 @@
+---
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import type { GetStaticPaths } from "astro";
+import { getCollection } from "astro:content";
+import { modulePath } from "../../../api/reference.ts";
+import RichContent from "../../../components/RichContent.astro";
+
+export const getStaticPaths = (async () =>
+  (await getCollection("api")).flatMap(({ data }) =>
+    data.kind === "package" ? [{ params: { pkg: data.package.dir }, props: { entry: data } }] : [],
+  )) satisfies GetStaticPaths;
+
+const { entry } = Astro.props;
+---
+
+<StarlightPage frontmatter={{ title: entry.package.name }}>
+  <RichContent content={entry.readme} />
+
+  <h2 id="modules">Modules</h2>
+  <ul>
+    {
+      entry.modules.map((path) => (
+        <li>
+          <a href={modulePath(entry.package, { path })}>
+            <code>{path}</code>
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+</StarlightPage>

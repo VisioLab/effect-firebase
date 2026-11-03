@@ -1,7 +1,7 @@
 # @visiolab/effect-firebase-client
 
 Firebase client SDK (`firebase`) implementation of the
-[`@visiolab/effect-firebase`](../effect-firebase) services.
+[`@visiolab/effect-firebase`](https://github.com/VisioLab/effect-firebase/tree/main/packages/effect-firebase) services.
 
 ## App
 

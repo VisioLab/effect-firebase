@@ -1,0 +1,60 @@
+---
+import { Badge, Code, Icon } from "@astrojs/starlight/components";
+import type { Declaration } from "../api/reference.ts";
+import RichContent from "./RichContent.astro";
+import StabilityBadge from "./StabilityBadge.astro";
+
+interface Props {
+  declaration: Declaration;
+}
+
+const { declaration } = Astro.props;
+const { doc } = declaration;
+---
+
+<div class="api-header">
+  <h3 id={declaration.anchor}>
+    {declaration.name}{" "}
+    <Badge text={declaration.kind} />{" "}
+    <StabilityBadge stability={doc.stability} />
+  </h3>
+  <span class="api-header-meta">
+    {doc.since !== undefined && <span>Since v{doc.since}</span>}
+    <a
+      href={declaration.sourceUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      title="View source"
+      aria-label={`View source for ${declaration.name} (opens in new tab)`}
+    >
+      <Icon name="github" size="1rem" />
+    </a>
+  </span>
+</div>
+
+<RichContent content={doc.body} />
+
+{
+  doc.sections.map((section) => (
+    <>
+      <p>
+        <strong>{section.title}</strong>
+      </p>
+      <RichContent content={section.body} />
+    </>
+  ))
+}
+
+<p><strong>Signature</strong></p>
+<Code code={declaration.signature} lang="ts" />
+
+{
+  doc.examples.map((example) => (
+    <>
+      <p>
+        <strong>Example</strong>
+      </p>
+      <Code code={example} lang="ts" />
+    </>
+  ))
+}
