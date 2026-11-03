@@ -30,5 +30,16 @@ export default defineConfig({
   },
   run: {
     cache: true,
+    tasks: {
+      // `vp check`, after `astro check` has type-checked the website's `.astro`
+      // files, which `vp check` does not read. `astro check` first generates
+      // the website's `astro:content` types into `apps/website/.astro`, which
+      // a fresh checkout lacks and `vp check` needs.
+      check: {
+        command: ["vp -C apps/website exec astro check", "vp check"],
+        // `astro check` runs the content loaders, which read the packages.
+        cache: false,
+      },
+    },
   },
 });

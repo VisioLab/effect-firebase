@@ -25,7 +25,10 @@ jobs:
           node-version: "24"
           cache: true
 
-      - run: vp check
+      # The `check` task, not the built-in `vp check`: it type-checks the
+      # website's `.astro` files too, and generates the website's content
+      # types that `vp check` needs.
+      - run: vp run check
 
   test-types:
     name: Test types

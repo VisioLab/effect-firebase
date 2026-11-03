@@ -1,0 +1,55 @@
+/* API reference pages: Effect's layout, in Starlight's own styling. */
+
+/* `PageTitle.astro` replaces Starlight's title on these pages, so it takes on
+   that title's look, with room for the badge beside it. */
+.api-breadcrumb {
+  margin-top: 1rem;
+  font-size: var(--sl-text-sm);
+  color: var(--sl-color-gray-3);
+}
+
+.api-breadcrumb a {
+  color: inherit;
+}
+
+.api-title {
+  margin-top: 0.5rem;
+  font-size: var(--sl-text-h1);
+  font-weight: 600;
+  line-height: var(--sl-line-height-headings);
+  color: var(--sl-color-white);
+}
+
+.api-title .sl-badge {
+  vertical-align: middle;
+}
+
+/* An export's header: its name and badges, with when it arrived and a link
+   to its source pushed to the far side. */
+.api-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.sl-markdown-content .api-header > * {
+  margin: 0;
+}
+
+.api-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: var(--sl-text-sm);
+  color: var(--sl-color-gray-3);
+}
+
+/* A link led by an icon, such as the module's Source link. As flex items the
+   two keep to one line, and the space between them is not underlined. */
+.api-icon-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25em;
+}

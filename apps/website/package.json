@@ -1,0 +1,21 @@
+{
+  "name": "@visiolab/effect-firebase-website",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "@astrojs/markdown-remark": "catalog:",
+    "@astrojs/starlight": "catalog:",
+    "@catppuccin/starlight": "catalog:",
+    "astro": "catalog:",
+    "oxfmt": "catalog:",
+    "typescript": "catalog:website"
+  },
+  "devDependencies": {
+    "@astrojs/check": "catalog:"
+  }
+}

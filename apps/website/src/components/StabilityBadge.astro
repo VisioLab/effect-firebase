@@ -1,0 +1,26 @@
+---
+import { Badge } from "@astrojs/starlight/components";
+
+interface Props {
+  stability: string | undefined;
+}
+
+const { stability } = Astro.props;
+
+const variants: Record<string, "success" | "caution" | "danger"> = {
+  stable: "success",
+  unstable: "caution",
+  deprecated: "danger",
+};
+const titles: Record<string, string> = {
+  stable: "This API is stable. It only changes in a major release.",
+  unstable: "This API is unstable. Its signature may change in a future release.",
+  deprecated: "This API is deprecated and will be removed in a future release.",
+};
+---
+
+{
+  stability !== undefined && (
+    <Badge text={stability} variant={variants[stability] ?? "note"} title={titles[stability]} />
+  )
+}

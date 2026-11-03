@@ -1,0 +1,72 @@
+---
+import { Icon } from "@astrojs/starlight/components";
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
+import type { GetStaticPaths } from "astro";
+import { getCollection } from "astro:content";
+import ApiDeclaration from "../../../components/ApiDeclaration.astro";
+import RichContent from "../../../components/RichContent.astro";
+
+export const getStaticPaths = (async () =>
+  (await getCollection("api")).flatMap(({ data }) =>
+    data.kind === "module"
+      ? [
+          {
+            params: { pkg: data.package.dir, module: data.module.path },
+            props: { pkg: data.package, module: data.module },
+          },
+        ]
+      : [],
+  )) satisfies GetStaticPaths;
+
+const { pkg, module } = Astro.props;
+
+const headings = module.categories.flatMap((category) => [
+  { depth: 2, slug: category.anchor, text: category.name },
+  ...category.declarations.map((declaration) => ({
+    depth: 3,
+    slug: declaration.anchor,
+    text: declaration.name,
+  })),
+]);
+---
+
+<StarlightPage
+  frontmatter={{
+    title: module.name,
+    description: `${pkg.name}/${module.path}`,
+    api: {
+      breadcrumbs: [
+        { label: "API reference" },
+        { label: pkg.name, href: `/api/${pkg.dir}/` },
+        { label: module.name },
+      ],
+      stability: module.doc?.stability,
+    },
+  }}
+  headings={headings}
+>
+  {module.doc !== undefined && <RichContent content={module.doc.body} />}
+
+  <p>
+    {module.exportCount} exports
+    {module.doc?.since !== undefined && ` · Since v${module.doc.since}`} ·{" "}
+    <a class="api-icon-link" href={module.sourceUrl} target="_blank" rel="noopener noreferrer">
+      <Icon name="github" />
+      <span>Source</span>
+    </a>
+  </p>
+
+  {
+    module.categories.map((category) => (
+      <>
+        <h2 id={category.anchor}>{category.name}</h2>
+        {category.declarations.map((declaration, index) => (
+          <>
+            {index > 0 && <hr />}
+            <ApiDeclaration declaration={declaration} />
+          </>
+        ))}
+      </>
+    ))
+  }
+</StarlightPage>
