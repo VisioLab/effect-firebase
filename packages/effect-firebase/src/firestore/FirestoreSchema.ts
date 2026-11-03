@@ -1,14 +1,20 @@
 /**
- * Schemas for the Firestore Values Effect has no schema of its own for.
+ * Schemas for the Firestore Values that Effect has no schema for.
  *
- * Each is a plain schema of a portable value this library owns - a
- * `Timestamp`, a `GeoPoint`, a `DocumentPath` - with no encoding step of its
- * own, and `toCodecFirestore` keeps them as they are. A typed document
- * reference is the exception: Firestore stores only its path, so it is written
- * as a `DocumentPath` and read back into its collection. Each SDK package
- * turns them into the SDK's own values on the way out and back on the way in,
- * so a document schema is written once and reads the same under the Admin SDK
- * and the web SDK.
+ * - Values: {@link Timestamp}, {@link GeoPoint}, {@link DocumentPath}, and
+ *   typed references with {@link DocumentReference}.
+ * - Sentinels, for writes only: {@link ServerTimestamp}, {@link Increment},
+ *   {@link DeleteField}, {@link ArrayUnion} and {@link ArrayRemove}.
+ * - A field's write side, combining a value with the sentinels it accepts:
+ *   {@link ServerTimestampOr}, {@link IncrementOr}, {@link DeleteFieldOr} and
+ *   {@link ArrayOr}.
+ *
+ * Each schema holds a portable value this library owns, so a document schema
+ * reads the same under the Admin SDK and the client SDK. Each SDK package turns
+ * those values into its own SDK's on the way out, and back on the way in.
+ *
+ * Most models use these through the {@link FirestoreModel} field helpers,
+ * which pair a field's read schema with the write schemas here.
  *
  * @stability unstable
  * @since 0.2.0
@@ -33,15 +39,32 @@ export interface Timestamp extends Schema.declare<Timestamp_.Timestamp> {
 }
 
 /**
- * Schema for a Firestore timestamp, held as the portable `Timestamp`.
+ * Schema for a Firestore timestamp, held as the portable
+ * {@link Timestamp.Timestamp}.
  *
- * Nothing is lost in either direction, so reach for this over
- * `Schema.DateTimeUtc` or `Schema.Date` - which Firestore stores as a
- * timestamp just the same, but which stop at the millisecond - when a
- * document is read, written back, and expected to come out unchanged.
+ * **When to use**
  *
- * It serializes with `Schema.toCodecJson` as `{ seconds, nanoseconds }`, so
- * the same model can be sent over HTTP.
+ * Use when a document is read, written back, and has to come out unchanged.
+ * Use `Schema.DateTimeUtc` or `Schema.Date` when a millisecond is precise
+ * enough and that value is easier to work with: Firestore stores both as a
+ * timestamp too, but they drop the digits finer than a millisecond.
+ *
+ * **Details**
+ *
+ * It serializes with `Schema.toCodecJson` as `{ seconds, nanoseconds }`, so the
+ * same model can be sent over HTTP.
+ *
+ * @example Storing a timestamp at full precision
+ * ```ts
+ * import { Schema } from "effect";
+ * import { FirestoreSchema } from "@visiolab/effect-firebase/firestore";
+ *
+ * const Event = Schema.Struct({ at: FirestoreSchema.Timestamp });
+ * ```
+ *
+ * @see {@link FirestoreModel.Timestamp} for a timestamp field the server may also fill in
+ * @see {@link ServerTimestampOr} for the write side of such a field
+ * @see {@link TimeSchema} for every schema Firestore stores as a timestamp
  *
  * @stability unstable
  * @category schemas
@@ -50,17 +73,23 @@ export interface Timestamp extends Schema.declare<Timestamp_.Timestamp> {
 export const Timestamp: Timestamp = firestoreSchema.Timestamp;
 
 /**
- * A schema whose encoded side Firestore stores as a timestamp:
- * {@link Timestamp}, `Schema.DateTimeUtc` or `Schema.Date`, or any schema
- * transformed into one of them.
+ * A schema Firestore stores as a timestamp: {@link Timestamp},
+ * `Schema.DateTimeUtc`, `Schema.Date`, or any schema transformed into one of
+ * them.
  *
- * The check is on the encoded type alone, so it takes any schema whose
- * encoded side is a `Timestamp`, `DateTime.Utc` or `Date`. A declaration of
- * its own, such as `Schema.declare<Date>(...)`, type-checks but is not
- * stored as a timestamp: `toCodecFirestore` only stores `Schema.Date` and
- * `Schema.DateTimeUtc` as one, so it fails to encode, or is written through
- * its own `toCodecJson`. The types cannot tell the two apart, since
- * `Schema.Date` is structurally the same as any `Schema.declare<Date>`.
+ * **Details**
+ *
+ * The check is on the encoded type alone, so it accepts any schema whose
+ * encoded side is a {@link Timestamp.Timestamp}, a `DateTime.Utc` or a `Date`.
+ * A declaration of your own, such as `Schema.declare<Date>(...)`, type-checks
+ * but is not stored as a timestamp: {@link FirestoreValue.toCodecFirestore}
+ * only stores `Schema.Date` and `Schema.DateTimeUtc` as one, so it fails to
+ * encode, or is written through its own `toCodecJson`. The types cannot tell
+ * the two apart, since `Schema.Date` has the same type as any
+ * `Schema.declare<Date>`.
+ *
+ * @see {@link ServerTimestampOr} for a timestamp the server may fill in
+ * @see {@link FirestoreModel.Timestamp} for the matching model field
  *
  * @stability unstable
  * @category models
@@ -85,10 +114,24 @@ export interface GeoPoint extends Schema.declare<GeoPoint_.GeoPoint> {
 }
 
 /**
- * Schema for a Firestore geopoint, held as the portable `GeoPoint`.
+ * Schema for a Firestore geopoint, held as the portable
+ * {@link GeoPoint.GeoPoint}.
  *
- * Declaring the shape by hand - a struct of `latitude` and `longitude` - would
- * be stored as a map. This one is stored as the SDK's own `GeoPoint`.
+ * **When to use**
+ *
+ * Use for a location field. A hand-written struct of `latitude` and
+ * `longitude` would be stored as a map; this schema is stored as Firestore's
+ * own geopoint.
+ *
+ * @example Storing a location
+ * ```ts
+ * import { Schema } from "effect";
+ * import { FirestoreSchema } from "@visiolab/effect-firebase/firestore";
+ *
+ * const Place = Schema.Struct({ name: Schema.String, location: FirestoreSchema.GeoPoint });
+ * ```
+ *
+ * @see {@link GeoPoint.make} for building a geopoint
  *
  * @stability unstable
  * @category schemas
@@ -108,13 +151,21 @@ export interface DocumentPath extends Schema.declare<DocumentPath_.DocumentPath>
 }
 
 /**
- * Schema for a reference to a document as Firestore stores it: its path,
- * held as the portable `DocumentPath`, with nothing to say what the document
- * holds.
+ * Schema for an untyped reference to a document, held as the portable
+ * {@link DocumentPath.DocumentPath}.
+ *
+ * **When to use**
+ *
+ * Use for a reference whose target collection the model does not know. Use
+ * {@link DocumentReference} when the field always points into a known
+ * collection.
+ *
+ * **Details**
  *
  * It is stored as the SDK's own reference, built against the database the
- * document is written to. A field that points into a collection the model
- * knows is a {@link DocumentReference} instead.
+ * document is written to.
+ *
+ * @see {@link DocumentReference} for a reference typed by its collection
  *
  * @stability unstable
  * @category schemas
@@ -136,16 +187,39 @@ export interface DocumentReference<C extends Collection.Any> extends Schema.decl
 }
 
 /**
- * Schema for a reference to a document in `collection`.
+ * Schema for a reference to a document in `collection`, held as a typed
+ * {@link Collection.DocumentReference}.
  *
- * Its type is a reference built from `collection`, which is all `Schema.is`
- * accepts. Firestore stores a reference as the document's path alone, so
- * `toCodecFirestore` writes it as a `DocumentPath`. Reading one back checks
- * its path against the collection's segments and builds the collection's own
- * reference, so it is equal to one built from `collection`. A path into any
- * other collection - one sharing its last segment included - is refused
- * rather than read as one into this. A field that may point into more than
- * one collection is a `Schema.Union` of one of these per collection.
+ * **When to use**
+ *
+ * Use for a field that points to a document in a known collection, so the
+ * reference keeps its ids and model typed. For a field that may point into
+ * several collections, use a `Schema.Union` of one of these per collection.
+ * Use {@link DocumentPath} when the target collection is unknown.
+ *
+ * **Details**
+ *
+ * Firestore stores a reference as the document's path alone, so it is written
+ * as a {@link DocumentPath.DocumentPath}. Reading it back checks the path
+ * against the collection's segments and rebuilds the collection's own
+ * reference, equal to one built from `collection`. A path into any other
+ * collection, even one with the same last segment, fails to decode.
+ * `Schema.is` only accepts references built from `collection`.
+ *
+ * @example Referencing the author of a post
+ * ```ts
+ * import { Schema } from "effect";
+ * import { Collection, FirestoreModel, FirestoreSchema } from "@visiolab/effect-firebase/firestore";
+ *
+ * class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
+ * const Users = Collection.make("users", User);
+ *
+ * class Post extends FirestoreModel.Class<Post>("Post")({
+ *   author: FirestoreSchema.DocumentReference(Users),
+ * }) {}
+ * ```
+ *
+ * @see {@link DocumentPath} for an untyped reference
  *
  * @stability unstable
  * @category schemas
@@ -170,19 +244,34 @@ export interface ServerTimestamp extends Schema.withConstructorDefault<ServerTim
 }
 
 /**
- * Schema that writes the sentinel standing in for the instant the server
- * applies the write.
+ * Schema that always writes the {@link FieldValue.serverTimestamp} sentinel,
+ * and fills it in when the value is constructed.
  *
- * There is only one value it accepts, so there is nothing to say at a call
- * site: the constructor fills the sentinel in, the way `Schema.tag` fills in a
- * tag. Hand it to {@link Schema.Struct} and the field is written without ever
- * being named.
+ * **When to use**
  *
- * It is a plain schema of the portable sentinel, which each SDK package turns
- * into its own on the way out, and it belongs in a write only. A document
- * never holds a sentinel: by the time it is read, the server has replaced it
- * with the timestamp it resolved to, which is what the field reads as on the
- * way back - see {@link FirestoreModel.Timestamp} for the pair.
+ * Use in a write-only schema for a field that is always the server's time,
+ * such as `updatedAt` on every update. Use {@link ServerTimestampOr} when the
+ * field may also be written with a time of your own.
+ *
+ * **Details**
+ *
+ * It accepts only the sentinel, and its constructor default fills it in, the
+ * way `Schema.tag` fills in a tag, so a call site never names the field. A
+ * document never holds the sentinel: the field reads back as the timestamp the
+ * server wrote, so the read side is a timestamp schema.
+ *
+ * @example Stamping every update with the server's time
+ * ```ts
+ * import { Schema } from "effect";
+ * import { FirestoreSchema } from "@visiolab/effect-firebase/firestore";
+ *
+ * const Touch = Schema.Struct({ updatedAt: FirestoreSchema.ServerTimestamp });
+ *
+ * const update = Touch.make({}); // { updatedAt: FieldValue.serverTimestamp }
+ * ```
+ *
+ * @see {@link ServerTimestampOr} for a field that may also take a time of your own
+ * @see {@link FirestoreModel.Timestamp} for the matching model field
  *
  * @stability unstable
  * @category schemas
@@ -204,17 +293,35 @@ export interface ServerTimestampOr<S extends TimeSchema> extends Schema.Union<
 }
 
 /**
- * Schema for a field written either as an instant this client picked or as the
- * one the server picks.
+ * Schema for a timestamp field written either as a time of your own or as
+ * {@link FieldValue.serverTimestamp}.
  *
- * This is the write side of a timestamp, and `schema` is the read side it is
- * built from: {@link Timestamp} where the finer digits are to survive a round
- * trip, or `Schema.DateTimeUtc` or `Schema.Date` where one of those is what
- * the document is to hold - see {@link TimeSchema}.
+ * **When to use**
  *
- * A read is only ever that schema - the sentinel is gone by then - so this
- * belongs in the variants a document is written through, against a `read` of
- * the same.
+ * Use as the write side of a timestamp field when building model variants by
+ * hand. Most models use {@link FirestoreModel.Timestamp}, which pairs this with
+ * the read side for you.
+ *
+ * **Details**
+ *
+ * `schema` is the read side: {@link Timestamp} to keep digits finer than a
+ * millisecond, or `Schema.DateTimeUtc` or `Schema.Date` (see
+ * {@link TimeSchema}). A read never sees the sentinel, so the read variant
+ * uses `schema` alone.
+ *
+ * @example A timestamp the server may fill in
+ * ```ts
+ * import { Schema } from "effect";
+ * import { FieldValue, FirestoreSchema } from "@visiolab/effect-firebase/firestore";
+ *
+ * const UpdatedAt = FirestoreSchema.ServerTimestampOr(Schema.DateTimeUtc);
+ *
+ * Schema.is(UpdatedAt)(FieldValue.serverTimestamp); // true
+ * ```
+ *
+ * @see {@link FirestoreModel.Timestamp} for the model field built on it
+ * @see {@link ServerTimestamp} for a field that always writes the sentinel
+ * @see {@link FieldValue.serverTimestamp} for the sentinel itself
  *
  * @stability unstable
  * @category schemas
@@ -235,15 +342,21 @@ export interface Increment extends Schema.declare<FieldValue.Increment> {
 }
 
 /**
- * Schema that writes the sentinel standing in for a field moved by a number.
+ * Schema for the {@link FieldValue.Increment} sentinel, as built by
+ * {@link FieldValue.increment} and {@link FieldValue.decrement}.
  *
- * A call site hands it {@link FieldValue.increment} or
- * {@link FieldValue.decrement}. It is a plain schema of the portable sentinel,
- * which each SDK package turns into its own on the way out.
+ * **When to use**
  *
- * It belongs in a write only, as {@link ServerTimestamp} does. A document holds
- * the sum the server wrote rather than the request to add, so a read of the
- * same field is a plain number - see {@link IncrementOr} for the pair.
+ * Use in a write-only schema for a field that is only ever moved, never set.
+ * Use {@link IncrementOr} for a field that may be set outright too.
+ *
+ * **Details**
+ *
+ * A document holds the sum the server wrote, so the read side of the same
+ * field is a plain number.
+ *
+ * @see {@link IncrementOr} for a number that may also be set outright
+ * @see {@link FirestoreModel.Number} for the matching model field
  *
  * @stability unstable
  * @category schemas
@@ -265,18 +378,35 @@ export interface IncrementOr<
 }
 
 /**
- * Schema for a field written either as the number it is to hold or as a move
- * from whatever it holds already.
+ * Schema for a number field written either as a number or as an
+ * {@link FieldValue.increment} or {@link FieldValue.decrement}.
  *
- * This is the write side of a number the server counts, and `schema` is the
- * read side it is built from, which is where a call site says what the number
- * may be: `Schema.Finite`, or `Schema.Int` for a field counted in whole steps,
- * or either of them checked further. All that is asked of it is that it is
- * stored as a number, since that is what the server adds to.
+ * **When to use**
  *
- * A read is only ever that schema - the sentinel resolved to a number before
- * the document came back - so this belongs in the variants a document is
- * written through, against a `read` of the same.
+ * Use as the write side of a counter when building model variants by hand.
+ * Most models use {@link FirestoreModel.Number}, which pairs this with the
+ * read side for you.
+ *
+ * **Details**
+ *
+ * `schema` is the read side and says what the number may be: `Schema.Finite`,
+ * `Schema.Int` for whole steps, or either with further checks. It must be
+ * stored as a number, since that is what the server adds to. A read never sees
+ * the sentinel, so the read variant uses `schema` alone.
+ *
+ * @example A counter the server may move
+ * ```ts
+ * import { Schema } from "effect";
+ * import { FieldValue, FirestoreSchema } from "@visiolab/effect-firebase/firestore";
+ *
+ * const Visits = FirestoreSchema.IncrementOr(Schema.Int);
+ *
+ * Schema.is(Visits)(FieldValue.increment(1)); // true
+ * ```
+ *
+ * @see {@link FirestoreModel.Number} for the model field built on it
+ * @see {@link Increment} for a field that is only ever moved
+ * @see {@link FieldValue.increment} for the sentinel itself
  *
  * @stability unstable
  * @category schemas
@@ -298,16 +428,21 @@ export interface DeleteField extends Schema.declare<FieldValue.DeleteField> {
 }
 
 /**
- * Schema that writes the sentinel standing in for a field the write removes.
+ * Schema for the {@link FieldValue.deleteField} sentinel.
  *
- * A call site hands it {@link FieldValue.deleteField}, the portable sentinel,
- * which each SDK package turns into its own on the way out. Unlike
- * {@link ServerTimestamp} it does not fill itself in, since a field is removed
- * on purpose or not at all.
+ * **When to use**
  *
- * It belongs in a write only, as the other sentinels do. A field removed is
- * not there to read, so a read of the same is an optional key - see
- * {@link DeleteFieldOr} for the pair.
+ * Use when building an update schema by hand. Most models get it through
+ * {@link DeleteFieldOr}, or through {@link FirestoreModel.Optional}.
+ *
+ * **Details**
+ *
+ * Unlike {@link ServerTimestamp}, it has no constructor default: a field is
+ * only removed when you ask for it. A removed field is not there to read, so
+ * the read side of the same field is an optional key.
+ *
+ * @see {@link DeleteFieldOr} for a field an update may write or remove
+ * @see {@link FirestoreModel.Optional} for the matching model field
  *
  * @stability unstable
  * @category schemas
@@ -329,14 +464,37 @@ export interface DeleteFieldOr<S extends Schema.Top> extends Schema.Union<
 }
 
 /**
- * Schema for a field an update either writes or removes.
+ * Schema for a field an update either writes or removes with
+ * {@link FieldValue.deleteField}.
  *
- * This is the update side of an optional field, and `schema` is what the field
- * holds while it is there. It belongs in an update and nowhere else: a read
- * never holds the sentinel, and a document written whole refuses it.
+ * **When to use**
  *
- * The sentinel is tried first. A schema that takes any object - a struct whose
- * every key is optional, say - would take it too, and strip it to nothing.
+ * Use as the update side of an optional field when building model variants by
+ * hand. Most models use {@link FirestoreModel.Optional}, which does this for
+ * you.
+ *
+ * **Details**
+ *
+ * `schema` is what the field holds while it is there. Only an update accepts
+ * it: a read never holds the sentinel, and Firestore refuses it in a document
+ * written whole.
+ *
+ * The sentinel is tried first, since a schema that accepts any object, such
+ * as a struct whose keys are all optional, would accept it too and strip it to
+ * `{}`.
+ *
+ * @example An optional field an update may remove
+ * ```ts
+ * import { Schema } from "effect";
+ * import { FieldValue, FirestoreSchema } from "@visiolab/effect-firebase/firestore";
+ *
+ * const Nickname = FirestoreSchema.DeleteFieldOr(Schema.String);
+ *
+ * Schema.is(Nickname)(FieldValue.deleteField); // true
+ * ```
+ *
+ * @see {@link FirestoreModel.Optional} for the model field built on it
+ * @see {@link FieldValue.deleteField} for the sentinel itself
  *
  * @stability unstable
  * @category schemas
@@ -361,22 +519,30 @@ export interface ArrayUnion<S extends Schema.Top> extends Schema.declareConstruc
 }
 
 /**
- * Schema that writes the sentinel standing in for an array grown by the
- * elements it lacks.
+ * Schema for the {@link FieldValue.arrayUnion} sentinel, with each element
+ * encoded through `item`.
  *
- * A call site hands it {@link FieldValue.arrayUnion}, and each element is
- * encoded through `item`, and then by `toCodecFirestore` the way `item` is
- * stored, before the SDK package turns the portable sentinel into its own - so
- * a `DateTimeUtc` among them is stored as a timestamp, and an element `item`
- * refuses is refused here too.
+ * **When to use**
  *
- * `item` is what the array holds, and Firestore asks two things of it: that it
- * is not an array itself, since an array may not hold one, and that it does not
- * write a sentinel, since one may not sit inside an array.
+ * Use when building an update schema by hand. Most models get it through
+ * {@link ArrayOr}, or through {@link FirestoreModel.Array}.
  *
- * It belongs in a write only, as the other sentinels do. A document holds the
- * array the server wrote rather than the request to grow it - see
- * {@link ArrayOr} for the pair.
+ * **Details**
+ *
+ * Each element is encoded through `item`, then stored the way
+ * {@link FirestoreValue.toCodecFirestore} stores `item`, so a `DateTimeUtc`
+ * among them is stored as a timestamp, and an element `item` rejects is
+ * rejected here too.
+ *
+ * Firestore requires two things of `item`: it is not an array itself, since
+ * arrays may not nest, and it does not write a sentinel, since one may not sit
+ * inside an array.
+ *
+ * A document holds the array the server wrote, so the read side of the same
+ * field is the array.
+ *
+ * @see {@link ArrayRemove} for removing elements
+ * @see {@link ArrayOr} for an array field written whole, grown or shrunk
  *
  * @stability unstable
  * @category schemas
@@ -401,16 +567,22 @@ export interface ArrayRemove<S extends Schema.Top> extends Schema.declareConstru
 }
 
 /**
- * Schema that writes the sentinel standing in for an array rid of the elements
- * it matches.
+ * Schema for the {@link FieldValue.arrayRemove} sentinel, with each element
+ * encoded through `item`.
  *
- * A call site hands it {@link FieldValue.arrayRemove}, and each element is
- * encoded through `item` as {@link ArrayUnion} has it. Encoding through the same
- * schema the array was written with is what gives a match a chance: the server
- * compares what it is handed with what it holds, exactly.
+ * **When to use**
  *
- * It belongs in a write only, as the other sentinels do - see {@link ArrayOr}
- * for the pair.
+ * Use when building an update schema by hand. Most models get it through
+ * {@link ArrayOr}, or through {@link FirestoreModel.Array}.
+ *
+ * **Details**
+ *
+ * Each element is encoded through `item`, as for {@link ArrayUnion}. Encode
+ * through the same schema the array was written with: the server only removes
+ * elements that match exactly.
+ *
+ * @see {@link ArrayUnion} for adding elements
+ * @see {@link ArrayOr} for an array field written whole, grown or shrunk
  *
  * @stability unstable
  * @category schemas
@@ -433,15 +605,36 @@ export interface ArrayOr<S extends Schema.Top> extends Schema.Union<
 }
 
 /**
- * Schema for an array written whole, or grown or shrunk by the server.
+ * Schema for an array field written whole, or grown or shrunk by the server
+ * with {@link FieldValue.arrayUnion} and {@link FieldValue.arrayRemove}.
  *
- * This is the update side of an array of `item`, against a read of
- * `Schema.Array(item)`. Writing the array whole replaces whatever the server
- * holds, so a client that read it, added one and wrote it back loses whatever
- * was added in between; growing or shrinking it is what does not.
+ * **When to use**
  *
- * A read is only ever the array - the sentinels resolved before the document
- * came back - so this belongs in the variants a document is written through.
+ * Use as the update side of an array of `item` when building model variants by
+ * hand, against a read of `Schema.Array(item)`. Most models use
+ * {@link FirestoreModel.Array}, which pairs the two for you.
+ *
+ * **Details**
+ *
+ * Writing the array whole replaces what the server holds, so a client that
+ * read it, added an element and wrote it back loses whatever another client
+ * added in between. Growing or shrinking it does not. A read never sees the
+ * sentinels, so the read variant is the array alone.
+ *
+ * @example An array the server may grow or shrink
+ * ```ts
+ * import { Schema } from "effect";
+ * import { FieldValue, FirestoreSchema } from "@visiolab/effect-firebase/firestore";
+ *
+ * const Tags = FirestoreSchema.ArrayOr(Schema.String);
+ *
+ * Schema.is(Tags)(["news"]); // true
+ * Schema.is(Tags)(FieldValue.arrayUnion("news")); // true
+ * ```
+ *
+ * @see {@link FirestoreModel.Array} for the model field built on it
+ * @see {@link ArrayUnion} for the growing sentinel's schema
+ * @see {@link ArrayRemove} for the shrinking sentinel's schema
  *
  * @stability unstable
  * @category schemas

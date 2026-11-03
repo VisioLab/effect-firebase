@@ -1,10 +1,32 @@
 /**
  * Typed Firestore collections.
  *
- * A collection is defined once - where it sits, how its documents are
- * addressed, and what they hold - and every reference into it is derived from
- * that definition, so a path can only be built out of the ids that actually
- * locate it.
+ * Define each collection once: where it sits, how its documents are addressed,
+ * and the {@link FirestoreModel.Class} its documents hold. Every collection and
+ * document reference is built from that definition, so a path can only be
+ * built from the ids that locate it, and every read and write through
+ * {@link Firestore.With} is typed by the collection's model.
+ *
+ * @example Defining collections and referencing documents
+ * ```ts
+ * import { Collection, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ * import { Schema } from "effect";
+ *
+ * class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
+ * class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
+ *
+ * const Users = Collection.make("users", User);
+ * const UserPosts = Users.subcollection("posts", Post);
+ *
+ * const alice = Users.id.make("alice");
+ * const hello = UserPosts.id.make("hello");
+ *
+ * UserPosts.collection(alice).path; // "users/alice/posts"
+ * UserPosts.doc(alice, hello).path; // "users/alice/posts/hello"
+ * ```
+ *
+ * @see {@link CollectionGroup} for reading every collection with one collection id at once
+ * @see {@link DocumentPath} for a reference to a document as Firestore stores it in a field
  *
  * @stability unstable
  * @since 0.1.0
@@ -19,7 +41,8 @@ const CollectionReferenceTypeId = collection.CollectionReferenceTypeId;
 const DocumentReferenceTypeId = collection.DocumentReferenceTypeId;
 
 /**
- * A path segment together with the model of the documents stored under it.
+ * One link of a collection's path: a segment and the model of the documents
+ * stored under it.
  *
  * @stability unstable
  * @category models
@@ -28,11 +51,12 @@ const DocumentReferenceTypeId = collection.DocumentReferenceTypeId;
 export type Level = readonly [segment: string, schema: FirestoreModel.Any];
 
 /**
- * The chain of {@link Level}s running from a root collection down to a
- * collection itself.
+ * The {@link Level}s from a root collection down to a collection itself.
  *
- * Carrying the whole chain rather than just the collection's own segment is
- * what lets the ids that address a collection stay typed all the way up.
+ * **Details**
+ *
+ * A {@link Collection} carries the whole chain rather than only its own
+ * segment, so the id of every ancestor stays typed.
  *
  * @stability unstable
  * @category models
@@ -112,12 +136,20 @@ type LevelsOf<V> =
       : never;
 
 /**
- * The schema of a document id: decodes a string, and brands it so it cannot
- * address anything else.
+ * The schema of a document id in one collection. It decodes a string and
+ * brands it with the collection's full path, so the id only fits that
+ * collection.
  *
- * `Schema.Codec` leaves its constructor input as the `unknown` that
- * `Schema.Top` declares, so pinning it to `string` here is what makes minting
- * an id a compile-time check rather than a runtime throw.
+ * **When to use**
+ *
+ * Use `collection.id.make(raw)` to turn a string you trust into an id, and
+ * `Schema.decodeUnknownEffect(collection.id)` to check one from outside.
+ *
+ * **Details**
+ *
+ * The brand is the whole path, so `posts` under `users` and `posts` under
+ * `orgs` have different id types. Its constructor takes a `string`, which
+ * makes passing anything else a type error rather than a runtime throw.
  *
  * @stability unstable
  * @category models
@@ -128,12 +160,18 @@ export interface IdSchema<T extends string> extends Schema.Codec<T, string> {
 }
 
 /**
- * The definition of a collection: where it lives, how its documents are
- * addressed, and what they hold.
+ * The definition of a collection: where it sits, how its documents are
+ * addressed, and the model they hold.
  *
- * A definition is inert. It describes a collection without pointing at one, and
+ * **Details**
+ *
+ * A definition does not point at any data. It describes a collection, and
  * {@link Collection.collection} and {@link Collection.doc} turn it into a
- * reference once the ids that address it are known.
+ * reference once you have the ids that address it. Build one with
+ * {@link make}, and nest one with {@link Collection.subcollection}.
+ *
+ * @see {@link CollectionReference} for a reference to one collection, with its ancestor ids filled in
+ * @see {@link CollectionGroup.CollectionGroup} for every collection with one collection id, read together
  *
  * @stability unstable
  * @category models
@@ -141,46 +179,64 @@ export interface IdSchema<T extends string> extends Schema.Codec<T, string> {
  */
 export interface Collection<L extends Levels> extends Inspectable.Inspectable {
   readonly [CollectionTypeId]: typeof CollectionTypeId;
-  /**
-   * The chain this collection was built from.
-   *
-   * Only ever read at the type level, by the extractors below. It exists
-   * because `L` appears nowhere else in an inferrable position, so without it
-   * `C extends Collection<infer L>` has nothing to infer from.
-   */
+  // `L` appears nowhere else in an inferrable position, so without it
+  // `C extends Collection<infer L>` has nothing to infer from.
+  /** The chain this collection was built from. Only read at the type level. */
   readonly "~levels": L;
-  /** The path segments, from the root collection down. */
+  /** The path segments, from the root collection down, such as `["users", "posts"]`. */
   readonly path: SegmentsOf<L>;
-  /** The last segment, which is the collection id Firestore knows it by. */
+  /** The last segment: the collection id Firestore knows the collection by. */
   readonly segment: Leaf<L>[0];
-  /** Decodes a document id. */
+  /**
+   * The schema of the ids of documents in this collection.
+   *
+   * @see {@link IdSchema} for how to make and decode one
+   */
   readonly id: IdSchema<IdOf<L>>;
   /**
-   * The model of the documents in this collection, which they are read
-   * through, and whose {@link FirestoreModel.Class.create} and
-   * {@link FirestoreModel.Class.update} they are written through.
+   * The model of the documents in this collection. Reads decode through it,
+   * and writes encode through its {@link FirestoreModel.Class.create} and
+   * {@link FirestoreModel.Class.update} variants.
    */
   readonly schema: Leaf<L>[1];
 
   /**
-   * Whether a Document Reference or Document Snapshot belongs to this
-   * collection, narrowing it to this collection's types when it does.
+   * Checks whether a Document Reference or Document Snapshot belongs to this
+   * collection, and narrows it to this collection's types when it does.
+   *
+   * **When to use**
+   *
+   * Use to pick out the documents of one collection from a mixed result, such
+   * as a read of a {@link CollectionGroup.CollectionGroup} with several
+   * members: `snapshot.docs.filter(UserPosts.contains)`.
+   *
+   * **Details**
    *
    * Two definitions are the same collection only when they are the same
-   * object, so one built separately with the same path is another collection.
-   * It does not depend on `this`, so it can be passed on as it is, as in
-   * `snapshot.docs.filter(Posts.contains)`.
+   * object, so a definition built separately at the same path does not
+   * contain this one's documents. It does not use `this`, so it can be passed
+   * on unbound.
    *
-   * @category guards
+   * @see {@link isDocumentReference} for checking that a value is a reference to any collection
    */
   readonly contains: <V extends DocumentReference<Any> | DocumentSnapshot.DocumentSnapshot<Any>>(
     value: V,
   ) => value is Contained<V, Collection<L>>;
 
   /**
-   * Defines a subcollection of the documents in this collection.
+   * Defines a subcollection under the documents of this collection.
    *
-   * @category constructors
+   * **When to use**
+   *
+   * Use for a nested collection, such as `posts` under each user. Use
+   * {@link make} for a root collection.
+   *
+   * **Details**
+   *
+   * Throws when `segment` is not a collection id Firestore accepts: empty,
+   * containing `/`, `.` or `..`, matching `__.*__`, or longer than 1500
+   * bytes. An invalid definition is a programming error, not a failure to
+   * recover from.
    */
   subcollection<const Segment extends string, S extends FirestoreModel.Any>(
     segment: Segment,
@@ -188,9 +244,16 @@ export interface Collection<L extends Levels> extends Inspectable.Inspectable {
   ): Collection<readonly [...L, readonly [Segment, S]]>;
 
   /**
-   * References this collection, given one id per ancestor.
+   * References this collection, given one id per ancestor, from the root down.
+   * A root collection takes none.
    *
-   * @category constructors
+   * **When to use**
+   *
+   * Use to address the collection itself, as {@link Firestore.With.getDocs},
+   * {@link Firestore.With.streamDocs} and {@link Firestore.With.addDoc} take
+   * it.
+   *
+   * @see {@link Collection.doc} for referencing one document in it
    */
   collection(...ids: AncestorsOf<L>): CollectionReference<Collection<L>>;
 
@@ -198,16 +261,25 @@ export interface Collection<L extends Levels> extends Inspectable.Inspectable {
    * References a document in this collection, given one id per ancestor
    * followed by the document's own.
    *
-   * @category constructors
+   * **When to use**
+   *
+   * Use to address one document, as {@link Firestore.With.getDoc},
+   * {@link Firestore.With.setDoc} and {@link Firestore.With.updateDoc} take it.
+   *
+   * @see {@link Collection.collection} for referencing the collection itself
+   * @see {@link fromPath} for a reference from a path string
    */
   doc(...ids: [...AncestorsOf<L>, IdOf<L>]): DocumentReference<Collection<L>>;
 }
 
 /**
- * Any collection, whatever it is nested under and whatever it holds.
+ * Any collection, whatever it is nested under and whatever it holds. Use it as
+ * a type bound.
  *
- * `Collection<Levels>` would be the honest bound, but `L` sits in an argument
- * position in {@link Collection.doc}, which makes it invariant.
+ * **Details**
+ *
+ * It is `Collection<any>` rather than `Collection<Levels>` because `L` sits in
+ * an argument position in {@link Collection.doc}, which makes it invariant.
  *
  * @stability unstable
  * @category models
@@ -216,7 +288,9 @@ export interface Collection<L extends Levels> extends Inspectable.Inspectable {
 export type Any = Collection<any>;
 
 /**
- * The id of a document in `C`.
+ * The id of a document in `C`, branded with `C`'s path.
+ *
+ * @see {@link IdSchema} for how to make one
  *
  * @stability unstable
  * @category models
@@ -225,7 +299,8 @@ export type Any = Collection<any>;
 export type Id<C extends Any> = IdOf<C["~levels"]>;
 
 /**
- * One id per ancestor of `C`, ordered from the root down.
+ * The ids that address `C`: one per ancestor, from the root down. Empty for a
+ * root collection.
  *
  * @stability unstable
  * @category models
@@ -234,7 +309,8 @@ export type Id<C extends Any> = IdOf<C["~levels"]>;
 export type Ancestors<C extends Any> = AncestorsOf<C["~levels"]>;
 
 /**
- * The model of the documents in `C`.
+ * The model of the documents in `C`, as {@link make} or
+ * {@link Collection.subcollection} was given it.
  *
  * @stability unstable
  * @category models
@@ -243,7 +319,15 @@ export type Ancestors<C extends Any> = AncestorsOf<C["~levels"]>;
 export type DocumentSchema<C extends Any> = Leaf<C["~levels"]>[1];
 
 /**
- * A reference to one collection, addressed by the ids of its ancestors.
+ * A reference to one collection, with the ids of its ancestors filled in.
+ *
+ * **Details**
+ *
+ * Build one with {@link Collection.collection}. Two references are
+ * `Equal` when they have the same path and come from the same definition.
+ *
+ * @see {@link Collection} for the definition it is built from
+ * @see {@link DocumentReference} for a reference to one document
  *
  * @stability unstable
  * @category models
@@ -255,21 +339,32 @@ export interface CollectionReference<C extends Any> extends Inspectable.Inspecta
   readonly collection: C;
   /** The ids that address it, from the root down. */
   readonly ancestors: Readonly<Ancestors<C>>;
-  /** The collection id Firestore knows it by, which is the last segment. */
+  /** The collection id Firestore knows it by: the last segment of its path. */
   readonly id: Leaf<C["~levels"]>[0];
   /** The full path, such as `users/alice/posts`. */
   readonly path: string;
 
   /**
-   * References a document in this collection.
+   * References a document in this collection, by its own id.
    *
-   * @category constructors
+   * @see {@link Collection.doc} for referencing it from the definition with every id
    */
   doc(id: Id<C>): DocumentReference<C>;
 }
 
 /**
- * A reference to one document.
+ * A typed reference to one document in a collection.
+ *
+ * **Details**
+ *
+ * It knows the {@link Collection} it was built from, so reads through it
+ * decode with that collection's model and writes encode with it. Build one
+ * with {@link Collection.doc}, {@link CollectionReference.doc} or
+ * {@link fromPath}. Two references are `Equal` when they have the same path and
+ * come from the same definition.
+ *
+ * @see {@link CollectionGroup.DocumentReference} for a reference into any collection of a group
+ * @see {@link DocumentPath.DocumentPath} for the untyped path a reference is stored as in a field
  *
  * @stability unstable
  * @category models
@@ -279,17 +374,22 @@ export interface DocumentReference<C extends Any> extends Inspectable.Inspectabl
   readonly [DocumentReferenceTypeId]: typeof DocumentReferenceTypeId;
   /** The definition of the collection holding it. */
   readonly collection: C;
-  /** The ids addressing that collection, from the root down. */
+  /** The ids that address its collection, from the root down. */
   readonly ancestors: Readonly<Ancestors<C>>;
-  /** Its own id. */
+  /** The document's own id. */
   readonly id: Id<C>;
   /** The full path, such as `users/alice/posts/hello`. */
   readonly path: string;
-  /** The collection holding it. */
+  /** A reference to the collection holding it. */
   readonly parent: CollectionReference<C>;
 }
 
 /**
+ * Checks whether a value is a collection definition.
+ *
+ * @see {@link isCollectionReference} for a reference to a collection
+ * @see {@link CollectionGroup.isCollectionGroup} for a Collection Group
+ *
  * @stability unstable
  * @category guards
  * @since 0.1.0
@@ -297,6 +397,11 @@ export interface DocumentReference<C extends Any> extends Inspectable.Inspectabl
 export const isCollection: (u: unknown) => u is Any = collection.isCollection;
 
 /**
+ * Checks whether a value is a {@link CollectionReference}.
+ *
+ * @see {@link isCollection} for a collection definition
+ * @see {@link isDocumentReference} for a reference to a document
+ *
  * @stability unstable
  * @category guards
  * @since 0.1.0
@@ -305,6 +410,12 @@ export const isCollectionReference: (u: unknown) => u is CollectionReference<Any
   collection.isCollectionReference;
 
 /**
+ * Checks whether a value is a {@link DocumentReference} into any collection.
+ *
+ * @see {@link Collection.contains} for checking that a reference belongs to one collection, with narrowing
+ * @see {@link isCollectionReference} for a reference to a collection
+ * @see {@link DocumentPath.isDocumentPath} for the untyped path stored in a field
+ *
  * @stability unstable
  * @category guards
  * @since 0.1.0
@@ -313,19 +424,48 @@ export const isDocumentReference: (u: unknown) => u is DocumentReference<Any> =
   collection.isDocumentReference;
 
 /**
- * Defines a root collection.
+ * Defines a root collection and the model of its documents.
  *
- * Subcollections hang off the result through {@link Collection.subcollection},
- * so a collection is always defined in terms of where it actually sits.
+ * **When to use**
  *
- * Its documents are described by a {@link FirestoreModel.Class} rather than a
+ * Use once per root collection, at module level, and build every reference to
+ * it from the result. Use {@link Collection.subcollection} on the result for a
+ * collection nested under its documents.
+ *
+ * **Details**
+ *
+ * The documents are described by a {@link FirestoreModel.Class} rather than a
  * plain schema, since a document is written in other shapes than it is read
- * in, and a model is what carries them. A {@link FirestoreModel.Union} of
- * classes lets one collection hold several document shapes.
+ * in, and the model carries each of them. Pass a {@link FirestoreModel.Union}
+ * of classes for a collection that holds several document shapes.
  *
- * Throws when the segment is not one Firestore can address, because a path that
- * cannot be built is a mistake in the definition rather than something a caller
- * can recover from.
+ * Throws when `segment` is not a collection id Firestore accepts: empty,
+ * containing `/`, `.` or `..`, matching `__.*__`, or longer than 1500 bytes. An
+ * invalid definition is a programming error, not a failure to recover from.
+ *
+ * @example Defining a collection with a subcollection
+ * ```ts
+ * import { Collection, Firestore, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ * import { Effect, Schema } from "effect";
+ *
+ * class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
+ * class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
+ *
+ * const Users = Collection.make("users", User);
+ * const UserPosts = Users.subcollection("posts", Post);
+ *
+ * const program = Effect.gen(function* () {
+ *   const firestore = yield* Firestore.Firestore;
+ *   const alice = Users.id.make("alice");
+ *
+ *   yield* firestore.setDoc(Users.doc(alice), { name: "Alice" });
+ *   const post = yield* firestore.addDoc(UserPosts.collection(alice), { title: "Hello" });
+ *   return post.path; // "users/alice/posts/<generated id>"
+ * });
+ * ```
+ *
+ * @see {@link fromPath} for a reference to a document of an existing collection from a path string
+ * @see {@link CollectionGroup.make} for reading several collections with one collection id together
  *
  * @stability unstable
  * @category constructors
@@ -337,12 +477,38 @@ export const make: <const Segment extends string, S extends FirestoreModel.Any>(
 ) => Collection<readonly [readonly [Segment, S]]> = collection.make;
 
 /**
- * References the document in `collection` found at `path`, such as
- * `users/alice/posts/hello`.
+ * References the document of `collection` at a path string, such as
+ * `users/alice/posts/hello`, or returns `None` when the path is not in that
+ * collection.
  *
- * The path is checked against the segments the collection was defined with,
- * so a path into any other collection - one sharing its last segment included -
- * comes back as `None`.
+ * **When to use**
+ *
+ * Use when a path arrives as a string, such as from a URL, a message or a
+ * stored {@link DocumentPath.DocumentPath}, and you know which collection it
+ * should be in.
+ *
+ * **Details**
+ *
+ * The path is checked against every segment the collection was defined with,
+ * so a path into another collection returns `None`, even one with the same
+ * last segment. Every id in the path must be non-empty.
+ *
+ * @example Parsing a path
+ * ```ts
+ * import { Collection, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ * import { Option, Schema } from "effect";
+ *
+ * class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
+ * class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
+ *
+ * const Users = Collection.make("users", User);
+ * const UserPosts = Users.subcollection("posts", Post);
+ *
+ * Option.isSome(Collection.fromPath(UserPosts, "users/alice/posts/hello")); // true
+ * Option.isSome(Collection.fromPath(UserPosts, "orgs/acme/posts/hello")); // false
+ * ```
+ *
+ * @see {@link Collection.doc} for a reference built from typed ids
  *
  * @stability unstable
  * @category constructors

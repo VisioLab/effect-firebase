@@ -1,14 +1,16 @@
 /**
- * Firestore document paths.
+ * Untyped references to Firestore documents, independent of either SDK.
  *
- * Firestore stores a reference to a document as the document's path and
- * nothing else, and hands it back as a `DocumentReference` belonging to
- * whichever SDK read it. This module owns that value without depending on an
- * SDK: it is the Firestore Value a reference is written and read as.
+ * Firestore stores a reference to a document as the document's path alone,
+ * and each SDK reads it back as its own `DocumentReference` class. This module
+ * owns a portable version of that value: the Firestore Value a reference is
+ * written and read as.
  *
- * It is not a `Collection.DocumentReference`, which also knows the collection
- * it was defined through, and so the model of the document it points at.
- * `FirestoreSchema.DocumentReference(collection)` turns one into the other.
+ * A `DocumentPath` does not know which collection it points into, or what the
+ * document holds. A {@link Collection.DocumentReference} does.
+ *
+ * @see {@link FirestoreSchema.DocumentPath} for storing an untyped reference in a document
+ * @see {@link FirestoreSchema.DocumentReference} for storing a typed reference in a document
  *
  * @stability unstable
  * @since 0.2.0
@@ -20,7 +22,21 @@ const TypeId = documentPath.TypeId;
 
 /**
  * A reference to a document as Firestore stores it: the document's path, such
- * as `users/alice/posts/hello`. Two are equal when their paths are.
+ * as `users/alice/posts/hello`.
+ *
+ * **When to use**
+ *
+ * Use for a reference whose target collection the model does not know, or
+ * does not care about. Prefer {@link Collection.DocumentReference}, through
+ * {@link FirestoreSchema.DocumentReference}, when the field always points into
+ * a known collection: it keeps the target's ids and model typed.
+ *
+ * **Details**
+ *
+ * Two are equal when their paths are.
+ *
+ * @see {@link Collection.DocumentReference} for a reference that knows its collection and model
+ * @see {@link FirestoreSchema.DocumentPath} for the schema of this value
  *
  * @stability unstable
  * @category models
@@ -33,7 +49,9 @@ export interface DocumentPath extends Equal.Equal, Inspectable.Inspectable {
 }
 
 /**
- * Whether `u` is a {@link DocumentPath} this module built.
+ * Checks whether `u` is a {@link DocumentPath} built by this module.
+ *
+ * An SDK's own `DocumentReference` is not one.
  *
  * @stability unstable
  * @category guards
@@ -42,8 +60,28 @@ export interface DocumentPath extends Equal.Equal, Inspectable.Inspectable {
 export const isDocumentPath: (u: unknown) => u is DocumentPath = documentPath.isDocumentPath;
 
 /**
- * The document found at `path`, or `None` when `path` does not address a
- * document: when it is empty, holds an empty segment, or ends in a collection.
+ * Builds a reference to the document at `path`, or `None` when `path` does not
+ * address a document.
+ *
+ * **When to use**
+ *
+ * Use when the path comes from outside the program and may be invalid.
+ *
+ * **Details**
+ *
+ * Returns `None` when `path` is empty, has an empty segment, or has an odd
+ * number of segments and so ends in a collection.
+ *
+ * @example Building a reference from untrusted input
+ * ```ts
+ * import { DocumentPath } from "@visiolab/effect-firebase/firestore";
+ *
+ * DocumentPath.make("users/alice"); // Option.some(...)
+ * DocumentPath.make("users"); // Option.none()
+ * ```
+ *
+ * @see {@link makeUnsafe} for the same check throwing instead
+ * @see {@link Collection.Collection} for typed references built from ids
  *
  * @stability unstable
  * @category constructors
@@ -52,10 +90,22 @@ export const isDocumentPath: (u: unknown) => u is DocumentPath = documentPath.is
 export const make: (path: string) => Option.Option<DocumentPath> = documentPath.make;
 
 /**
- * The document found at `path`, throwing when `path` does not address a
- * document.
+ * Builds a reference to the document at `path`, throwing when `path` does not
+ * address a document.
  *
- * @see {@link make} for the same check without the throw.
+ * **When to use**
+ *
+ * Use for paths known to be valid, such as constants. Use {@link make} for
+ * paths you have not checked.
+ *
+ * @example Building a reference
+ * ```ts
+ * import { DocumentPath } from "@visiolab/effect-firebase/firestore";
+ *
+ * const post = DocumentPath.makeUnsafe("users/alice/posts/hello");
+ * ```
+ *
+ * @see {@link make} for the same check returning an `Option`
  *
  * @stability unstable
  * @category constructors

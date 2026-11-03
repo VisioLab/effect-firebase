@@ -1,5 +1,26 @@
 /**
- * Firebase Authentication, as exposed by the Firebase Admin SDK.
+ * Firebase Authentication on the Admin SDK, as an Effect service.
+ *
+ * {@link Auth} wraps the calls server code uses most, such as verifying ID
+ * tokens and managing users. Every call fails with an {@link AuthError}, and
+ * {@link Auth.use} reaches the rest of the Admin SDK.
+ *
+ * @example Verifying an ID token
+ * ```ts
+ * import { Effect, Layer } from "effect";
+ * import { App, Auth } from "@visiolab/effect-firebase-admin";
+ *
+ * const uidOf = (idToken: string) =>
+ *   Effect.gen(function* () {
+ *     const auth = yield* Auth.Auth;
+ *     const token = yield* auth.verifyIdToken(idToken, true);
+ *     return token.uid;
+ *   });
+ *
+ * const AuthLive = Auth.layer.pipe(Layer.provide(App.layer()));
+ *
+ * uidOf("<id token>").pipe(Effect.provide(AuthLive));
+ * ```
  *
  * @stability unstable
  * @since 0.1.0
@@ -10,7 +31,11 @@ import * as Admin from "firebase-admin/auth";
 import * as App from "./App.ts";
 
 /**
- * Raised when a Firebase Authentication call fails.
+ * Fails a call on {@link Auth} when the Admin SDK rejects it, with what it
+ * threw as the `cause`.
+ *
+ * Match on `code` to tell failures apart, such as `auth/user-not-found` or
+ * `auth/id-token-revoked`.
  *
  * @stability unstable
  * @category errors
@@ -36,8 +61,12 @@ const authError = (message: string) => (cause: unknown) =>
 /**
  * Firebase Authentication for a single app.
  *
- * This covers the handful of calls most server code reaches for. Anything else
- * the Admin SDK offers is available through {@link Auth.use}.
+ * Each call is the Admin SDK's method of the same name, with the same
+ * arguments, failing with an {@link AuthError} and traced as a span named
+ * `Auth.<method>`. Use {@link Auth.use} for anything else the Admin SDK offers.
+ *
+ * The Admin SDK cannot abort a request in flight, so interrupting a call does
+ * not stop it: the request still runs to completion.
  *
  * @stability unstable
  * @category models
@@ -45,30 +74,89 @@ const authError = (message: string) => (cause: unknown) =>
  */
 export interface Auth {
   /**
-   * Runs `f` against the underlying Admin SDK handle, turning a rejection into
-   * an `AuthError`.
+   * Runs `f` against the Admin SDK's own `Auth`, failing with an
+   * {@link AuthError} when it throws or rejects.
    *
-   * This is the escape hatch for the parts of the SDK that are not wrapped
-   * here yet.
+   * **When to use**
+   *
+   * Use for the Admin SDK calls this service does not wrap, such as
+   * `setCustomUserClaims` or `listUsers`. Prefer the wrapped methods where one
+   * exists: they name the failure in the error's message.
+   *
+   * @example Setting custom claims
+   * ```ts
+   * import { Effect } from "effect";
+   * import { Auth } from "@visiolab/effect-firebase-admin";
+   *
+   * const makeAdmin = (uid: string) =>
+   *   Effect.gen(function* () {
+   *     const auth = yield* Auth.Auth;
+   *     yield* auth.use((sdk) => sdk.setCustomUserClaims(uid, { admin: true }));
+   *   });
+   * ```
    */
   readonly use: <A>(f: (auth: Admin.Auth) => PromiseLike<A> | A) => Effect.Effect<A, AuthError>;
+  /**
+   * Verifies a Firebase ID token and decodes it.
+   *
+   * With `checkRevoked`, it also fails for a token whose session was revoked or
+   * whose user is disabled, at the cost of a request to the Auth backend.
+   *
+   * @see {@link Auth.createCustomToken} for minting a token a client signs in with
+   */
   readonly verifyIdToken: (
     idToken: string,
     checkRevoked?: boolean,
   ) => Effect.Effect<Admin.DecodedIdToken, AuthError>;
+  /**
+   * Mints a custom token for `uid`, which a client signs in with through
+   * `signInWithCustomToken`.
+   *
+   * `developerClaims` end up in the ID tokens of that session.
+   *
+   * @see {@link Auth.verifyIdToken} for checking the ID token a client sends back
+   */
   readonly createCustomToken: (
     uid: string,
     developerClaims?: object,
   ) => Effect.Effect<string, AuthError>;
+  /**
+   * Reads the user with `uid`.
+   *
+   * Fails with `auth/user-not-found` when there is none.
+   *
+   * @see {@link Auth.getUserByEmail} for looking a user up by email
+   */
   readonly getUser: (uid: string) => Effect.Effect<Admin.UserRecord, AuthError>;
+  /**
+   * Reads the user with `email`.
+   *
+   * Fails with `auth/user-not-found` when there is none.
+   *
+   * @see {@link Auth.getUser} for looking a user up by uid
+   */
   readonly getUserByEmail: (email: string) => Effect.Effect<Admin.UserRecord, AuthError>;
+  /**
+   * Creates a user, under the `uid` in `properties` or one the Auth backend
+   * picks.
+   *
+   * @see {@link Auth.updateUser} for changing a user that exists
+   */
   readonly createUser: (
     properties: Admin.CreateRequest,
   ) => Effect.Effect<Admin.UserRecord, AuthError>;
+  /**
+   * Changes the properties of the user with `uid`.
+   *
+   * @see {@link Auth.createUser} for creating one
+   */
   readonly updateUser: (
     uid: string,
     properties: Admin.UpdateRequest,
   ) => Effect.Effect<Admin.UserRecord, AuthError>;
+  /**
+   * Deletes the user with `uid`.
+   */
   readonly deleteUser: (uid: string) => Effect.Effect<void, AuthError>;
 }
 
@@ -82,16 +170,20 @@ export interface Auth {
 export const Auth = Context.Service<Auth>("@visiolab/effect-firebase-admin/Auth");
 
 /**
- * Builds {@link Auth} on top of the {@link App.App} in context.
+ * Builds {@link Auth} on the {@link App.App} in context.
  *
- * Constructing the service cannot fail: `getAuth` only throws when the app has
- * already been deleted or when it was handed something that is not an app at
- * all. Both mean the app was wired up wrong rather than that a call went wrong,
- * so they surface as defects and `AuthError` keeps its single meaning of "a
- * Firebase Authentication call failed".
+ * **When to use**
  *
- * The Admin SDK has no way to abort a request in flight, so these effects run
- * their call to completion even when the fiber is interrupted.
+ * Use to build the service inside an effect of your own. Most programs provide
+ * it with {@link layer} instead.
+ *
+ * **Details**
+ *
+ * Building the service cannot fail. `getAuth` only throws for an app that was
+ * already deleted or is not an app at all. Both are wiring mistakes, so they
+ * are defects, and {@link AuthError} only ever means that a call failed.
+ *
+ * @see {@link layer} for the same as a layer
  *
  * @stability unstable
  * @category constructors
@@ -146,7 +238,16 @@ export const make = Effect.gen(function* () {
 /**
  * A layer that provides {@link Auth} for the {@link App.App} in context.
  *
- * @see {@link make} for why building the service cannot fail.
+ * @example Providing Auth
+ * ```ts
+ * import { Layer } from "effect";
+ * import { App, Auth } from "@visiolab/effect-firebase-admin";
+ *
+ * const AuthLive = Auth.layer.pipe(Layer.provide(App.layer()));
+ * ```
+ *
+ * @see {@link make} for why building the service cannot fail
+ * @see {@link App.layer} for the app it needs
  *
  * @stability unstable
  * @category layers

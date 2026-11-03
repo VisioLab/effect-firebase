@@ -1,20 +1,28 @@
 /**
- * What a read of many documents hands back.
+ * What a read of many documents returns.
  *
- * Reading a collection finds any number of documents, and a query snapshot
- * holds them as one result rather than as a bare list. That leaves a place for
- * what is said about the read as a whole rather than about any one document,
- * which an SDK's own Firestore can add to.
+ * A read of a collection or a Collection Group finds any number of documents.
+ * A query snapshot holds them as one result rather than a bare array, which
+ * leaves room for what a backend knows about the read as a whole, such as the
+ * client's `metadata`.
  *
+ * @example Reading every document in a collection
  * ```ts
- * import { QuerySnapshot } from "@visiolab/effect-firebase/firestore";
+ * import { Collection, Firestore, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ * import { Effect, Schema } from "effect";
  *
- * const snapshot = yield* firestore.getDocs(Users.ref);
+ * class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
  *
- * for (const user of snapshot.docs) {
- *   console.log(user.id);
- * }
+ * const Users = Collection.make("users", User);
+ *
+ * const program = Effect.gen(function* () {
+ *   const firestore = yield* Firestore.Firestore;
+ *   const snapshot = yield* firestore.getDocs(Users.collection());
+ *   return yield* Effect.forEach(snapshot.docs, (user) => user.data);
+ * });
  * ```
+ *
+ * @see {@link DocumentSnapshot} for what a read of one document returns
  *
  * @stability unstable
  * @since 0.2.0
@@ -27,10 +35,14 @@ import * as querySnapshot from "./internal/querySnapshot.ts";
 const TypeId = querySnapshot.TypeId;
 
 /**
- * A snapshot of a document that was there when it was read, in whichever of
- * the collections `C` it is in: `Existing<A> | Existing<B>` rather than
- * `Existing<A | B>`, so that its id, ancestors, reference and data all speak
- * of the same collection.
+ * A {@link DocumentSnapshot.Existing} snapshot in whichever of the collections
+ * `C` it is in.
+ *
+ * **Details**
+ *
+ * For a union `C` it is `Existing<A> | Existing<B>` rather than
+ * `Existing<A | B>`, so a document's id, ancestors, reference and data all
+ * belong to the same collection.
  *
  * @stability unstable
  * @category models
@@ -41,15 +53,21 @@ export type Existing<C extends Collection.Any> = C extends Collection.Any
   : never;
 
 /**
- * The documents in `C` a read of many found.
+ * The documents of `C` that a read of many documents found.
  *
- * `C` is a union when the read was of a Collection Group made of several
- * collections, and each document is then one of theirs.
+ * **Details**
  *
- * `DocumentExtra` is what an SDK knows about each document beyond the portable
- * snapshot, such as the client's `metadata`, and is on every one of them. What
- * it knows about the read as a whole is not part of this type: it is an
- * intersection where the snapshot is used, as `QuerySnapshot<C, E> & E`.
+ * {@link Firestore.With.getDocs} returns one, and
+ * {@link Firestore.With.streamDocs} emits one per change. `C` is a union when
+ * the read was of a Collection Group with several members, and each document
+ * is then in one of them.
+ *
+ * `DocumentExtra` is what a backend adds to each document beyond the portable
+ * snapshot, such as the client's `metadata`. What it adds to the read as a
+ * whole is not part of this type: it is intersected where the snapshot is
+ * used, as `QuerySnapshot<C, E> & E`.
+ *
+ * @see {@link DocumentSnapshot.DocumentSnapshot} for the result of a read of one document
  *
  * @stability unstable
  * @category models
@@ -60,17 +78,22 @@ export interface QuerySnapshot<C extends Collection.Any, DocumentExtra extends o
   readonly [TypeId]: typeof TypeId;
   /**
    * Every document the read found, in the order Firestore returned them.
+   * Empty when there were none.
    *
-   * Each was there when it was read, which is why these are
-   * {@link DocumentSnapshot.Existing}, each of the one collection of `C` it
-   * is in, with the `DocumentExtra` each carries.
+   * **Details**
+   *
+   * Each was there when it was read, so each is a
+   * {@link DocumentSnapshot.Existing} in the collection of `C` it lives in,
+   * with the `DocumentExtra` of the read.
+   *
+   * @see {@link Collection.Collection.contains} for keeping the documents of one collection
    */
   readonly docs: ReadonlyArray<Existing<C> & DocumentExtra>;
 }
 
 /**
- * What a document snapshot `D` carries beyond the portable one: each of its
- * fields that {@link DocumentSnapshot.Existing} does not have.
+ * The fields a document snapshot `D` has beyond the portable
+ * {@link DocumentSnapshot.Existing}, such as the client's `metadata`.
  *
  * @stability unstable
  * @category models
@@ -81,6 +104,10 @@ export type ExtraOf<D extends DocumentSnapshot.Existing<Collection.Any>> = {
 };
 
 /**
+ * Checks whether a value is a {@link QuerySnapshot}.
+ *
+ * @see {@link DocumentSnapshot.isDocumentSnapshot} for a snapshot of one document
+ *
  * @stability unstable
  * @category guards
  * @since 0.2.0
@@ -89,15 +116,24 @@ export const isQuerySnapshot: (u: unknown) => u is QuerySnapshot<Collection.Any>
   querySnapshot.isQuerySnapshot;
 
 /**
- * A snapshot of the documents a read of many found.
+ * Builds a {@link QuerySnapshot} from the documents a read found.
+ *
+ * **When to use**
+ *
+ * Use when implementing a backend or a test double. Application code gets
+ * query snapshots from {@link Firestore.With.getDocs} instead.
+ *
+ * **Details**
  *
  * An SDK that knows more about the read as a whole, such as the client's
- * `metadata`, passes it as `extra`: each of its fields is put on the snapshot,
+ * `metadata`, passes it as `extra`: each of its fields is put on the snapshot
  * and shown when it prints, as {@link DocumentSnapshot.make} does for one
- * document. Its fields must not be named like the snapshot's own.
+ * document. Its fields must not have the same names as the snapshot's own.
  *
- * The documents are held as they are given, so an extra each of them carries
- * stays on them, and in the snapshot's type.
+ * The documents are kept as given, so any extra fields on them stay, and stay
+ * in the snapshot's type.
+ *
+ * @see {@link DocumentSnapshot.existing} for building each document
  *
  * @stability unstable
  * @category constructors

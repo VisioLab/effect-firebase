@@ -1,15 +1,14 @@
 /**
- * Firestore as a canonical format.
+ * Firestore Values: values as Firestore stores them, independent of either
+ * SDK.
  *
- * A **Firestore Value** is a value as Firestore stores it, independent of either
- * SDK: a scalar, a timestamp, a geopoint, a document path, bytes, a sentinel,
- * or an array or map of Firestore Values. A typed
- * `Collection.DocumentReference` is not one, since Firestore stores only its
- * path. {@link toCodecFirestore} derives a codec from any plain schema to
- * Firestore Values, the way
- * `Schema.toCodecJson` derives one to JSON, so a model stays a plain Effect
- * schema and encoding it asks for no service. Each SDK package maps Firestore
- * Values to and from its own values.
+ * {@link toCodecFirestore} derives a codec from any Effect schema to Firestore
+ * Values, the way `Schema.toCodecJson` derives one to JSON. That keeps a model
+ * a plain Effect schema that needs no service to encode. Each SDK package then
+ * maps Firestore Values to and from its own SDK's values.
+ *
+ * You rarely call this module yourself: {@link Firestore} encodes and decodes
+ * documents through it.
  *
  * @stability unstable
  * @since 0.2.0
@@ -44,6 +43,16 @@ declare module "effect/Schema" {
 /**
  * A value as Firestore stores it, independent of either SDK.
  *
+ * **Details**
+ *
+ * One of: `null`, a boolean, a number, a string, a {@link Timestamp.Timestamp},
+ * a {@link GeoPoint.GeoPoint}, a {@link DocumentPath.DocumentPath}, bytes as a
+ * `Uint8Array`, a {@link FieldValue} sentinel, or an array or plain-object map
+ * of Firestore Values.
+ *
+ * A typed {@link Collection.DocumentReference} is not one: Firestore stores
+ * only its path, as a {@link DocumentPath.DocumentPath}.
+ *
  * @stability unstable
  * @category models
  * @since 0.2.0
@@ -66,10 +75,13 @@ export type FirestoreValue =
   | { readonly [key: string]: FirestoreValue };
 
 /**
- * Whether `u` is a {@link FirestoreValue}.
+ * Checks whether `u` is a {@link FirestoreValue}, all the way down.
  *
- * Maps are plain objects only: an instance of any other class is not one, since
- * Firestore would store it as a map and read it back as something else.
+ * **Details**
+ *
+ * Maps must be plain objects. An instance of any other class is not a
+ * Firestore Value, since Firestore would store it as a map and read it back as
+ * a plain object.
  *
  * @stability unstable
  * @category guards
@@ -113,7 +125,8 @@ export const readDocument: (
 ) => Result.Result<FirestoreValue | undefined, FirestoreError> = firestoreValueWalk.readDocument;
 
 /**
- * Type-level representation returned by {@link toCodecFirestore}.
+ * Type-level representation of the codec {@link toCodecFirestore} returns: the
+ * schema's `Type`, encoded as a {@link FirestoreValue}.
  *
  * @stability unstable
  * @category models
@@ -142,6 +155,14 @@ export interface toCodecFirestore<S extends Schema.Constraint> extends Schema.Bo
 /**
  * Derives a codec from a schema to Firestore Values.
  *
+ * **When to use**
+ *
+ * Use to encode or decode a value the way {@link Firestore} stores it outside
+ * a read or write, such as in a test or a custom backend. Reads and writes
+ * through {@link Firestore} already use it.
+ *
+ * **Details**
+ *
  * It works like `Schema.toCodecJson`: the schema's own transformations run
  * first, then structs, tuples, arrays, unions and `Schema.suspend` are walked.
  * A declaration is resolved in this order:
@@ -160,6 +181,23 @@ export interface toCodecFirestore<S extends Schema.Constraint> extends Schema.Bo
  * hatch: like `Schema.Unknown` it takes Firestore Values only, since the SDK
  * mappings take nothing else. Derivation never fails and is memoized per
  * schema.
+ *
+ * @example Encoding a value to Firestore Values
+ * ```ts
+ * import { DateTime, Effect, Schema } from "effect";
+ * import { FirestoreValue } from "@visiolab/effect-firebase/firestore";
+ *
+ * const Event = Schema.Struct({ name: Schema.String, at: Schema.DateTimeUtc });
+ * const codec = FirestoreValue.toCodecFirestore(Event);
+ *
+ * // `at` is encoded as a portable `Timestamp`.
+ * const encoded = Schema.encodeEffect(codec)({
+ *   name: "launch",
+ *   at: DateTime.makeUnsafe("2024-01-01T00:00:00Z"),
+ * });
+ * ```
+ *
+ * @see {@link FirestoreSchema} for schemas of the values Effect has none for
  *
  * @stability unstable
  * @category converting
