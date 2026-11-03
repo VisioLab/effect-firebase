@@ -14,5 +14,8 @@
     "astro": "catalog:",
     "oxfmt": "catalog:",
     "typescript": "catalog:website"
+  },
+  "devDependencies": {
+    "@astrojs/check": "catalog:"
   }
 }
