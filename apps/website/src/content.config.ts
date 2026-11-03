@@ -1,6 +1,9 @@
 import { docsLoader } from "@astrojs/starlight/loaders";
 import { docsSchema } from "@astrojs/starlight/schema";
-import { defineCollection } from "astro:content";
+// The same `defineCollection` that `astro:content` re-exports, but from a module
+// with types of its own: `astro:content` only has types once Astro has
+// generated them into `.astro/`, which a fresh checkout, like CI's, lacks.
+import { defineCollection } from "astro/content/config";
 import { z } from "astro/zod";
 import { type ApiEntry, apiReferenceLoader } from "./api/loader.ts";
 
