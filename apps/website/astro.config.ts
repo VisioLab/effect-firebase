@@ -2,7 +2,6 @@ import starlight from "@astrojs/starlight";
 import catppuccin from "@catppuccin/starlight";
 import { defineConfig } from "astro/config";
 import { packages, publicModules } from "./src/api/packages.ts";
-import { base, site } from "./src/site.ts";
 
 type SidebarLink = { label: string; link: string };
 
@@ -34,8 +33,9 @@ const moduleItems = (dir: string) => {
 };
 
 export default defineConfig({
-  site,
-  base,
+  // The repository is private, so GitHub Pages serves the site from this
+  // domain's root rather than under the repository's name.
+  site: "https://super-doodle-1g6qwkp.pages.github.io",
   integrations: [
     starlight({
       title: "Effect Firebase",
