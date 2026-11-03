@@ -20,7 +20,7 @@ catalog:
   effect: 4.1.0
   firebase: ^13.0.0
   firebase-admin: ^14.5.0
-  firebase-tools: 15.34.0
+  firebase-tools: 15.34.2
   # The version vite-plus formats the repo with, which the website also
   # formats API signatures with.
   oxfmt: 0.74.0
