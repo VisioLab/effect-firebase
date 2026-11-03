@@ -1,0 +1,40 @@
+---
+import { Code } from "@astrojs/starlight/components";
+import type { Doc } from "../api/reference.ts";
+import RichContent from "./RichContent.astro";
+
+interface Props {
+  doc: Doc;
+  signature: string;
+}
+
+const { doc, signature } = Astro.props;
+---
+
+<RichContent content={doc.body} />
+
+{
+  doc.sections.map((section) => (
+    <>
+      <p>
+        <strong>{section.title}</strong>
+      </p>
+      <RichContent content={section.body} />
+    </>
+  ))
+}
+
+<p><strong>Signature</strong></p>
+<Code code={signature} lang="ts" />
+
+{
+  doc.examples.map((example) => (
+    <>
+      <p>
+        <strong>Example</strong>
+        {example.title !== undefined && ` (${example.title})`}
+      </p>
+      <Code code={example.code} lang="ts" />
+    </>
+  ))
+}

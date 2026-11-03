@@ -8,7 +8,7 @@
  */
 import { createMarkdownProcessor } from "@astrojs/markdown-remark";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { format } from "oxfmt";
 import ts from "typescript";
 import { packageRoot, packages, publicModules } from "./packages.ts";
@@ -28,7 +28,21 @@ export interface Doc {
   readonly stability: string | undefined;
   /** Tags rendered as sections of their own, such as `@see` and `@deprecated`. */
   readonly sections: ReadonlyArray<{ readonly title: string; readonly body: Rich }>;
-  readonly examples: ReadonlyArray<string>;
+  readonly examples: ReadonlyArray<Example>;
+}
+
+/** An `@example`: its code, under the title written after the tag, if any. */
+export interface Example {
+  readonly title: string | undefined;
+  readonly code: string;
+}
+
+/** A documented member of an interface or class, such as `Firestore.With`'s `getDoc`. */
+export interface Member {
+  readonly name: string;
+  readonly anchor: string;
+  readonly signature: string;
+  readonly doc: Doc;
 }
 
 export interface Declaration {
@@ -37,6 +51,7 @@ export interface Declaration {
   readonly kind: string;
   readonly signature: string;
   readonly doc: Doc;
+  readonly members: ReadonlyArray<Member>;
   readonly sourceUrl: string;
 }
 
@@ -130,13 +145,56 @@ const declarationOf = (node: ts.Statement): { name: string; kind: string } | und
     : { name: name.text, kind };
 };
 
+/** The names an `export { … } from "…"` re-exports, as they are exported. */
+const reexported = (statement: ts.Statement): ReadonlyArray<ts.ExportSpecifier> =>
+  ts.isExportDeclaration(statement) &&
+  !statement.isTypeOnly &&
+  statement.moduleSpecifier !== undefined &&
+  statement.exportClause !== undefined &&
+  ts.isNamedExports(statement.exportClause)
+    ? statement.exportClause.elements.filter((specifier) => !specifier.isTypeOnly)
+    : [];
+
 const printer = ts.createPrinter({ removeComments: true });
+
+/**
+ * Prints a declaration the way a consumer reads it. A class that extends a
+ * base the compiler declared beside it, such as the `FirestoreError_base` of a
+ * `Schema.TaggedError`, is printed after that base, which is where its fields
+ * are.
+ */
+const printDeclaration = (statement: ts.Statement, file: ts.SourceFile): string => {
+  const printed = printer
+    .printNode(ts.EmitHint.Unspecified, statement, file)
+    .replace(/^export /, "");
+  if (!ts.isClassDeclaration(statement)) return printed;
+  const base = statement.heritageClauses?.[0]?.types[0]?.expression;
+  if (base === undefined || !ts.isIdentifier(base)) return printed;
+  const baseStatement = file.statements.find(
+    (other) =>
+      ts.isVariableStatement(other) &&
+      !isExported(other) &&
+      other.declarationList.declarations.some(
+        (d) => ts.isIdentifier(d.name) && d.name.text === base.text,
+      ),
+  );
+  return baseStatement === undefined
+    ? printed
+    : `${printer.printNode(ts.EmitHint.Unspecified, baseStatement, file)}\n${printed}`;
+};
+
+interface RawMember {
+  readonly name: string;
+  readonly signature: string;
+  readonly doc: RawDoc;
+}
 
 interface RawDeclaration {
   readonly name: string;
   readonly kind: string;
   readonly signature: string;
   readonly doc: RawDoc;
+  readonly members: ReadonlyArray<RawMember>;
   readonly line: number;
 }
 
@@ -155,16 +213,83 @@ const sourceLines = (file: string): Map<string, Array<number>> => {
     true,
   );
   const lines = new Map<string, Array<number>>();
+  const add = (name: string, node: ts.Node) => {
+    const line = source.getLineAndCharacterOfPosition(node.getStart()).line + 1;
+    lines.set(name, [...(lines.get(name) ?? []), line]);
+  };
   for (const statement of source.statements) {
+    for (const specifier of reexported(statement)) add(specifier.name.text, specifier);
     const declaration = isExported(statement) ? declarationOf(statement) : undefined;
-    if (declaration === undefined) continue;
-    const line = source.getLineAndCharacterOfPosition(statement.getStart()).line + 1;
-    lines.set(declaration.name, [...(lines.get(declaration.name) ?? []), line]);
+    if (declaration !== undefined) add(declaration.name, statement);
   }
   return lines;
 };
 
-const readModule = (path: string, sourceFile: string, declarationText: string): RawModule => {
+/**
+ * The members of an interface or class that carry a JSDoc comment of their
+ * own, each with the signature it is declared with. Overloads of a member are
+ * one member with several signatures, documented by the first.
+ */
+const membersOf = (statement: ts.Statement, text: string, file: ts.SourceFile) => {
+  if (!ts.isInterfaceDeclaration(statement) && !ts.isClassDeclaration(statement)) return [];
+  const members: Array<RawMember> = [];
+  for (const member of statement.members) {
+    const name = member.name;
+    if (name === undefined || !(ts.isIdentifier(name) || ts.isStringLiteral(name))) continue;
+    const signature = printer.printNode(ts.EmitHint.Unspecified, member, file);
+    const previous = members.at(-1);
+    if (previous?.name === name.text) {
+      members[members.length - 1] = {
+        ...previous,
+        signature: `${previous.signature}\n${signature}`,
+      };
+      continue;
+    }
+    const comment = jsDocRanges(text, member).at(-1);
+    if (comment !== undefined)
+      members.push({ name: name.text, signature, doc: parseJsDoc(comment) });
+  }
+  return members;
+};
+
+/** Reads a module's emitted declaration file, by the path of its source. */
+type DeclarationReader = (sourceFile: string) => string | undefined;
+
+/**
+ * The declaration a re-export stands for, read from the module it comes from,
+ * as the module that re-exports it names it.
+ */
+const reexportTarget = (
+  specifier: ts.ExportSpecifier,
+  from: string,
+  sourceFile: string,
+  readDeclarations: DeclarationReader,
+) => {
+  const text = readDeclarations(resolve(dirname(sourceFile), from));
+  if (text === undefined) return undefined;
+  const file = ts.createSourceFile("target.d.ts", text, ts.ScriptTarget.Latest, true);
+  const original = (specifier.propertyName ?? specifier.name).text;
+  for (const statement of file.statements) {
+    const declaration = isExported(statement) ? declarationOf(statement) : undefined;
+    if (declaration?.name !== original) continue;
+    return {
+      kind: declaration.kind,
+      signature: printDeclaration(statement, file).replaceAll(
+        new RegExp(`\\b${original}\\b`, "g"),
+        specifier.name.text,
+      ),
+      members: membersOf(statement, text, file),
+    };
+  }
+  return undefined;
+};
+
+const readModule = (
+  path: string,
+  sourceFile: string,
+  declarationText: string,
+  readDeclarations: DeclarationReader,
+): RawModule => {
   const file = ts.createSourceFile("module.d.ts", declarationText, ts.ScriptTarget.Latest, true);
   const lines = sourceLines(sourceFile);
   const first = file.statements[0];
@@ -178,12 +303,26 @@ const readModule = (path: string, sourceFile: string, declarationText: string): 
       : undefined;
 
   const declarations: Array<RawDeclaration> = [];
+  const occurrenceOf = (name: string) => declarations.filter((d) => d.name === name).length;
   for (const statement of file.statements) {
+    // A re-export is documented where it is re-exported, and declared where it
+    // comes from.
+    for (const specifier of reexported(statement)) {
+      const from = (statement as ts.ExportDeclaration).moduleSpecifier as ts.StringLiteral;
+      const target = reexportTarget(specifier, from.text, sourceFile, readDeclarations);
+      if (target === undefined) continue;
+      const name = specifier.name.text;
+      const comment = jsDocRanges(declarationText, specifier).at(-1);
+      declarations.push({
+        name,
+        ...target,
+        doc: comment === undefined ? { description: "", tags: [] } : parseJsDoc(comment),
+        line: lines.get(name)?.[occurrenceOf(name)] ?? 1,
+      });
+    }
     const declaration = isExported(statement) ? declarationOf(statement) : undefined;
     if (declaration === undefined) continue;
-    const signature = printer
-      .printNode(ts.EmitHint.Unspecified, statement, file)
-      .replace(/^export /, "");
+    const signature = printDeclaration(statement, file);
     const previous = declarations.at(-1);
     // Overloads are one declaration with several signatures.
     if (previous?.name === declaration.name && previous.kind === declaration.kind) {
@@ -194,11 +333,12 @@ const readModule = (path: string, sourceFile: string, declarationText: string): 
       continue;
     }
     const comment = jsDocRanges(declarationText, statement).at(-1);
-    const occurrence = declarations.filter((d) => d.name === declaration.name).length;
+    const occurrence = occurrenceOf(declaration.name);
     declarations.push({
       ...declaration,
       signature,
       doc: comment === undefined ? { description: "", tags: [] } : parseJsDoc(comment),
+      members: membersOf(statement, declarationText, file),
       line: lines.get(declaration.name)?.[occurrence] ?? 1,
     });
   }
@@ -235,7 +375,12 @@ const readPackage = (dir: string): ReadonlyArray<RawModule> => {
   // guard them.
   program.emit(undefined, (name, text) => emitted.set(name, text), undefined, true);
   return modules.map(({ path, sourceFile }) =>
-    readModule(path, sourceFile, emitted.get(sourceFile.replace(/\.ts$/, ".d.ts")) ?? ""),
+    readModule(
+      path,
+      sourceFile,
+      emitted.get(sourceFile.replace(/\.ts$/, ".d.ts")) ?? "",
+      (source) => emitted.get(source.replace(/\.ts$/, ".d.ts")),
+    ),
   );
 };
 
@@ -267,9 +412,34 @@ const formatSignature = async (signature: string): Promise<string> => {
   return errors.length === 0 ? code.trimEnd() : signature;
 };
 
+/**
+ * Wraps a member's signature as {@link formatSignature} does a declaration's,
+ * formatting it inside an interface, since a member alone does not parse.
+ */
+const formatMemberSignature = async (signature: string): Promise<string> => {
+  const { code, errors } = await format("signature.ts", `interface _ {\n${signature}\n}`, {
+    printWidth: 82,
+  });
+  if (errors.length > 0) return signature;
+  return code
+    .trimEnd()
+    .split("\n")
+    .slice(1, -1)
+    .map((line) => line.replace(/^  /, ""))
+    .join("\n");
+};
+
 const tagText = (doc: RawDoc, tag: string) => doc.tags.find((t) => t.tag === tag)?.text;
 
-const exampleCode = (text: string) => /```\w*\n([\s\S]*?)```/.exec(text)?.[1]?.trimEnd() ?? text;
+const example = (text: string): Example => {
+  const fence = text.indexOf("```");
+  if (fence === -1) return { title: undefined, code: text };
+  const title = text.slice(0, fence).trim();
+  return {
+    title: title === "" ? undefined : title,
+    code: /```\w*\n([\s\S]*?)```/.exec(text.slice(fence))?.[1]?.trimEnd() ?? text,
+  };
+};
 
 const sectionTitles: Record<string, string> = { see: "See", deprecated: "Deprecated" };
 const metadataTags = new Set(["since", "stability", "category", "example"]);
@@ -302,11 +472,19 @@ const renderDoc = async (doc: RawDoc, resolveLink: LinkResolver): Promise<Doc> =
         body: await renderRich(resolveLinks(text, resolveLink)),
       })),
   ),
-  examples: doc.tags.filter(({ tag }) => tag === "example").map(({ text }) => exampleCode(text)),
+  examples: doc.tags.filter(({ tag }) => tag === "example").map(({ text }) => example(text)),
 });
 
 const sourceUrl = (dir: string, path: string) =>
   `https://github.com/VisioLab/effect-firebase/blob/main/packages/${dir}/src/${path}.ts`;
+
+const memberAnchor = (anchor: string, member: string) => `${anchor}.${member}`;
+
+/** Splits `a.b.c` into `a` and `b.c`. */
+const splitFirst = (name: string): [string, string | undefined] => {
+  const dot = name.indexOf(".");
+  return dot === -1 ? [name, undefined] : [name.slice(0, dot), name.slice(dot + 1)];
+};
 
 const slugify = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
@@ -337,8 +515,17 @@ export const readApiReference = async (): Promise<ReadonlyArray<PackageReference
       anchors.set(module, moduleAnchors);
     }
   }
-  const anchorOf = (module: RawModule, name: string) =>
-    [...anchors.get(module)!].find(([declaration]) => declaration.name === name)?.[1];
+  // `With.getDoc` names a member of `With`, which has an anchor of its own.
+  const anchorOf = (module: RawModule, name: string) => {
+    const [owner, member] = splitFirst(name);
+    const found = [...anchors.get(module)!].find(([declaration]) => declaration.name === owner);
+    if (found === undefined) return undefined;
+    const [declaration, anchor] = found;
+    if (member === undefined) return anchor;
+    return declaration.members.some((m) => m.name === member)
+      ? memberAnchor(anchor, member)
+      : undefined;
+  };
   const moduleNamed = (name: string, preferred: (typeof raw)[number]) =>
     [preferred, ...raw]
       .flatMap(({ pkg, modules }) => modules.map((module) => ({ pkg, module })))
@@ -349,7 +536,7 @@ export const readApiReference = async (): Promise<ReadonlyArray<PackageReference
     (target) => {
       const local = anchorOf(module, target);
       if (local !== undefined) return `#${local}`;
-      const [head, member] = target.split(".", 2) as [string, string | undefined];
+      const [head, member] = splitFirst(target);
       const other = moduleNamed(head, current);
       if (other === undefined) return undefined;
       const page = modulePath(other.pkg, other.module);
@@ -372,17 +559,28 @@ export const readApiReference = async (): Promise<ReadonlyArray<PackageReference
           modules.map(async (module): Promise<Module> => {
             const resolveLink = resolverFor(current, module);
             const declarations = await Promise.all(
-              module.declarations.map(async (declaration) => ({
-                category: tagText(declaration.doc, "category") ?? "Other",
-                declaration: {
-                  name: declaration.name,
-                  anchor: anchors.get(module)!.get(declaration)!,
-                  kind: declaration.kind,
-                  signature: await formatSignature(declaration.signature),
-                  doc: await renderDoc(declaration.doc, resolveLink),
-                  sourceUrl: `${sourceUrl(pkg.dir, module.path)}#L${declaration.line}`,
-                },
-              })),
+              module.declarations.map(async (declaration) => {
+                const anchor = anchors.get(module)!.get(declaration)!;
+                return {
+                  category: tagText(declaration.doc, "category") ?? "Other",
+                  declaration: {
+                    name: declaration.name,
+                    anchor,
+                    kind: declaration.kind,
+                    signature: await formatSignature(declaration.signature),
+                    doc: await renderDoc(declaration.doc, resolveLink),
+                    members: await Promise.all(
+                      declaration.members.map(async (member) => ({
+                        name: member.name,
+                        anchor: memberAnchor(anchor, member.name),
+                        signature: await formatMemberSignature(member.signature),
+                        doc: await renderDoc(member.doc, resolveLink),
+                      })),
+                    ),
+                    sourceUrl: `${sourceUrl(pkg.dir, module.path)}#L${declaration.line}`,
+                  },
+                };
+              }),
             );
             const categories = Map.groupBy(declarations, ({ category }) => category);
             return {

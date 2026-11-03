@@ -53,3 +53,10 @@
   align-items: center;
   gap: 0.25em;
 }
+
+/* An interface's documented members, set in under the interface itself. */
+.api-members {
+  margin-top: 1.5rem;
+  padding-left: 1rem;
+  border-left: 2px solid var(--sl-color-gray-5);
+}

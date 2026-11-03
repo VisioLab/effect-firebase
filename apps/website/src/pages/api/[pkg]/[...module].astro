@@ -1,5 +1,5 @@
 ---
-import { Icon } from "@astrojs/starlight/components";
+import { Code, Icon } from "@astrojs/starlight/components";
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro";
 import type { GetStaticPaths } from "astro";
 import { getCollection } from "astro:content";
@@ -46,6 +46,27 @@ const headings = module.categories.flatMap((category) => [
   headings={headings}
 >
   {module.doc !== undefined && <RichContent content={module.doc.body} />}
+  {
+    module.doc?.examples.map((example) => (
+      <>
+        <p>
+          <strong>Example</strong>
+          {example.title !== undefined && ` (${example.title})`}
+        </p>
+        <Code code={example.code} lang="ts" />
+      </>
+    ))
+  }
+  {
+    module.doc?.sections.map((section) => (
+      <>
+        <p>
+          <strong>{section.title}</strong>
+        </p>
+        <RichContent content={section.body} />
+      </>
+    ))
+  }
 
   <p>
     {module.exportCount} exports
