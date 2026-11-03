@@ -61,10 +61,13 @@ const runOver = <T, Operations extends Firestore.TransactionOperations, A, E>(
     // that a failure the SDK hands back without retrying it comes back as
     // the body's own rather than wrapped.
     let failure: { readonly thrown: unknown; readonly cause: Cause.Cause<unknown> } | undefined;
-    const callback = async (transaction: T): Promise<A> => {
+    const callback = async (transaction: unknown): Promise<A> => {
       // The body has everything it needs provided, so it runs on a runtime
-      // of its own here, inside the SDK's callback.
-      const exit = await Effect.runPromiseExit(body(options.operations(transaction)), {
+      // of its own here, inside the SDK's callback. `run` hands this the
+      // SDK's transaction, which `operations` is typed by: `run`'s callback
+      // is not, so that `T` is inferred from `operations` alone.
+      const operations = options.operations(transaction as T);
+      const exit = await Effect.runPromiseExit(body(operations), {
         signal: controller.signal,
       });
       if (Exit.isSuccess(exit)) return exit.value;

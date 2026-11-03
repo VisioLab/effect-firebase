@@ -347,6 +347,21 @@ interface SdkTransaction {
 }
 declare const run: Firestore.TransactionFromCallbackOptions<SdkTransaction>["run"];
 declare const onError: (cause: unknown) => Firestore.FirestoreError;
+/** An SDK that runs a callback in a transaction, as `transactionFromCallback`'s `run` calls it. */
+declare const sdk: {
+  readonly runTransaction: <A>(
+    callback: (transaction: SdkTransaction) => Promise<A>,
+    options?: { readonly maxAttempts?: number },
+  ) => Promise<A>;
+};
+/**
+ * The operations of a backend that reads many over `transaction`. A hook that
+ * builds them inline, as the tests below do, is context-sensitive, which is
+ * what made inference depend on where `operations` stood.
+ */
+declare const readsManyOver: (
+  transaction: SdkTransaction,
+) => Required<Firestore.TransactionOperations>;
 /** The operations of a backend that can read many documents in a transaction. */
 declare const readsMany: Required<Firestore.TransactionOperations>;
 /** The operations of a backend that reads one document at a time in a transaction. */
@@ -367,6 +382,93 @@ declare const metaReads: Stream.Stream<Firestore.DocumentRead<Meta>, Firestore.F
 declare const metaQueryReads: Stream.Stream<Firestore.QueryRead<Meta>, Firestore.FirestoreError>;
 declare const otherReads: Stream.Stream<Firestore.DocumentRead<Other>, Firestore.FirestoreError>;
 declare const plainQueryReads: Stream.Stream<Firestore.QueryRead, Firestore.FirestoreError>;
+
+describe("transactionFromCallback", () => {
+  test("infers the operations with run before operations", () => {
+    const runTransaction = Firestore.transactionFromCallback({
+      run: (callback, options) => sdk.runTransaction(callback, options),
+      operations: (tx: SdkTransaction) => ({
+        ...readsManyOver(tx),
+        getDoc: (path) => readsManyOver(tx).getDoc(path),
+      }),
+      onError,
+      context: (transaction) => {
+        expect(transaction.getDocs).type.toBe<Firestore.Firestore["getDocs"]>();
+        return Context.make(RichTransaction, transaction);
+      },
+    });
+    expect(runTransaction).type.toBeAssignableTo<
+      Firestore.RunTransaction<Required<Firestore.TransactionOperations>, RichTransaction>
+    >();
+  });
+  test("infers the operations with operations before run", () => {
+    const runTransaction = Firestore.transactionFromCallback({
+      operations: (tx: SdkTransaction) => ({
+        ...readsManyOver(tx),
+        getDoc: (path) => readsManyOver(tx).getDoc(path),
+      }),
+      context: (transaction) => {
+        expect(transaction.getDocs).type.toBe<Firestore.Firestore["getDocs"]>();
+        return Context.make(RichTransaction, transaction);
+      },
+      onError,
+      run: (callback, options) => sdk.runTransaction(callback, options),
+    });
+    expect(runTransaction).type.toBeAssignableTo<
+      Firestore.RunTransaction<Required<Firestore.TransactionOperations>, RichTransaction>
+    >();
+  });
+  test("infers the operations inline in make, with run before operations", () => {
+    const made = Firestore.make({
+      ...hooks,
+      runTransaction: Firestore.transactionFromCallback({
+        run: (callback, options) => sdk.runTransaction(callback, options),
+        operations: (tx: SdkTransaction) => ({
+          ...readsManyOver(tx),
+          getDoc: (path) => readsManyOver(tx).getDoc(path),
+        }),
+        onError,
+        context: (transaction) => {
+          expect(transaction.getDocs).type.toBe<Firestore.Firestore["getDocs"]>();
+          return Context.make(AuditedTransaction, transaction);
+        },
+      }),
+    });
+    expect(made).type.toBeAssignableTo<Firestore.With<never, never, {}, AuditedTransaction>>();
+  });
+  test("infers the operations inline in make, with operations before run", () => {
+    const made = Firestore.make({
+      ...hooks,
+      runTransaction: Firestore.transactionFromCallback({
+        operations: (tx: SdkTransaction) => ({
+          ...readsManyOver(tx),
+          getDoc: (path) => readsManyOver(tx).getDoc(path),
+        }),
+        context: (transaction) => {
+          expect(transaction.getDocs).type.toBe<Firestore.Firestore["getDocs"]>();
+          return Context.make(AuditedTransaction, transaction);
+        },
+        onError,
+        run: (callback, options) => sdk.runTransaction(callback, options),
+      }),
+    });
+    expect(made).type.toBeAssignableTo<Firestore.With<never, never, {}, AuditedTransaction>>();
+  });
+  test("infers the operations wherever context stands, where operations are not built inline", () => {
+    const runTransaction = Firestore.transactionFromCallback({
+      context: (transaction) => {
+        expect(transaction.getDocs).type.toBe<Firestore.Firestore["getDocs"]>();
+        return Context.make(RichTransaction, transaction);
+      },
+      run: (callback, options) => sdk.runTransaction(callback, options),
+      onError,
+      operations: (tx: SdkTransaction) => readsManyOver(tx),
+    });
+    expect(runTransaction).type.toBe<
+      Firestore.RunTransaction<Required<Firestore.TransactionOperations>, RichTransaction>
+    >();
+  });
+});
 
 describe("make", () => {
   test("builds the portable Firestore from hooks with no options, extras or services", () => {

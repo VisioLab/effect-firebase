@@ -853,9 +853,17 @@ export const make: <
  * How {@link transactionFromCallback} drives a backend whose SDK runs a
  * transaction as a callback, and retries it.
  *
- * `T` is the SDK's own transaction object, handed to each attempt.
- * `Operations` and `TransactionServices` are those of the
- * {@link RunTransaction} hook it builds.
+ * `T` is the SDK's own transaction object, handed to each attempt. It is
+ * inferred from `operations` alone, so annotate its parameter, as in
+ * `operations: (tx: Admin.Transaction) => ...`. `Operations` and
+ * `TransactionServices` are those of the {@link RunTransaction} hook it builds.
+ *
+ * They are inferred wherever `run` and `operations` stand in the object.
+ * `context` may stand anywhere too, except before an `operations` that builds
+ * its object inline with unannotated functions, such as `getDoc: (path) =>
+ * ...`: TypeScript types `context`'s transaction as soon as it reaches it, and
+ * only learns `Operations` from such an `operations` once it reaches that, so
+ * put `context` after it.
  *
  * @stability unstable
  * @category options
@@ -871,9 +879,14 @@ export interface TransactionFromCallbackOptions<
    * such as the Admin SDK's `firestore.runTransaction(callback, options)`.
    * `options` are the hook's own, handed on as they are, so `maxAttempts` is
    * only there where the caller set it.
+   *
+   * The callback takes whatever the SDK hands it, and hands it to
+   * `operations` as the SDK's transaction. It is not typed by `T`: TypeScript
+   * would settle `T` when it typed `run`, before it had seen `operations`
+   * wherever `run` came first.
    */
   readonly run: <A>(
-    callback: (transaction: T) => Promise<A>,
+    callback: (transaction: unknown) => Promise<A>,
     options: TransactionHookOptions,
   ) => Promise<A>;
   /** The reads and writes of one attempt, over the SDK's transaction. */
@@ -915,7 +928,7 @@ export interface TransactionFromCallbackOptions<
  * ```ts
  * const runTransaction = Firestore.transactionFromCallback({
  *   run: (callback, options) => db.runTransaction(callback, options),
- *   operations: (tx) => ({ getDoc, getDocs, setDoc, updateDoc }),
+ *   operations: (tx: Sdk.Transaction) => operationsOver(tx),
  *   onError: (cause) =>
  *     new Firestore.FirestoreError({ message: "Failed to run a transaction", cause }),
  *   context: (transaction) => Context.make(RichTransaction, transaction),
