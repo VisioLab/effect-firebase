@@ -215,9 +215,9 @@ export const fromDatabase = (
     }),
   });
 
-  // `make` infers from the transaction hook's `context` that every body is
-  // handed the Admin Transaction too, so the Admin interface is checked
-  // against what it built here.
+  // The Admin interface is checked against what `make` built here, except for
+  // the Admin Transaction its `context` offers: the compiler does not check
+  // transaction services on assignment, so the AdminTransaction tests do.
   const admin: AdminFirestore.AdminFirestore = Object.assign(service, { instance: firestore });
   return admin;
 };

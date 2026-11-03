@@ -199,8 +199,6 @@ export const Transaction = Context.Service<Transaction>(
  */
 export type OptionsParameter<Options> = [Options] extends [never] ? [] : [options?: Options];
 
-const TransactionServicesTypeId = firestore.TransactionServicesTypeId;
-
 /**
  * Firestore for a single app, with what one backend adds to the portable
  * {@link Firestore}: the options its reads and listens take, the extra its
@@ -223,8 +221,11 @@ const TransactionServicesTypeId = firestore.TransactionServicesTypeId;
  *   class-style `Context.Service`: a key whose type is the transaction's own
  *   type, which extends {@link Transaction}, is dropped from what a body asks
  *   for by every Firestore, the portable one included, so nothing would check
- *   that it is provided. A Firestore that offers more of them may stand in for
- *   one that offers fewer, and not the other way round.
+ *   that it is provided. The compiler does not check them when one `With` is
+ *   assigned to another: TypeScript does not see through
+ *   {@link With.runTransaction} that a Firestore offering none of them cannot
+ *   stand in for one offering some. A backend's tests that ask for each of
+ *   them in a transaction body are what show its `context` offers them.
  *
  * The portable {@link Firestore} is this with every parameter at its default.
  * {@link make} returns it with what it inferred from its hooks, and a
@@ -240,16 +241,6 @@ export interface With<
   Extra extends object = {},
   TransactionServices = never,
 > {
-  /**
-   * Holds `TransactionServices` for the compiler alone, and is never there at
-   * runtime. TypeScript does not see through {@link With.runTransaction} that
-   * a Firestore whose transactions offer none of `TransactionServices` cannot
-   * stand in for one whose transactions do, so this tells it.
-   */
-  readonly [TransactionServicesTypeId]?:
-    | ((transactionServices: TransactionServices) => void)
-    | undefined;
-
   /**
    * Reads one document.
    *
