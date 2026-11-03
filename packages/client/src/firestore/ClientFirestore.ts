@@ -14,6 +14,9 @@ import { Firestore, type With } from "@visiolab/effect-firebase/firestore/Firest
 import type { Firestore as SdkFirestore, FirestoreLocalCache } from "firebase/firestore";
 import type * as App from "../App.ts";
 import type * as ClientDocumentSnapshot from "./ClientDocumentSnapshot.ts";
+// Only {@link ClientFirestore}'s documentation links to it.
+// oxlint-disable-next-line no-unused-vars
+import type * as ClientQuerySnapshot from "./ClientQuerySnapshot.ts";
 import * as internalFirestore from "./internal/firestore.ts";
 
 /**
@@ -25,7 +28,7 @@ import * as internalFirestore from "./internal/firestore.ts";
  * {@link ClientDocumentSnapshot.SnapshotMetadata} of the read or of the
  * snapshot the listener received, as a
  * {@link ClientDocumentSnapshot.ClientDocumentSnapshot} or a
- * `ClientQuerySnapshot` does.
+ * {@link ClientQuerySnapshot.ClientQuerySnapshot} does.
  *
  * It is assignable wherever a {@link Firestore} is expected, so it can be
  * handed to portable code as is.
