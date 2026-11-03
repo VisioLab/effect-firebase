@@ -1,17 +1,22 @@
 /**
  * Document schemas with one shape per operation.
  *
- * A document is read in one shape and written in two others. The id lives in
- * the path rather than in the data, a `createdAt` the server fills in is read
- * back as a timestamp but written as a sentinel, and an update is a map of the
- * fields that change rather than a whole document.
+ * A Firestore document is read in one shape and written in two others: the id
+ * lives in the path rather than the data, a `createdAt` the server fills in is
+ * read as a timestamp but written as a sentinel, and an update is a map of the
+ * fields that change rather than a whole document. This module derives all
+ * three shapes from one field declaration, over `VariantSchema` - the
+ * machinery behind `effect/schema`'s `Model`, with the variants a document
+ * database needs.
  *
- * Writing three schemas by hand means keeping three schemas in step. This
- * module takes one field declaration and derives all three from it, over
- * `VariantSchema` - the same machinery `effect/schema`'s `Model` is built on,
- * with the variants a database of documents needs rather than the ones a
- * database of rows does.
+ * - {@link Class} defines a document, and {@link Union} a document or field
+ *   holding one of several shapes.
+ * - {@link Timestamp}, {@link Number}, {@link Array}, {@link Record} and
+ *   {@link Optional} declare fields whose writes take Firestore's sentinels.
+ * - {@link Immutable}, {@link Field}, {@link FieldOnly} and {@link FieldExcept}
+ *   control which variants a field appears in.
  *
+ * @example Defining a document
  * ```ts
  * import { Schema } from "effect";
  * import { FirestoreModel, FirestoreSchema } from "@visiolab/effect-firebase/firestore";
@@ -22,11 +27,14 @@
  *   createdAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
  * }) {}
  *
- * User                 // what a snapshot decodes into
- * User.create          // what `set` writes
- * User.update          // what `update` writes, whatever the document holds
- * User.updateUnchecked // what `update` writes, where the caller knows what it holds
+ * User; // what a snapshot decodes into
+ * User.create; // what `setDoc` writes
+ * User.update; // what `updateDoc` writes, whatever the document holds
+ * User.updateUnchecked; // what `updateDoc` writes where the caller knows what it holds
  * ```
+ *
+ * @see {@link Collection.make} for addressing documents of a model
+ * @see {@link FirestoreSchema} for the schemas of Firestore's own values
  *
  * @stability unstable
  * @since 0.2.0
@@ -40,12 +48,14 @@ import type * as Patch from "./Patch.ts";
 /**
  * The shapes a document is read and written in.
  *
- * - `read` is what `snapshot.data()` decodes into.
- * - `create` is what `set` writes, which is a whole document.
- * - `update` is what `update` writes, which is the fields that change.
+ * **Details**
  *
- * `read` is the default, so the schema itself is the one a document is read
- * through and the write shapes hang off it.
+ * - `read` is what a snapshot's data decodes into.
+ * - `create` is what `setDoc` writes: a whole document.
+ * - `update` is what `updateDoc` writes: the fields that change.
+ *
+ * `read` is the default variant, so a {@link Class} itself is the read shape
+ * and the write shapes hang off it.
  *
  * @stability unstable
  * @category models
@@ -54,7 +64,28 @@ import type * as Patch from "./Patch.ts";
 export type Variant = "read" | "create" | "update";
 
 /**
- * Declares a field that is a different schema in different variants.
+ * Declares a field with a different schema per variant.
+ *
+ * **When to use**
+ *
+ * Use when a field is read and written in shapes no ready-made field covers.
+ * Leave a variant out to keep the field out of that shape.
+ *
+ * @example A field written as a sentinel and read as a timestamp
+ * ```ts
+ * import { FirestoreModel, FirestoreSchema } from "@visiolab/effect-firebase/firestore";
+ *
+ * class Post extends FirestoreModel.Class<Post>("Post")({
+ *   publishedAt: FirestoreModel.Field({
+ *     read: FirestoreSchema.Timestamp,
+ *     create: FirestoreSchema.ServerTimestamp,
+ *   }),
+ * }) {}
+ * ```
+ *
+ * @see {@link FieldOnly} for the same schema in some variants
+ * @see {@link FieldExcept} for the same schema in all but some variants
+ * @see {@link Timestamp} for a timestamp the client or the server may set
  *
  * @stability unstable
  * @category constructors
@@ -63,7 +94,26 @@ export type Variant = "read" | "create" | "update";
 export const Field = firestoreModel.Field;
 
 /**
- * Declares a field that only appears in the named variants.
+ * Declares a field with one schema that appears only in the named variants.
+ *
+ * **When to use**
+ *
+ * Use for a field only some shapes carry, such as one only ever read, or one
+ * only ever written.
+ *
+ * @example A field only read
+ * ```ts
+ * import { Schema } from "effect";
+ * import { FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ *
+ * class Account extends FirestoreModel.Class<Account>("Account")({
+ *   plan: FirestoreModel.FieldOnly(["read"])(Schema.Literals(["free", "paid"])),
+ * }) {}
+ * ```
+ *
+ * @see {@link FieldExcept} for naming the variants to leave out instead
+ * @see {@link Field} for a different schema per variant
+ * @see {@link Immutable} for a field read and created, but never updated
  *
  * @stability unstable
  * @category constructors
@@ -72,7 +122,15 @@ export const Field = firestoreModel.Field;
 export const FieldOnly = firestoreModel.FieldOnly;
 
 /**
- * Declares a field that appears in every variant but the named ones.
+ * Declares a field with one schema that appears in every variant but the named
+ * ones.
+ *
+ * **When to use**
+ *
+ * Use when a field belongs in most shapes and only a few leave it out.
+ *
+ * @see {@link FieldOnly} for naming the variants to keep instead
+ * @see {@link Field} for a different schema per variant
  *
  * @stability unstable
  * @category constructors
@@ -81,8 +139,30 @@ export const FieldOnly = firestoreModel.FieldOnly;
 export const FieldExcept = firestoreModel.FieldExcept;
 
 /**
- * Declares fields without building a class - a struct - for nesting inside a
- * document or sharing between several.
+ * Declares a set of fields without building a class.
+ *
+ * **When to use**
+ *
+ * Use for a nested map inside a document, or for fields shared between several
+ * documents. An update reaches into a struct field by field, unlike a plain
+ * `Schema.Struct`, which is a value written whole.
+ *
+ * @example A nested address
+ * ```ts
+ * import { Schema } from "effect";
+ * import { FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ *
+ * const Address = FirestoreModel.Struct({ city: Schema.String, zip: Schema.String });
+ *
+ * class Customer extends FirestoreModel.Class<Customer>("Customer")({
+ *   address: Address,
+ * }) {}
+ *
+ * Customer.update.make({ address: { city: "Berlin" } }); // written at "address.city"
+ * ```
+ *
+ * @see {@link Class} for a whole document
+ * @see {@link Patch.replace} for writing a struct whole in an update
  *
  * @stability unstable
  * @category constructors
@@ -93,6 +173,13 @@ export const Struct = firestoreModel.Struct;
 /**
  * Rewrites the schemas of a field, variant by variant.
  *
+ * **When to use**
+ *
+ * Use to derive a field from another one, such as narrowing what one variant
+ * takes while keeping the others.
+ *
+ * @see {@link Field} for declaring a field per variant directly
+ *
  * @stability unstable
  * @category transforming
  * @since 0.2.0
@@ -102,9 +189,18 @@ export const fieldEvolve = firestoreModel.fieldEvolve;
 /**
  * Pulls one variant out of a struct as a plain schema.
  *
- * Note that the `update` variant this hands back is the one the fields declare,
- * which is to say it is neither made partial nor flattened into paths the way
- * {@link Class} makes it.
+ * **When to use**
+ *
+ * Use to get a struct's `read` or `create` shape as an ordinary schema, for
+ * example to validate data outside Firestore.
+ *
+ * **Details**
+ *
+ * The `update` variant it returns is the one the fields declare: it is neither
+ * made partial nor flattened into paths. Use {@link Class.update} for the
+ * update a document is written through.
+ *
+ * @see {@link fields} for the field declarations themselves
  *
  * @stability unstable
  * @category converting
@@ -113,7 +209,14 @@ export const fieldEvolve = firestoreModel.fieldEvolve;
 export const extract = firestoreModel.extract;
 
 /**
- * The field definitions a class or struct was built from.
+ * Returns the field declarations a {@link Class} or {@link Struct} was built
+ * from.
+ *
+ * **When to use**
+ *
+ * Use to build a new struct or class from the fields of an existing one.
+ *
+ * @see {@link extract} for one variant of a struct as a plain schema
  *
  * @stability unstable
  * @category getters
@@ -124,11 +227,12 @@ export const fields: <A extends VariantSchema.Struct<any>>(
 ) => A[typeof VariantSchema.TypeId] = firestoreModel.fields;
 
 /**
- * Any document schema, whatever it holds: a {@link Class}, or a {@link Union}
- * of them.
+ * Any document schema: a {@link Class}, or a {@link Union} of classes.
  *
- * Unlike Effect's `Model.Any`, it asks for no `fields`, which nothing taking
- * one reads, and which a union has none of.
+ * **Details**
+ *
+ * Unlike Effect's `Model.Any`, it asks for no `fields`: nothing that takes it
+ * reads them, and a union has none.
  *
  * @stability unstable
  * @category models
@@ -145,7 +249,7 @@ const RecordTypeId = firestoreModel.RecordTypeId;
 const UnionTypeId = firestoreModel.UnionTypeId;
 
 /**
- * Anything a field is declared as: a schema, a field, a struct or a
+ * Anything a field may be declared as: a schema, a field, a struct or a
  * {@link Record}.
  *
  * @stability unstable
@@ -368,35 +472,43 @@ type StructPaths<
   UpdatePaths<Fields, Mode, `${Path}.`>;
 
 /**
- * Which patches an update takes.
+ * Which patches an update takes: `"checked"` or `"unchecked"`.
  *
- * - `checked` takes only the patches that leave any document it may be
- *   written to readable. An {@link Optional} struct is written whole with
- *   {@link Patch.replace} or removed, and never patched: a patch written into
- *   a struct the document goes without would create it holding only what the
- *   patch carried. A {@link Union} is patched at its Shared Fields alone, the
- *   fields every member holds, with a value every member takes and stores the
- *   same way, and an {@link Optional} union is not patched at all.
- * - `unchecked` takes a patch into an {@link Optional} struct or union as
- *   well, which is only right where it is known to be there. It also patches a
- *   union at a key only some members hold, which is only right where the
- *   document is known to hold one of those. Such a key is checked by the same
- *   rule as a Shared Field, over just the members holding it: each must take
- *   the value and store it the same way. `unchecked` relaxes only that every
- *   member holds it, never the encoding.
+ * **When to use**
  *
- * Firestore applies an update to whatever the document holds, without checking
- * it against anything, and the patch does not tell which member of a union the
- * document holds. That is why a patch of a union is checked against every
- * member rather than the first it matches: a patch the first member takes
- * could leave a document holding another unreadable, by going over that
- * member's maximum length, say, or storing a `Date` as a timestamp where it
- * holds a string.
+ * Use `"checked"`, the default, unless the caller knows what the document
+ * holds. Use `"unchecked"` to patch an {@link Optional} struct or union, or a
+ * key only some members of a {@link Union} hold, after an earlier read, in a
+ * transaction, or with a query that only matches such documents.
  *
- * They differ only in which patches they take, and only at an
- * {@link Optional} struct or union and at a key only some members of a union
- * hold: a patch both take is written the same by both. The paths an update is
- * written at are the same in both, each path `unchecked` writes at included.
+ * **Details**
+ *
+ * Firestore applies an update to whatever the document holds without checking
+ * it, and a patch does not say which member of a union the document holds.
+ *
+ * - `checked` takes only patches that leave any document readable. An
+ *   {@link Optional} struct is written whole with {@link Patch.replace} or
+ *   removed, never patched: a patch written into a missing struct would create
+ *   it holding only the patch. A {@link Union} is patched only at its Shared
+ *   Fields, the fields every member holds, with a value every member takes and
+ *   stores the same way. An {@link Optional} union is not patched at all.
+ * - `unchecked` also patches an {@link Optional} struct or union, and a key
+ *   only some members of a union hold. That key is checked by the same rule as
+ *   a Shared Field, over just the members that hold it: each must take the
+ *   value and store it the same way.
+ *
+ * A patch is checked against every member of a union rather than the first it
+ * matches, since a patch one member takes could leave a document holding
+ * another unreadable - by exceeding its maximum length, say, or storing a
+ * `Date` as a timestamp where it holds a string.
+ *
+ * The modes differ only in which patches they take. A patch both take is
+ * written the same way, at the same paths.
+ *
+ * @see {@link Class.update} for the checked update of a document
+ * @see {@link Class.updateUnchecked} for the unchecked one
+ * @see {@link Firestore.UpdateOptions} for choosing the mode of `updateDoc`
+ * @see {@link Firestore.With.updateDoc} for writing an update
  *
  * @stability unstable
  * @category models
@@ -479,13 +591,17 @@ type StructTakes<
 >;
 
 /**
- * The fields of an update in `Mode`: every one that may change, each of them
+ * The fields of an update in `Mode`: every field that may change, each one
  * optional.
  *
- * A struct every document holds takes a patch of its own, and an
- * {@link Optional} struct takes the removal, and a patch only under
- * `unchecked` - see {@link UpdateMode}. Either takes {@link Patch.replace}
- * where an update writes every field it holds.
+ * **Details**
+ *
+ * A struct every document holds takes a patch of its own. An {@link Optional}
+ * struct takes the removal, and a patch only under `unchecked` - see
+ * {@link UpdateMode}. Either takes {@link Patch.replace} where an update writes
+ * every field it holds.
+ *
+ * @see {@link UpdatePaths} for the paths these fields are written at
  *
  * @stability unstable
  * @category models
@@ -544,16 +660,19 @@ type RecordUpdate<
     : never;
 
 /**
- * The fields an update is written as: one optional key per path it can write
- * at.
+ * The fields an update is encoded as: one optional key per path it can write
+ * to, such as `"address.city"`.
+ *
+ * **Details**
  *
  * A struct's own key takes the struct written whole, where an update writes
- * every field it holds, and the removal, where it is {@link Optional}. Where
- * it takes neither, it has no key of its own, and is only written field by
+ * every field it holds, and the removal, where it is {@link Optional}. A
+ * struct that takes neither has no key of its own and is only written field by
  * field.
  *
- * The paths are the same in either {@link UpdateMode}, which only tells apart
- * the patches an update takes, not where it writes them.
+ * The paths are the same in either {@link UpdateMode}.
+ *
+ * @see {@link UpdateFields} for the nested patch these paths are encoded from
  *
  * @stability unstable
  * @category models
@@ -585,53 +704,45 @@ type ValuePaths<F, Mode extends UpdateMode, Path extends string> = [RecordOf<F>]
 /**
  * The `update` variant of a set of fields, taking the patches `Mode` allows.
  *
- * It is handed a nested partial - the fields that change, a struct carrying
- * only those of its own that do - and writes each of them at its path, so
- * `{ address: { city } }` becomes `{ "address.city": city }`. That is what
- * makes it a merge rather than a replacement: Firestore merges an update at
- * the top level only, and replaces a map it is handed as a value, but a path
- * counts as the top level and leaves the rest of the map as it is. It is also
- * what lets a sentinel sit at any depth, since Firestore takes one only at the
- * top level of an update, and removal is the one that minds.
+ * **Details**
  *
- * A struct - {@link Struct}, or a class - is what it reaches into. Handed
- * {@link Patch.replace} instead, it is written whole, at its path, as `set`
- * would write it, and one made {@link Optional} may be removed whole besides.
- * Any other schema, a plain `Schema.Struct` included, is a value, written
- * whole. The patch says which it is, not the key - see the `Patch` module. A
- * {@link Union} is replaced with one of its members, removed where it is
- * {@link Optional}, and patched at its Shared Fields: the fields every member
- * holds, at which every member takes an update. Each is written at its path,
- * a struct among them patched at its own Shared Fields in turn.
+ * It takes a nested partial - the fields that change, with a struct carrying
+ * only its own fields that change - and encodes each one at its path, so
+ * `{ address: { city } }` becomes `{ "address.city": city }`. That makes an
+ * update a merge: Firestore replaces a map it is handed as a value, but a path
+ * counts as the top level and leaves the rest of the map alone. It also lets a
+ * sentinel sit at any depth, which matters for removal: Firestore only takes
+ * `deleteField` at the top level of an update.
  *
- * Firestore applies an update to whatever the document holds, without checking
- * it against anything, so a patch that is right for one document may leave
- * another unreadable: written into a struct the document goes without, it
- * creates the struct holding only what the patch carried. Under `checked`, an
- * {@link Optional} struct or union is replaced or removed and never patched,
- * and a patch is refused by the type and by the encoding. Under `unchecked` it
- * may be patched too - see {@link UpdateMode}.
+ * - A {@link Struct} or class is reached into. Handed {@link Patch.replace},
+ *   it is written whole at its path, as `setDoc` would write it, and one made
+ *   {@link Optional} may also be removed.
+ * - Any other schema, a plain `Schema.Struct` included, is a value and is
+ *   written whole. The patch decides which, not the key - see `Patch`.
+ * - A {@link Union} is replaced with one of its members, removed where it is
+ *   {@link Optional}, and patched at its Shared Fields, each at its path.
+ * - A struct holding a field that `setDoc` or an update leaves out -
+ *   {@link Immutable}, or a read-only field - is never replaced, since that
+ *   would change or drop the field. It is patched where every document holds
+ *   it, and a checked update only removes it where it is {@link Optional}.
  *
- * Nor does the patch tell which member of a union the document holds, so a
- * patch of a Shared Field is checked against every member, not the first it
- * matches. Its type is what every member's update takes there, so the literal
- * the members are told apart by is never shared, and its value is encoded
- * through every member, each of which must take it and store it as the same
- * Firestore Value, compared through the canonical codec. Otherwise it fails
- * with a schema issue. A sentinel is taken where every member takes it. Under
- * `unchecked`, a key only some members hold is patched too, by the same rule
- * over just those members, and written at its path the same way.
+ * Under `checked`, a patch into an {@link Optional} struct or union is refused,
+ * by the type and by the encoding, since written into a missing struct it
+ * creates one holding only the patch. Under `unchecked` it is taken - see
+ * {@link UpdateMode}.
  *
- * A struct holding a field that `set` or an update leaves out -
- * {@link Immutable}, or a field only ever read - is never replaced, since that
- * would change or drop the field. It is patched where every document holds it,
- * and only removed by a checked update where it is {@link Optional}.
+ * A patch of a union's Shared Field is checked against every member: its type
+ * is what every member's update takes there, so the literal the members are
+ * told apart by is never shared, and its value is encoded through every member,
+ * each of which must store it as the same Firestore Value. Otherwise it fails
+ * with a schema issue. A sentinel is taken where every member takes it.
  *
- * The patch it takes is {@link Update.to}, and the paths it writes are
- * {@link Update.from}.
+ * The patch it takes is `Update.to`, and the paths it writes are `Update.from`.
+ * It is only ever written: decoding fails, since a document is never read in
+ * this shape.
  *
- * It is only ever written. A document is never read in this shape, so decoding
- * fails.
+ * @see {@link UpdateFields} for the patch it takes
+ * @see {@link UpdatePaths} for the paths it writes
  *
  * @stability unstable
  * @category models
@@ -650,7 +761,8 @@ export interface Update<
 > {}
 
 /**
- * A document schema, together with the shapes it is written in.
+ * Type-level representation of {@link Class}: a document schema together with
+ * the shapes it is written in.
  *
  * @stability unstable
  * @category models
@@ -664,25 +776,50 @@ export interface Class<
   Fields,
   Schema.Struct<VariantSchema.ExtractFields<"read", Fields, true>>
 > {
-  /** What a snapshot decodes into, which is what the class itself is. */
+  /** The shape a snapshot decodes into, which is the class itself. */
   readonly read: VariantSchema.Extract<"read", VariantSchema.Struct<Fields>>;
-  /** What `set` writes. */
+  /**
+   * The shape `setDoc` and `addDoc` write: a whole document, taking the
+   * sentinels and constructor defaults its fields declare.
+   */
   readonly create: VariantSchema.Extract<"create", VariantSchema.Struct<Fields>>;
   /**
-   * What `update` writes, taking only the patches that leave any document it
-   * may be written to readable: an {@link Optional} struct is replaced with
-   * {@link Patch.replace} or removed, never patched.
+   * The shape `updateDoc` writes, taking only patches that leave any document
+   * readable.
+   *
+   * **When to use**
+   *
+   * Use for every update unless the caller knows what the document holds.
+   *
+   * **Details**
+   *
+   * An {@link Optional} struct is replaced with {@link Patch.replace} or
+   * removed, never patched, and a {@link Union} is only patched at its Shared
+   * Fields.
+   *
+   * @see {@link Class.updateUnchecked} for patching where the caller knows the
+   * document holds the target
    */
   readonly update: Update<Fields, "checked">;
   /**
-   * What `update` writes, taking a patch into an {@link Optional} struct as
-   * well, and into a key only some members of a {@link Union} hold. Every
-   * patch {@link Class.update} takes, it takes too, and writes the same.
+   * The shape `updateDoc` writes with `mode: "unchecked"`, also taking a patch
+   * into an {@link Optional} struct, and into a key only some members of a
+   * {@link Union} hold.
    *
-   * Such a patch is only right where the struct is there, or the union holds
-   * a member with that key, which the caller vouches for - with an earlier
-   * read, a query that only matches documents holding it, or a transaction.
-   * Otherwise Firestore writes it anyway, and the document no longer reads.
+   * **When to use**
+   *
+   * Use when the caller knows the struct is there, or which member of the
+   * union the document holds - from an earlier read, a transaction, or a
+   * query that only matches such documents.
+   *
+   * **Details**
+   *
+   * It takes every patch {@link Class.update} takes, and writes it the same
+   * way. Where the caller is wrong, Firestore writes the patch anyway and the
+   * document no longer reads.
+   *
+   * @see {@link Class.update} for the checked update
+   * @see {@link UpdateMode} for exactly what each mode takes
    */
   readonly updateUnchecked: Update<Fields, "unchecked">;
 }
@@ -691,11 +828,59 @@ type MissingSelfGeneric =
   `Missing \`Self\` generic - use \`class Self extends Class<Self>("Self")({ ... })\``;
 
 /**
- * Defines a document schema.
+ * Defines a document schema: one field declaration, with the shapes a document
+ * is read, created and updated in derived from it.
  *
- * The class is the `read` variant, so it is what a snapshot decodes into and
- * what every other schema combinator takes. {@link Class.create},
- * {@link Class.update} and {@link Class.updateUnchecked} hang off it.
+ * **When to use**
+ *
+ * Use to define what the documents of a collection hold. Hand the class to
+ * {@link Collection.make}, and every read and write of that collection goes
+ * through it.
+ *
+ * **Details**
+ *
+ * The class is the `read` variant: what a snapshot decodes into, and what
+ * schema combinators take. The write shapes hang off it:
+ *
+ * - {@link Class.create} is what `setDoc` and `addDoc` write, a whole document,
+ *   taking the sentinels and constructor defaults its fields declare.
+ * - {@link Class.update} is what `updateDoc` writes, a nested partial encoded at
+ *   field paths, taking only patches that leave any document readable.
+ * - {@link Class.updateUnchecked} also takes patches that are only right where
+ *   the caller knows what the document holds - see {@link UpdateMode}.
+ *
+ * The document's id is not a field: it lives in the path.
+ *
+ * @example Defining a document and its writes
+ * ```ts
+ * import { Schema } from "effect";
+ * import {
+ *   FieldValue,
+ *   FirestoreModel,
+ *   FirestoreSchema,
+ * } from "@visiolab/effect-firebase/firestore";
+ *
+ * class User extends FirestoreModel.Class<User>("User")({
+ *   displayName: Schema.String,
+ *   signupSource: FirestoreModel.Immutable(Schema.String),
+ *   createdAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
+ *   visits: FirestoreModel.Number(Schema.Int),
+ *   nickname: FirestoreModel.Optional(Schema.String),
+ * }) {}
+ *
+ * User.create.make({
+ *   displayName: "Ada",
+ *   signupSource: "web",
+ *   createdAt: FieldValue.serverTimestamp,
+ *   visits: 0,
+ * });
+ *
+ * User.update.make({ visits: FieldValue.increment(1), nickname: FieldValue.deleteField });
+ * ```
+ *
+ * @see {@link Union} for a document that holds one of several shapes
+ * @see {@link Struct} for a nested map, or fields shared between documents
+ * @see {@link Collection.make} for the collection a document lives in
  *
  * @stability unstable
  * @category constructors
@@ -1106,7 +1291,7 @@ type UnionSchemas<Members extends ReadonlyArray<VariantSchema.Struct<any>>> =
  * Type-level representation of {@link Union}.
  *
  * It is the union of its members as they are read, and carries the members it
- * was made of, which is what a field holding it is written through.
+ * was made of, which a field holding it is written through.
  *
  * @stability unstable
  * @category models
@@ -1114,22 +1299,33 @@ type UnionSchemas<Members extends ReadonlyArray<VariantSchema.Struct<any>>> =
  */
 export interface Union<in out Members extends ReadonlyArray<VariantSchema.Struct<any>>>
   extends VariantSchema.Union<Members, "read">, VariantSchema.Field<UnionSchemas<Members>> {
-  /** Each member as it is read. */
+  /** The shape a snapshot decodes into: any member, as it is read. */
   readonly read: Schema.Union<{
     readonly [K in keyof Members]: VariantSchema.Extract<"read", Members[K]>;
   }>;
-  /** What `set` writes: any member, as `set` writes it. */
+  /** The shape `setDoc` writes: any member, in its `create` shape. */
   readonly create: UnionCreate<Members>;
   /**
-   * What `update` writes to a document that is the union: a patch of its
-   * Shared Fields alone. It is never written whole - a document changes
-   * member through `set`.
+   * The shape `updateDoc` writes to a document that is the union: a patch of
+   * its Shared Fields alone.
+   *
+   * A document is never written whole by an update: it changes member through
+   * `setDoc`.
+   *
+   * @see {@link Union.updateUnchecked} for patching a key only some members
+   * hold
    */
   readonly update: UnionUpdate<Members, "checked">;
   /**
-   * What `update` writes to a document that is the union, taking a patch of a
-   * key only some members hold as well, which the caller vouches the document
-   * holds - see {@link Class.updateUnchecked}.
+   * The shape `updateDoc` writes to a document that is the union with
+   * `mode: "unchecked"`, also taking a patch of a key only some members hold.
+   *
+   * **When to use**
+   *
+   * Use when the caller knows which member the document holds.
+   *
+   * @see {@link Union.update} for the checked update
+   * @see {@link Class.updateUnchecked} for the same rule on a class
    */
   readonly updateUnchecked: UnionUpdate<Members, "unchecked">;
   readonly [UnionTypeId]: Members;
@@ -1145,12 +1341,19 @@ type UnionDocumentPatch<
 
 /**
  * The update of a document that is a {@link Union}, taking the patches `Mode`
- * allows: one of its Shared Fields, and under `unchecked` a key only some
- * members hold as well, by the rule a union field is patched by - see
- * {@link Update}. Each is written at its path, as a class's update writes it.
+ * allows.
+ *
+ * **Details**
+ *
+ * It takes a patch of the Shared Fields, and under `unchecked` of a key only
+ * some members hold, by the rule a union field is patched by - see
+ * {@link Update}. Each is written at its path.
  *
  * It takes no replacement or removal of the document: a document changes
- * member, a new discriminator or version, through `set`.
+ * member, such as to a new discriminator or version, through `setDoc`.
+ *
+ * @see {@link Union.update} and {@link Union.updateUnchecked}, which are this
+ * in each mode
  *
  * @stability unstable
  * @category models
@@ -1170,42 +1373,54 @@ export interface UnionUpdate<
 > {}
 
 /**
- * A field holding one of several structs or classes, its members.
+ * Declares a document or field that holds one of several structs or classes.
  *
- * It stays Effect's own union: there is no tag or discriminator of this
- * library's. A snapshot decodes into whichever member matches, so a literal
- * field the members tell apart by narrows it, and data matching no member
- * fails with a schema issue. A `create` takes any member in the shape `set`
- * writes it, with the sentinels and constructor defaults its fields take.
+ * **When to use**
  *
- * A value that fits several members, on `create` or in a replacement, is taken
- * as the first of them in the order they were declared, as `Schema.Union` does.
+ * Use when documents of one collection, or one field, come in several shapes,
+ * such as the states of a job or the versions of a document, told apart by a
+ * literal field.
  *
- * An update writes it whole: {@link Patch.replace} with any member, in the
- * shape `set` writes it, and {@link FieldValue.deleteField} where it is
- * {@link Optional}. A member holding a field that `set` or an update leaves
- * out - {@link Immutable}, or a field only ever read - is never replaced, the
- * same as a struct is not, since that would change or drop the field.
+ * **Details**
  *
- * It is patched at its Shared Fields alone: a key every member holds, taking a
- * value every member takes and stores the same way, so a patch is right
- * whichever member the document holds. Where every member holds a struct at a
- * key, that struct is patched at its own Shared Fields. Where every member
- * holds a union at a key, it is written by this same rule, held to every one
- * of those unions: replaced with a value every one takes and stores the same
- * way, removed where every one is {@link Optional}, and patched at the Shared
- * Fields of all their members together. A Record held by the members is not
- * shared. An {@link Optional} union is only patched by an `unchecked` update -
- * see {@link UpdateMode} and {@link Update}.
+ * It is Effect's own union, with no tag of this library's. A snapshot decodes
+ * into the first member that matches, so a literal field narrows it, and data
+ * matching no member fails with a schema issue. A `create` takes any member
+ * in the shape `setDoc` writes it. A value that fits several members, on
+ * `create` or in a replacement, is taken as the first in declaration order, as
+ * `Schema.Union` does.
  *
- * An `unchecked` update also patches a key only some members hold, for a
- * caller who knows the document holds one of them: `completedAt` on a done
- * job, say. The value is checked against just those members, by the same rule,
- * and written at its path, so it merges into the stored map.
+ * As a field, an update may:
  *
+ * - Replace it with {@link Patch.replace} and any member, in its `create`
+ *   shape. A member holding a field that `setDoc` or an update leaves out -
+ *   {@link Immutable}, or a read-only field - is never replaced, as with a
+ *   struct.
+ * - Remove it with {@link FieldValue.deleteField}, where it is
+ *   {@link Optional}.
+ * - Patch its Shared Fields: keys every member holds, with a value every member
+ *   takes and stores the same way, so the patch is right whichever member the
+ *   document holds. A struct every member holds at a key is patched at its own
+ *   Shared Fields. A union every member holds at a key is written by this same
+ *   rule, across all of those unions. A Record is never shared.
+ * - Under `unchecked`, also patch a key only some members hold, such as
+ *   `completedAt` on a job the caller knows is done. The value is checked
+ *   against just those members and written at its path. An {@link Optional}
+ *   union is only patched under `unchecked`.
+ *
+ * As a whole document, `setDoc` writes any member and changing member takes a
+ * whole `setDoc`. An update patches it by the same rule - see
+ * {@link UnionUpdate}.
+ *
+ * @example A field holding one of several states
  * ```ts
  * import { Schema } from "effect";
- * import { FieldValue, FirestoreModel, FirestoreSchema, Patch } from "@visiolab/effect-firebase/firestore";
+ * import {
+ *   FieldValue,
+ *   FirestoreModel,
+ *   FirestoreSchema,
+ *   Patch,
+ * } from "@visiolab/effect-firebase/firestore";
  *
  * const Pending = FirestoreModel.Struct({ status: Schema.Literal("pending") });
  * const Done = FirestoreModel.Struct({
@@ -1224,11 +1439,8 @@ export interface UnionUpdate<
  * Job.updateUnchecked.make({ state: { completedAt: FieldValue.serverTimestamp } });
  * ```
  *
- * A whole document may be a union of classes too, so one collection holds
- * several document shapes - versions of one, say, told apart by a literal
- * number. `set` writes any member, and changing member is a whole `set`. An
- * update patches the document by the same rule, at its Shared Fields, and
- * under `unchecked` at a key only some members hold - see {@link UnionUpdate}.
+ * @see {@link Class} for a document with a single shape
+ * @see {@link UpdateMode} for what `checked` and `unchecked` patch
  *
  * @stability unstable
  * @category constructors
@@ -1251,10 +1463,21 @@ export interface Immutable<S extends Schema.Top> extends VariantSchema.Field<{
 }> {}
 
 /**
- * A field written once, when the document is created.
+ * Declares a field written once, when the document is created.
  *
- * It is read back and it is set by `set`, and it is absent from `update`, so
- * the field cannot be changed by one.
+ * **When to use**
+ *
+ * Use for a field that must never change after creation, such as a sign-up
+ * source or an owner id.
+ *
+ * **Details**
+ *
+ * It is read, and written by `setDoc`, but left out of `update`, so no update
+ * can change it. A struct or union member holding it is never replaced by an
+ * update, since that would rewrite it.
+ *
+ * @see {@link FieldOnly} for keeping a field to other variants
+ * @see {@link Optional} for a field that may be missing
  *
  * @stability unstable
  * @category schemas
@@ -1277,32 +1500,42 @@ export interface Timestamp<S extends FirestoreSchema.TimeSchema> extends Variant
 }> {}
 
 /**
- * A timestamp field: stamped by this client, or left to the server.
+ * Declares a timestamp field that the client or the server may set.
  *
- * Both writes take either, and the read takes `schema` alone, since the
- * sentinel is gone by the time a document comes back. Leaving it open costs a
- * call site that never uses it nothing, and spares it from redeclaring the
- * field the day it does.
+ * **When to use**
  *
- * What the instant is held as is `schema`'s to say:
- * {@link FirestoreSchema.Timestamp} where the digits finer than a millisecond
- * are to survive a round trip, `Schema.DateTimeUtc` or `Schema.Date` where one
- * of those is the easier value to hold onto. Firestore stores each of them as a
- * timestamp.
+ * Use for a timestamp a write may leave to the server, such as `createdAt` or
+ * `updatedAt`. Where the server must never set it, use the schema itself as
+ * the field.
  *
+ * **Details**
+ *
+ * `setDoc` and `updateDoc` take either a value of `schema` or
+ * {@link FieldValue.serverTimestamp}. A read takes `schema` alone, since the
+ * sentinel is resolved by the time a document comes back.
+ *
+ * `schema` decides what the instant is held as:
+ * {@link FirestoreSchema.Timestamp} where precision finer than a millisecond
+ * must survive a round trip, or `Schema.DateTimeUtc` or `Schema.Date` where one
+ * of those is easier to work with. Firestore stores each as a timestamp.
+ *
+ * @example Timestamps held two ways
  * ```ts
  * import { Schema } from "effect";
- * import { FirestoreModel, FirestoreSchema } from "@visiolab/effect-firebase/firestore";
+ * import { FieldValue, FirestoreModel, FirestoreSchema } from "@visiolab/effect-firebase/firestore";
  *
  * class Session extends FirestoreModel.Class<Session>("Session")({
  *   createdAt: FirestoreModel.Timestamp(FirestoreSchema.Timestamp),
  *   seenAt: FirestoreModel.Timestamp(Schema.DateTimeUtc),
  * }) {}
+ *
+ * Session.update.make({ seenAt: FieldValue.serverTimestamp });
  * ```
  *
- * Where the server is to decide, a call site hands it
- * {@link FieldValue.serverTimestamp}. Where it never may, name the schema
- * directly, which goes into every variant as it stands.
+ * @see {@link FirestoreSchema.Timestamp} for the schema that keeps full precision
+ * @see {@link FirestoreSchema.ServerTimestampOr} for the write schema this
+ * declares
+ * @see {@link FieldValue.serverTimestamp} for the sentinel a write hands it
  *
  * @stability unstable
  * @category schemas
@@ -1327,32 +1560,41 @@ export interface Number<
 }> {}
 
 /**
- * A number field: set outright, or moved by the server.
+ * Declares a number field that a write may set or have the server increment.
  *
- * Both writes take either, and the read takes `schema` alone, since a document
- * holds the sum the server wrote rather than the request to add. A move is what
- * keeps a total right when two clients write at once, which reading the number
- * and writing the sum back does not.
+ * **When to use**
  *
- * What the number may be is `schema`'s to say, and the writes say it too: hand
- * it `Schema.Int` and the field is counted in whole steps, `Schema.Finite` and
- * it adds up fractions, either of them checked further and the check holds on
- * the way in and the way out. A move of its own is not checked against it,
- * since the sum is the server's to work out and only the next read sees it.
+ * Use for counters and totals more than one client may change at once: an
+ * increment keeps the total right, where reading the number and writing the
+ * sum back loses concurrent writes. Where it must never be incremented, use
+ * the schema itself as the field.
  *
+ * **Details**
+ *
+ * `setDoc` and `updateDoc` take either a value of `schema` or
+ * {@link FieldValue.increment} / {@link FieldValue.decrement}. A read takes
+ * `schema` alone, since the document holds the sum the server computed.
+ *
+ * `schema` decides what the number may be, on both reads and writes: hand it
+ * `Schema.Int` for whole steps, or `Schema.Finite` for fractions. An increment
+ * is not checked against it, since the server computes the sum and only the
+ * next read sees it.
+ *
+ * @example A counter and a balance
  * ```ts
  * import { Schema } from "effect";
- * import { FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ * import { FieldValue, FirestoreModel } from "@visiolab/effect-firebase/firestore";
  *
  * class Account extends FirestoreModel.Class<Account>("Account")({
  *   visits: FirestoreModel.Number(Schema.Int),
  *   balance: FirestoreModel.Number(Schema.Finite),
  * }) {}
+ *
+ * Account.update.make({ visits: FieldValue.increment(1) });
  * ```
  *
- * Where the server is to move it, a call site hands it
- * {@link FieldValue.increment} or {@link FieldValue.decrement}. Where it never
- * may, name the schema directly, which goes into every variant as it stands.
+ * @see {@link FieldValue.increment} for the sentinel a write hands it
+ * @see {@link FirestoreSchema.IncrementOr} for the write schema this declares
  *
  * @stability unstable
  * @category schemas
@@ -1376,18 +1618,30 @@ export interface Array<S extends Schema.Top> extends VariantSchema.Field<{
 }> {}
 
 /**
- * An array field: written whole, or grown and shrunk by the server.
+ * Declares an array field that an update may write whole, or have the server
+ * add elements to or remove elements from.
  *
- * An update takes the array, {@link FieldValue.arrayUnion} or
- * {@link FieldValue.arrayRemove}, and the read takes the array alone, since a
- * document holds what the server made of the request. Growing or shrinking is
- * what keeps an element another client added at the same time, which reading
- * the array and writing it back does not.
+ * **When to use**
  *
- * A create takes the array alone. Growing an array that is not there yet writes
- * the elements as they are, which the array already says, and shrinking one
- * writes it empty, which is not what anyone asking for it meant.
+ * Use for an array more than one client may change at once, such as a list of
+ * tags: {@link FieldValue.arrayUnion} and {@link FieldValue.arrayRemove} keep
+ * an element another client added at the same time, where reading the array
+ * and writing it back does not.
  *
+ * **Details**
+ *
+ * An update takes the array, `arrayUnion` or `arrayRemove`. A read takes the
+ * array alone. `setDoc` takes the array alone too: adding to a missing array
+ * writes the elements as they are, and removing from one writes it empty,
+ * which is not what was meant.
+ *
+ * Elements are matched by value, all the way down, so removing a map from the
+ * array means handing over every key it holds - see
+ * {@link FieldValue.ArrayRemove}. `item` is what each element is held as. It
+ * cannot be an array, which Firestore does not nest, or a field, since an
+ * element is always written whole.
+ *
+ * @example Adding a tag
  * ```ts
  * import { Schema } from "effect";
  * import { FieldValue, FirestoreModel } from "@visiolab/effect-firebase/firestore";
@@ -1399,12 +1653,9 @@ export interface Array<S extends Schema.Top> extends VariantSchema.Field<{
  * Article.update.make({ tags: FieldValue.arrayUnion("news") });
  * ```
  *
- * The elements are matched by value, all the way down, so taking a map out of
- * the array means handing over every key it holds as it holds it - see
- * {@link FieldValue.ArrayRemove}. `item` is what each element is held as: not an
- * array, which Firestore does not nest, and not a field, since an element is
- * written whole wherever the array is. It goes through the sentinels too, so an
- * element is encoded the same whichever way the array is written.
+ * @see {@link FieldValue.arrayUnion} and {@link FieldValue.arrayRemove} for the
+ * sentinels an update hands it
+ * @see {@link FirestoreSchema.ArrayOr} for the update schema this declares
  *
  * @stability unstable
  * @category schemas
@@ -1415,8 +1666,7 @@ export const Array: <S extends Schema.Top>(item: S) => Array<S> = firestoreModel
 /**
  * Type-level representation of {@link Record}.
  *
- * It carries the key and the value it was made of, which is what an update
- * reaches into.
+ * It carries the key and value it was made of, which an update reaches into.
  *
  * @stability unstable
  * @category models
@@ -1443,18 +1693,43 @@ export interface Record<
 }
 
 /**
- * A map field whose keys come from the data: a counter per option, a map per
- * member, a lookup table. An update writes it key by key.
+ * Declares a map field whose keys come from the data, which an update writes
+ * key by key.
  *
- * The read and the create hold it as `Schema.Record(key, value)`, with each
- * value in the form `value` is read or created in, so a create takes the
- * sentinels `value` takes. An update takes a patch of it, writing each key it
- * carries at its own path, in the form `value` is updated in: a
- * {@link Number} takes {@link FieldValue.increment}, an {@link Array}
- * {@link FieldValue.arrayUnion}, a {@link Timestamp}
- * {@link FieldValue.serverTimestamp}. That is what lets two clients each write
- * a key of the same map without either reading it first.
+ * **When to use**
  *
+ * Use for a map keyed by data rather than by a fixed set of fields: a counter
+ * per option, an entry per member, a lookup table. Writing key by key lets two
+ * clients each change a key of the same map without reading it first.
+ *
+ * **Details**
+ *
+ * A read and `setDoc` hold it as `Schema.Record(key, value)`, with each value
+ * in its read or create shape, so `setDoc` takes the sentinels `value` takes.
+ * An update takes a patch, writing each key it carries at its own path, in the
+ * update shape of `value`: a {@link Number} takes
+ * {@link FieldValue.increment}, an {@link Array} {@link FieldValue.arrayUnion},
+ * a {@link Timestamp} {@link FieldValue.serverTimestamp}.
+ *
+ * - Where `key` is a string, refined or not, any key may be missing, so each
+ *   takes {@link FieldValue.deleteField}. A value that is itself a struct or
+ *   Record is treated like an {@link Optional} struct: written whole with
+ *   {@link Patch.replace} or removed, and only patched by
+ *   {@link Class.updateUnchecked}.
+ * - Where `key` is a union of literals, the Record holds every key, and an
+ *   update treats it as a struct with a field per key: no key is removed
+ *   unless `value` is {@link Optional}.
+ *
+ * Either way, it takes {@link Patch.replace} to be written whole, unless
+ * `value` holds a field `setDoc` or an update leaves out.
+ *
+ * A key's path is the key as `key` encodes it, so the update requires any
+ * service `key` needs to encode. A key no path can name - empty, or containing
+ * a `.` - fails the update when it is encoded, or throws when the Record is
+ * declared if it is a literal. A value no update writes, such as
+ * {@link Immutable}, leaves the whole Record out of the update.
+ *
+ * @example Patching keys of a map
  * ```ts
  * import { Schema } from "effect";
  * import { FieldValue, FirestoreModel } from "@visiolab/effect-firebase/firestore";
@@ -1470,29 +1745,7 @@ export interface Record<
  * });
  * ```
  *
- * Where `key` is a string, refined or not, any key may be missing from a
- * document, so each takes {@link FieldValue.deleteField} to remove it, and a
- * value that is a struct or a Record itself is treated as one a document may go
- * without - written whole with {@link Patch.replace} or removed, and only
- * patched by {@link Class.updateUnchecked}, the way an {@link Optional} struct
- * is. The Record itself is patched even where it may be missing, since a patch
- * only ever writes keys it may hold or not.
- *
- * Where `key` is a union of literals, the Record holds every one of them, and
- * an update treats it as a struct with a field per key: no key is removed
- * unless `value` is {@link Optional}, and the encoded update names each path.
- *
- * Either way it takes {@link Patch.replace} to be written whole, unless
- * `value` holds a field that `set` or an update leaves out.
- *
- * The path of a key is the key as `key` encodes it, as part of the update, so
- * a service `key` takes to encode is one the update takes. A key no path can
- * name - empty, or holding a `.`, as written or encoded - fails the update
- * when it is encoded, or, where it is a literal written that way, throws when
- * the Record is declared. A value made
- * {@link Optional} takes the removal it would take anyway, and a value no
- * update writes, such as {@link Immutable}, leaves the whole Record out of the
- * update.
+ * @see {@link Struct} for a map with a fixed set of fields
  *
  * @stability unstable
  * @category schemas
@@ -1552,8 +1805,8 @@ type OptionalSchemas<F extends Value> =
 /**
  * Type-level representation of {@link Optional}.
  *
- * It carries the field it was made of as `field`, which is what an update
- * reaches into where that is a struct or a {@link Record}.
+ * It carries the field it was made of as `field`, which an update reaches into
+ * where that is a struct or a {@link Record}.
  *
  * @stability unstable
  * @category models
@@ -1565,23 +1818,37 @@ export interface Optional<in out F extends Value> extends VariantSchema.Field<Op
 }
 
 /**
- * A field a document may go without, and an update may take away.
+ * Declares a field a document may go without, and an update may remove.
  *
- * The read and the create hold it as an optional key, since a field that is
- * not there is left out rather than stored as nothing. The update takes
- * {@link FieldValue.deleteField} besides, because leaving a field out of an
- * update leaves it as it is, and removing it has to be asked for.
+ * **When to use**
  *
- * It takes a schema, a field, a struct or a {@link Record}, so it makes any of
- * the others optional too:
+ * Use for a field that may be missing from a document. Wrap any schema, field,
+ * struct, union or {@link Record} in it.
  *
+ * **Details**
+ *
+ * A read and `setDoc` hold it as an optional key: a missing field is left out
+ * rather than stored as `null`. An update also takes
+ * {@link FieldValue.deleteField}, since leaving a field out of an update leaves
+ * it as it is. Inside a struct, an optional field is removed the same way, at
+ * its path.
+ *
+ * A field with no `update` variant, such as {@link Immutable}, becomes optional
+ * where it is read and created, and stays out of the update. Making a field
+ * optional twice is the same as once.
+ *
+ * An optional struct is where the stored document decides what a patch does: a
+ * patch written into a missing struct creates it holding only the patch, and
+ * the document no longer reads. So {@link Class.update} writes it whole with
+ * {@link Patch.replace} or removes it, and only {@link Class.updateUnchecked}
+ * patches it, for a caller who knows it is there.
+ *
+ * @example Optional fields
  * ```ts
  * import { Schema } from "effect";
  * import { FirestoreModel, FirestoreSchema } from "@visiolab/effect-firebase/firestore";
  *
- * const Address = FirestoreModel.Struct({
- *   city: Schema.String,
- * });
+ * const Address = FirestoreModel.Struct({ city: Schema.String });
  *
  * class User extends FirestoreModel.Class<User>("User")({
  *   nickname: FirestoreModel.Optional(Schema.String),
@@ -1590,22 +1857,7 @@ export interface Optional<in out F extends Value> extends VariantSchema.Field<Op
  * }) {}
  * ```
  *
- * A field with no `update` variant - {@link Immutable}, say - is made optional
- * where it is read and created, and stays out of the update as before.
- *
- * A field made optional already is handed back as it is, so making it optional
- * twice is the same as once.
- *
- * Inside a struct, an optional field is removed the same way as at the top,
- * since an update writes a struct at its paths - see {@link Update}.
- *
- * A struct made optional is the one place where what the document holds
- * decides what a patch does: where the struct is missing, a patch written into
- * it creates it holding only the patch, and the document no longer reads. So
- * {@link Class.update} writes it whole or removes it, and only
- * {@link Class.updateUnchecked} patches it, for a caller who knows it is
- * there:
- *
+ * @example Updating an optional struct
  * ```ts
  * import { Schema } from "effect";
  * import { FieldValue, FirestoreModel, Patch } from "@visiolab/effect-firebase/firestore";
@@ -1620,6 +1872,9 @@ export interface Optional<in out F extends Value> extends VariantSchema.Field<Op
  * Customer.update.make({ address: FieldValue.deleteField }); // removed
  * Customer.updateUnchecked.make({ address: { city: "Berlin" } }); // the caller knows it is there
  * ```
+ *
+ * @see {@link FieldValue.deleteField} for removing it in an update
+ * @see {@link UpdateMode} for when an optional struct may be patched
  *
  * @stability unstable
  * @category schemas

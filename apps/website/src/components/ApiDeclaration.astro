@@ -1,7 +1,7 @@
 ---
-import { Badge, Code, Icon } from "@astrojs/starlight/components";
+import { Badge, Icon } from "@astrojs/starlight/components";
 import type { Declaration } from "../api/reference.ts";
-import RichContent from "./RichContent.astro";
+import ApiDoc from "./ApiDoc.astro";
 import StabilityBadge from "./StabilityBadge.astro";
 
 interface Props {
@@ -32,29 +32,24 @@ const { doc } = declaration;
   </span>
 </div>
 
-<RichContent content={doc.body} />
+<ApiDoc doc={doc} signature={declaration.signature} />
 
 {
-  doc.sections.map((section) => (
-    <>
-      <p>
-        <strong>{section.title}</strong>
-      </p>
-      <RichContent content={section.body} />
-    </>
-  ))
-}
-
-<p><strong>Signature</strong></p>
-<Code code={declaration.signature} lang="ts" />
-
-{
-  doc.examples.map((example) => (
-    <>
-      <p>
-        <strong>Example</strong>
-      </p>
-      <Code code={example} lang="ts" />
-    </>
-  ))
+  declaration.members.length > 0 && (
+    <div class="api-members">
+      {declaration.members.map((member) => (
+        <>
+          <div class="api-header">
+            <h4 id={member.anchor}>
+              {declaration.name}.{member.name} <StabilityBadge stability={member.doc.stability} />
+            </h4>
+            {member.doc.since !== undefined && (
+              <span class="api-header-meta">Since v{member.doc.since}</span>
+            )}
+          </div>
+          <ApiDoc doc={member.doc} signature={member.signature} />
+        </>
+      ))}
+    </div>
+  )
 }
