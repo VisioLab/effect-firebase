@@ -15,6 +15,7 @@ import {
   Admins,
   Banned,
   Fail,
+  Failing,
   Flaky,
   Greet,
   LayerBuilds,
@@ -103,26 +104,34 @@ const ServerLogLive = Logger.layer([
   }),
 ]);
 
+/** The handler of `fail`, in no group and in `failing`. */
+const failWith = ({ with: failure }: Callable.Payload<typeof Fail>) => {
+  switch (failure) {
+    case "NameTaken":
+      return Effect.fail(
+        new NameTaken({ username: "Ada", since: new Date("2026-01-01T12:00:00.000Z") }),
+      );
+    case "Banned":
+      return Effect.fail(new Banned({ message: "Ada is banned" }));
+    case "Unexplained":
+      return Effect.fail(new Unexplained());
+    case "NotFound":
+      return Effect.fail(new CallableError.NotFound({ message: "No such user" }));
+    case "defect":
+      return Effect.die(new Error("Boom: the handler broke"));
+    case "interrupt":
+      return Effect.interrupt;
+  }
+};
+
 export const { fail } = CallableFunction.make(
   Fail,
-  Callable.toLayer(Fail, ({ with: failure }) => {
-    switch (failure) {
-      case "NameTaken":
-        return Effect.fail(
-          new NameTaken({ username: "Ada", since: new Date("2026-01-01T12:00:00.000Z") }),
-        );
-      case "Banned":
-        return Effect.fail(new Banned({ message: "Ada is banned" }));
-      case "Unexplained":
-        return Effect.fail(new Unexplained());
-      case "NotFound":
-        return Effect.fail(new CallableError.NotFound({ message: "No such user" }));
-      case "defect":
-        return Effect.die(new Error("Boom: the handler broke"));
-      case "interrupt":
-        return Effect.interrupt;
-    }
-  }).pipe(Layer.merge(ServerLogLive)),
+  Callable.toLayer(Fail, failWith).pipe(Layer.merge(ServerLogLive)),
+);
+
+export const { failing } = CallableFunction.group(
+  Failing,
+  Callable.toLayer(Failing, "fail", failWith),
 );
 
 /** How often the connection of `flaky` was built in this process. */

@@ -82,4 +82,20 @@ describe("CallableFunction.group", () => {
     expect(users.create.__endpoint.region).toBeUndefined();
     expect(users.get.__endpoint.availableMemoryMb).not.toBe(512);
   });
+
+  it.effect("sends a member's declared error with its code and encoded details", () =>
+    Effect.gen(function* () {
+      const fail = httpsCallable(yield* functionsIn(), "failing-fail");
+      const error = yield* Effect.flip(
+        Effect.tryPromise(() => fail({ with: "NameTaken" })).pipe(
+          Effect.mapError((error) => error.cause),
+        ),
+      );
+      expect(error).toMatchObject({
+        code: "functions/already-exists",
+        message: "NameTaken [409]",
+        details: { _tag: "NameTaken", username: "Ada", since: "2026-01-01T12:00:00.000Z" },
+      });
+    }).pipe(Effect.scoped),
+  );
 });

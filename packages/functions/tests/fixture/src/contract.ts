@@ -96,3 +96,6 @@ export const Fail = Callable.make("fail", {
 export const Flaky = Callable.make("flaky", {
   success: Schema.Struct({ builds: Schema.Finite }),
 });
+
+/** `Fail` again, as a member of a group, deployed as `failing-fail`. */
+export class Failing extends CallableGroup.make("failing").add(Fail) {}
