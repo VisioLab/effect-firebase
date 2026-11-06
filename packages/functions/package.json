@@ -1,0 +1,65 @@
+{
+  "name": "@visiolab/effect-firebase-functions",
+  "version": "0.0.0",
+  "description": "Cloud Functions for Firebase implementation of the @visiolab/effect-firebase Callables.",
+  "keywords": [
+    "effect",
+    "firebase",
+    "firebase-functions",
+    "typescript"
+  ],
+  "homepage": "https://github.com/VisioLab/effect-firebase",
+  "bugs": {
+    "url": "https://github.com/VisioLab/effect-firebase/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VisioLab/effect-firebase.git",
+    "directory": "packages/functions"
+  },
+  "files": [
+    "src/**/*.ts",
+    "dist/**/*.mjs",
+    "dist/**/*.mjs.map",
+    "dist/**/*.d.mts",
+    "dist/**/*.d.mts.map"
+  ],
+  "type": "module",
+  "sideEffects": [],
+  "exports": {
+    ".": "./src/https/index.ts",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": "./dist/https/index.mjs",
+      "./package.json": "./package.json"
+    },
+    "registry": "https://npm.pkg.github.com"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "build-fixture": "vp -C tests/fixture pack",
+    "dev": "vp pack --watch",
+    "test": "vp test",
+    "check": "vp check",
+    "prepublishOnly": "vp run build"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@visiolab/effect-firebase": "workspace:^",
+    "effect": "catalog:",
+    "firebase": "catalog:",
+    "firebase-functions": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "@visiolab/effect-firebase": "workspace:^",
+    "effect": "catalog:peers",
+    "firebase-functions": "catalog:peers"
+  }
+}
