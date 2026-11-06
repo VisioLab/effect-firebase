@@ -64,3 +64,21 @@ _Avoid_: untyped reference, reference value, raw reference
 **Shared Field**:
 A field every member of a union holds, and so one a document holding the union can be patched at without knowing which member it holds, with a value every member accepts and stores the same way.
 _Avoid_: common field
+
+### Callables
+
+**Callable**:
+A server function the client calls by name, declared once as its name, its **Payload**, what it succeeds with and the errors it can fail with. Its name identifies it, which is not necessarily the name it is deployed under.
+_Avoid_: rpc, endpoint, callable function (for the declaration)
+
+**Payload**:
+What the client sends when calling a **Callable**.
+_Avoid_: request, input, data
+
+**Callable Handler**:
+What runs on the server to answer calls to one **Callable**.
+_Avoid_: implementation, resolver
+
+**Callable Function**:
+The deployed Firebase function that serves a **Callable**.
+_Avoid_: cloud function, onCall export
