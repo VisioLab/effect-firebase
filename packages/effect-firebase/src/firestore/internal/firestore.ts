@@ -11,6 +11,12 @@ import * as firestoreValue from "./firestoreValue.ts";
 import * as firestoreValueWalk from "./firestoreValueWalk.ts";
 import * as querySnapshot from "./querySnapshot.ts";
 
+/** @internal */
+export const TypeId = "~@visiolab/effect-firebase/firestore/Firestore";
+
+/** @internal */
+export const TransactionTypeId = "~@visiolab/effect-firebase/firestore/Firestore/Transaction";
+
 /** What `getDocs` and `streamDocs` read from: a collection, or a group. */
 type Source = Collection.CollectionReference<Collection.Any> | CollectionGroup.Any;
 
@@ -205,8 +211,9 @@ const transactionOf = <Operations extends Firestore.TransactionOperations>(
   // `getDocs` is there exactly where `Operations` has one, which is what
   // `BuiltTransaction` says, though the compiler cannot follow it into the
   // conditional type.
+  const portable = { [TransactionTypeId]: TransactionTypeId, getDoc, setDoc, updateDoc } as const;
   return (
-    getDocs === undefined ? { getDoc, setDoc, updateDoc } : { getDoc, setDoc, updateDoc, getDocs }
+    getDocs === undefined ? portable : { ...portable, getDocs }
   ) as Firestore.BuiltTransaction<Operations>;
 };
 
@@ -232,7 +239,7 @@ export const make = <
     TransactionServices
   >,
   Transaction: typeof Firestore.Transaction,
-): Firestore.With<ReadOptions, ListenOptions, Extra, TransactionServices> => {
+): Firestore.With<ReadOptions, ListenOptions, Extra, TransactionServices> & Firestore.Firestore => {
   const { getDoc, getDocs, setDoc, updateDoc } = operations<ReadOptions, Extra>({
     name: "Firestore",
     getDoc: options.getDoc,
@@ -297,7 +304,7 @@ export const make = <
     );
   });
 
-  return {
+  const service: Firestore.With<ReadOptions, ListenOptions, Extra, TransactionServices> = {
     getDoc,
     getDocs: getDocs as Firestore.With<ReadOptions, never, Extra>["getDocs"],
     setDoc,
@@ -307,4 +314,9 @@ export const make = <
     streamDocs: streamDocs as Firestore.With<never, ListenOptions, Extra>["streamDocs"],
     runTransaction,
   };
+  // Every backend's service is a portable Firestore too: its reads and listens
+  // only add optional options, its snapshots only add fields, and its
+  // transaction bodies need no more than a portable one's. The compiler cannot
+  // check that for unknown type parameters.
+  return { [TypeId]: TypeId, ...service } as typeof service & Firestore.Firestore;
 };

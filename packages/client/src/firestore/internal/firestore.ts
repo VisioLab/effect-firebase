@@ -7,6 +7,9 @@ import type * as ClientFirestore from "../ClientFirestore.ts";
 import * as firestoreValue from "./firestoreValue.ts";
 import * as snapshotMetadata from "./snapshotMetadata.ts";
 
+/** @internal */
+export const TypeId = "~@visiolab/effect-firebase-client/firestore/ClientFirestore";
+
 /**
  * Opens the database the options name.
  *
@@ -162,7 +165,9 @@ const snapshotListenOptions = (
  *
  * @internal
  */
-export const fromDatabase = (firestore: Client.Firestore): ClientFirestore.ClientFirestore => {
+export const fromDatabase = (
+  firestore: Client.Firestore,
+): ClientFirestore.ClientFirestore & Firestore.Firestore => {
   const docOf = (path: string) => Client.doc(firestore, path);
   const toClient = (data: Firestore.DocumentData) =>
     firestoreValue.toClient(data, firestore) as Client.DocumentData;
@@ -251,6 +256,9 @@ export const fromDatabase = (firestore: Client.Firestore): ClientFirestore.Clien
   // `make` infers the read source and listen options its hooks are handed and
   // the metadata they read with each snapshot, so the client's interface is
   // checked against what it built here.
-  const service: ClientFirestore.ClientFirestore = Object.assign(made, { instance: firestore });
+  const service: ClientFirestore.ClientFirestore & Firestore.Firestore = Object.assign(made, {
+    [TypeId]: TypeId as typeof TypeId,
+    instance: firestore,
+  });
   return service;
 };

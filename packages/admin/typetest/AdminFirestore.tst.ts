@@ -5,13 +5,13 @@ import * as CollectionGroup from "@visiolab/effect-firebase/firestore/Collection
 import * as Firestore from "@visiolab/effect-firebase/firestore/Firestore";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import type * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
-import { Context, Effect, type Layer, Schema } from "effect";
+import { Context, Effect, Layer, Schema } from "effect";
 import type * as AdminSdk from "firebase-admin/firestore";
 import { describe, expect, test } from "tstyche";
 
 declare const firestore: Firestore.Firestore;
 declare const adminFirestore: AdminFirestore.AdminFirestore;
-declare const adminTx: AdminFirestore.AdminTransaction["Service"];
+declare const adminTx: AdminFirestore.AdminTransaction;
 declare const portableTx: Firestore.Transaction;
 
 class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
@@ -26,9 +26,65 @@ interface Step {
 }
 const Step = Context.Service<Step>("Step");
 
+/**
+ * Another backend's richer transaction, with the same methods as Admin
+ * Transaction and a type id of its own.
+ */
+interface LookalikeTransaction extends Firestore.TransactionBase {
+  readonly "~LookalikeTransaction": "~LookalikeTransaction";
+  readonly getDocs: Firestore.Firestore["getDocs"];
+}
+declare const lookalikeFirestore: Firestore.With<never, never, {}, LookalikeTransaction>;
+
+/**
+ * Another backend's richer Firestore, with the same members as Admin Firestore
+ * and a type id of its own.
+ */
+interface LookalikeFirestore extends Firestore.With<
+  never,
+  never,
+  {},
+  AdminFirestore.AdminTransaction
+> {
+  readonly "~LookalikeFirestore": "~LookalikeFirestore";
+  readonly instance: AdminSdk.Firestore;
+}
+
+const adminProgram = Effect.asVoid(Effect.service(AdminFirestore.AdminFirestore));
+const portableLayer = Layer.succeed(Firestore.Firestore, firestore);
+
 describe("AdminFirestore", () => {
-  test("is a Firestore", () => {
-    expect<AdminFirestore.AdminFirestore>().type.toBeAssignableTo<Firestore.Firestore>();
+  test("is not a Firestore", () => {
+    expect<AdminFirestore.AdminFirestore>().type.not.toBeAssignableTo<Firestore.Firestore>();
+  });
+
+  test("is not provided by a Firestore layer", () => {
+    expect(Effect.provide(adminProgram, portableLayer)).type.toBe<
+      Effect.Effect<void, never, AdminFirestore.AdminFirestore>
+    >();
+    expect(Layer.provide(Layer.effectDiscard(adminProgram), portableLayer)).type.toBe<
+      Layer.Layer<never, never, AdminFirestore.AdminFirestore>
+    >();
+  });
+
+  test("yields a service that is also a Firestore", () => {
+    expect(Effect.service(AdminFirestore.AdminFirestore)).type.toBe<
+      Effect.Effect<
+        AdminFirestore.AdminFirestore & Firestore.Firestore,
+        never,
+        AdminFirestore.AdminFirestore
+      >
+    >();
+  });
+
+  test("is built as a Firestore too", () => {
+    expect(AdminFirestore.make()).type.toBe<
+      Effect.Effect<AdminFirestore.AdminFirestore & Firestore.Firestore, never, App.App>
+    >();
+  });
+
+  test("is told apart from another backend's Firestore with the same members", () => {
+    expect<AdminFirestore.AdminFirestore>().type.not.toBeAssignableTo<LookalikeFirestore>();
   });
 
   test("hands out the Admin SDK's own Firestore as its instance", () => {
@@ -41,10 +97,30 @@ describe("AdminFirestore", () => {
 });
 
 describe("AdminTransaction", () => {
-  test("is a Transaction", () => {
-    expect<
-      AdminFirestore.AdminTransaction["Service"]
-    >().type.toBeAssignableTo<Firestore.Transaction>();
+  test("reads and writes single documents as a Transaction does", () => {
+    expect<AdminFirestore.AdminTransaction["getDoc"]>().type.toBe<
+      Firestore.Transaction["getDoc"]
+    >();
+    expect<AdminFirestore.AdminTransaction["setDoc"]>().type.toBe<
+      Firestore.Transaction["setDoc"]
+    >();
+    expect<AdminFirestore.AdminTransaction["updateDoc"]>().type.toBe<
+      Firestore.Transaction["updateDoc"]
+    >();
+  });
+
+  test("is not a Transaction", () => {
+    expect<AdminFirestore.AdminTransaction>().type.not.toBeAssignableTo<Firestore.Transaction>();
+  });
+
+  test("yields a transaction that is also a Transaction", () => {
+    expect(Effect.service(AdminFirestore.AdminTransaction)).type.toBe<
+      Effect.Effect<
+        AdminFirestore.AdminTransaction & Firestore.Transaction,
+        never,
+        AdminFirestore.AdminTransaction
+      >
+    >();
   });
 
   test("reads a whole collection on Admin Transaction and not on Transaction", () => {
@@ -96,6 +172,12 @@ describe("runTransaction", () => {
 
   test("leaves the Admin Transaction to the caller of the portable Firestore", () => {
     expect(firestore.runTransaction(adminBody)).type.toBe<
+      Effect.Effect<boolean, Firestore.FirestoreError, Step | AdminFirestore.AdminTransaction>
+    >();
+  });
+
+  test("leaves the Admin Transaction to the caller of a backend offering a lookalike", () => {
+    expect(lookalikeFirestore.runTransaction(adminBody)).type.toBe<
       Effect.Effect<boolean, Firestore.FirestoreError, Step | AdminFirestore.AdminTransaction>
     >();
   });

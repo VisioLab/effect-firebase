@@ -5,9 +5,9 @@ import type * as ClientQuerySnapshot from "@visiolab/effect-firebase-client/fire
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as CollectionGroup from "@visiolab/effect-firebase/firestore/CollectionGroup";
 import type * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
-import type * as Firestore from "@visiolab/effect-firebase/firestore/Firestore";
+import * as Firestore from "@visiolab/effect-firebase/firestore/Firestore";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
-import { type Effect, type Layer, Schema, type Stream } from "effect";
+import { Effect, Layer, Schema, type Stream } from "effect";
 import type * as ClientSdk from "firebase/firestore";
 import { describe, expect, test } from "tstyche";
 
@@ -32,11 +32,64 @@ const AllPosts = CollectionGroup.make(UserPosts, OrgPosts);
 declare const client: ClientFirestore.ClientFirestore;
 declare const portable: Firestore.Firestore;
 
+/**
+ * Another backend's richer Firestore, with the same members as Client Firestore
+ * and a type id of its own.
+ */
+interface LookalikeFirestore extends Firestore.With<
+  ClientFirestore.ReadOptions,
+  ClientFirestore.ListenOptions,
+  { readonly metadata: ClientDocumentSnapshot.SnapshotMetadata }
+> {
+  readonly "~LookalikeFirestore": "~LookalikeFirestore";
+  readonly instance: ClientSdk.Firestore;
+}
+
 const allPostsRead = client.getDocs(AllPosts);
 
+const clientProgram = Effect.asVoid(Effect.service(ClientFirestore.ClientFirestore));
+const portableLayer = Layer.succeed(Firestore.Firestore, portable);
+
 describe("ClientFirestore", () => {
-  test("is a Firestore", () => {
-    expect<ClientFirestore.ClientFirestore>().type.toBeAssignableTo<Firestore.Firestore>();
+  test("is not a Firestore", () => {
+    expect<ClientFirestore.ClientFirestore>().type.not.toBeAssignableTo<Firestore.Firestore>();
+  });
+
+  test("is not provided by a Firestore layer", () => {
+    expect(Effect.provide(clientProgram, portableLayer)).type.toBe<
+      Effect.Effect<void, never, ClientFirestore.ClientFirestore>
+    >();
+    expect(Layer.provide(Layer.effectDiscard(clientProgram), portableLayer)).type.toBe<
+      Layer.Layer<never, never, ClientFirestore.ClientFirestore>
+    >();
+  });
+
+  test("yields a service that is also a Firestore", () => {
+    expect(Effect.service(ClientFirestore.ClientFirestore)).type.toBe<
+      Effect.Effect<
+        ClientFirestore.ClientFirestore & Firestore.Firestore,
+        never,
+        ClientFirestore.ClientFirestore
+      >
+    >();
+  });
+
+  test("reads a document with read options through the service it yields", () => {
+    expect(
+      Effect.flatMap(Effect.service(ClientFirestore.ClientFirestore), (service) =>
+        service.getDoc(hello, { source: "server" }),
+      ),
+    ).type.toBe<
+      Effect.Effect<
+        ClientDocumentSnapshot.ClientDocumentSnapshot<typeof Posts>,
+        Firestore.FirestoreError,
+        ClientFirestore.ClientFirestore
+      >
+    >();
+  });
+
+  test("is told apart from another backend's Firestore with the same members", () => {
+    expect<ClientFirestore.ClientFirestore>().type.not.toBeAssignableTo<LookalikeFirestore>();
   });
 
   test("holds the client SDK's own Firestore object as instance", () => {

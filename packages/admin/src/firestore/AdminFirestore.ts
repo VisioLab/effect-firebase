@@ -38,10 +38,14 @@
  */
 import { Context, Effect, Layer } from "effect";
 import { Firestore, type With } from "@visiolab/effect-firebase/firestore/Firestore";
-import type { Transaction } from "@visiolab/effect-firebase/firestore/Firestore";
+import type { Transaction, TransactionBase } from "@visiolab/effect-firebase/firestore/Firestore";
 import type * as Admin from "firebase-admin/firestore";
 import type * as App from "../app/App.ts";
 import * as internalFirestore from "./internal/firestore.ts";
+
+const TypeId = internalFirestore.TypeId;
+
+const TransactionTypeId = internalFirestore.TransactionTypeId;
 
 /**
  * The portable {@link Firestore}, plus what only the Admin SDK can do.
@@ -55,8 +59,11 @@ import * as internalFirestore from "./internal/firestore.ts";
  *
  * **Details**
  *
- * It only adds to {@link Firestore}, so it can be handed to portable code as it
- * is. A {@link Firestore.With.runTransaction} body finds its transaction both
+ * The service its key holds is also a {@link Firestore}, so it can be handed to
+ * portable code as it is. The type itself only extends {@link Firestore.With},
+ * so providing a {@link Firestore} alone, such as an in-memory fake, does not
+ * satisfy code that asks for it. A {@link Firestore.With.runTransaction} body
+ * finds its transaction both
  * as {@link AdminTransaction} and as the portable
  * {@link Firestore.Transaction}. They are the same transaction, so portable
  * helpers and Admin-only ones can run in the same body.
@@ -71,6 +78,8 @@ import * as internalFirestore from "./internal/firestore.ts";
  * @since 0.2.0
  */
 export interface AdminFirestore extends With<never, never, {}, AdminTransaction> {
+  readonly [TypeId]: typeof TypeId;
+
   /**
    * The Admin SDK's own `Firestore`, for the database the service was opened
    * on.
@@ -93,9 +102,9 @@ export interface AdminFirestore extends With<never, never, {}, AdminTransaction>
 }
 
 /**
- * Service key for a {@link Firestore.Transaction} that can also read every
- * document in a collection or a Collection Group, which only the Admin SDK's
- * transactions can.
+ * A {@link Firestore.Transaction} that can also read every document in a
+ * collection or a Collection Group, which only the Admin SDK's transactions
+ * can.
  *
  * **When to use**
  *
@@ -106,10 +115,12 @@ export interface AdminFirestore extends With<never, never, {}, AdminTransaction>
  * **Details**
  *
  * A body run through {@link AdminFirestore} finds it next to
- * {@link Firestore.Transaction}; the transaction itself is an
- * `AdminTransaction["Service"]`. A body that asks for it and runs through the
- * portable {@link Firestore} still needs it provided, so the compiler catches
- * Admin-only code handed to portable code.
+ * {@link Firestore.Transaction}; they are the same transaction. The type
+ * extends {@link Firestore.TransactionBase}, not {@link Firestore.Transaction},
+ * and its key holds an `AdminTransaction & Transaction`. A body that asks for
+ * it and runs
+ * through the portable {@link Firestore} still needs it provided, so the
+ * compiler catches Admin-only code handed to portable code.
  *
  * The same rules hold as for {@link Firestore.Transaction}: a read of many is a
  * read, so it comes before every write.
@@ -147,24 +158,35 @@ export interface AdminFirestore extends With<never, never, {}, AdminTransaction>
  * @see {@link Firestore.Transaction} for the portable transaction, which reads one document at a time
  *
  * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export interface AdminTransaction extends TransactionBase {
+  readonly [TransactionTypeId]: typeof TransactionTypeId;
+
+  /**
+   * Reads every document in a collection or a Collection Group as part of the
+   * transaction, as {@link Firestore.With.getDocs} does outside one.
+   *
+   * Every document it returns is locked for the rest of the transaction, so
+   * another write to one of them makes the transaction run again. A group
+   * read that fails with an {@link Firestore.UndefinedCollectionError} fails
+   * the body, which rolls the transaction back without running it again.
+   */
+  readonly getDocs: Firestore["getDocs"];
+}
+
+/**
+ * Service key for {@link AdminTransaction}. The transaction it holds is a
+ * {@link Firestore.Transaction} too.
+ *
+ * @stability unstable
  * @category services
  * @since 0.2.0
  */
-export class AdminTransaction extends Context.Service<
-  AdminTransaction,
-  Transaction & {
-    /**
-     * Reads every document in a collection or a Collection Group as part of the
-     * transaction, as {@link Firestore.With.getDocs} does outside one.
-     *
-     * Every document it returns is locked for the rest of the transaction, so
-     * another write to one of them makes the transaction run again. A group
-     * read that fails with an {@link Firestore.UndefinedCollectionError} fails
-     * the body, which rolls the transaction back without running it again.
-     */
-    readonly getDocs: Firestore["getDocs"];
-  }
->()("@visiolab/effect-firebase-admin/firestore/AdminFirestore/AdminTransaction") {}
+export const AdminTransaction = Context.Service<AdminTransaction, AdminTransaction & Transaction>(
+  "@visiolab/effect-firebase-admin/firestore/AdminFirestore/AdminTransaction",
+);
 
 /**
  * Service key for {@link AdminFirestore}.
@@ -175,7 +197,7 @@ export class AdminTransaction extends Context.Service<
  * @category services
  * @since 0.2.0
  */
-export const AdminFirestore = Context.Service<AdminFirestore>(
+export const AdminFirestore = Context.Service<AdminFirestore, AdminFirestore & Firestore>(
   "@visiolab/effect-firebase-admin/firestore/AdminFirestore",
 );
 
@@ -231,13 +253,17 @@ export interface Options {
  * @category constructors
  * @since 0.2.0
  */
-export const make = Effect.fn("AdminFirestore.make")(function* (options?: Options) {
-  const firestore = yield* internalFirestore.openDatabase(options);
-  return internalFirestore.fromDatabase(firestore, AdminTransaction);
-});
+export const make: (
+  options?: Options,
+) => Effect.Effect<AdminFirestore & Firestore, never, App.App> = Effect.fn("AdminFirestore.make")(
+  function* (options?: Options) {
+    const firestore = yield* internalFirestore.openDatabase(options);
+    return internalFirestore.fromDatabase(firestore, AdminTransaction);
+  },
+);
 
 /** The one service, under both its own tag and the portable one. */
-const both = (service: AdminFirestore) =>
+const both = (service: AdminFirestore & Firestore) =>
   Context.make(AdminFirestore, service).pipe(Context.add(Firestore, service));
 
 /**
