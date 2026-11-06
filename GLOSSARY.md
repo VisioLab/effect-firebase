@@ -68,8 +68,12 @@ _Avoid_: common field
 ### Callables
 
 **Callable**:
-A server function the client calls by name, declared once as its name, its **Payload**, what it succeeds with and the errors it can fail with. Its name identifies it, which is not necessarily the name it is deployed under.
+A server function the client calls by name, declared once as its name, its **Payload**, what it succeeds with and the errors it can fail with. Its name is unique within its **Callable Group**. A Callable in no group is deployed under its own name.
 _Avoid_: rpc, endpoint, callable function (for the declaration)
+
+**Callable Group**:
+A named set of **Callables** whose functions deploy under the group's name as a prefix. A Callable belongs to at most one group, and groups do not nest.
+_Avoid_: api, router, namespace
 
 **Payload**:
 What the client sends when calling a **Callable**.
