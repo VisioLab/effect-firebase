@@ -6,6 +6,13 @@ import * as App from "../../app/App.ts";
 import type * as AdminFirestore from "../AdminFirestore.ts";
 import * as firestoreValue from "./firestoreValue.ts";
 
+/** @internal */
+export const TypeId = "~@visiolab/effect-firebase-admin/firestore/AdminFirestore";
+
+/** @internal */
+export const TransactionTypeId =
+  "~@visiolab/effect-firebase-admin/firestore/AdminFirestore/AdminTransaction";
+
 /**
  * Opens the database the options name.
  *
@@ -155,7 +162,7 @@ const transactionOperations = (
 export const fromDatabase = (
   firestore: Admin.Firestore,
   AdminTransaction: typeof AdminFirestore.AdminTransaction,
-): AdminFirestore.AdminFirestore => {
+): AdminFirestore.AdminFirestore & Firestore.Firestore => {
   const toAdmin = (data: Firestore.DocumentData) => firestoreValue.toAdmin(data, firestore);
 
   const service = Firestore.make({
@@ -210,14 +217,22 @@ export const fromDatabase = (
       operations: (tx: Admin.Transaction) => transactionOperations(firestore, tx),
       onError: firestoreError("Failed to run a transaction"),
       // The operations read many documents, so the transaction core builds
-      // has a `getDocs`, and is an Admin Transaction as it is.
-      context: (transaction) => Context.make(AdminTransaction, transaction),
+      // has a `getDocs`. Branding it in place, rather than a copy, keeps one
+      // object under both keys.
+      context: (transaction) =>
+        Context.make(
+          AdminTransaction,
+          Object.assign(transaction, { [TransactionTypeId]: TransactionTypeId } as const),
+        ),
     }),
   });
 
   // The Admin interface is checked against what `make` built here, except for
   // the Admin Transaction its `context` offers: the compiler does not check
   // transaction services on assignment, so the AdminTransaction tests do.
-  const admin: AdminFirestore.AdminFirestore = Object.assign(service, { instance: firestore });
+  const admin: AdminFirestore.AdminFirestore & Firestore.Firestore = Object.assign(service, {
+    [TypeId]: TypeId as typeof TypeId,
+    instance: firestore,
+  });
   return admin;
 };

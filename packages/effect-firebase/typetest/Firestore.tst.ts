@@ -327,12 +327,17 @@ interface RichTransaction extends Firestore.Transaction {
 }
 const RichTransaction = Context.Service<RichTransaction>("RichTransaction");
 /**
- * A key for the transaction that is not itself a Transaction, so that a body
- * asking for it is told apart from one asking for Transaction.
+ * A transaction service whose type extends TransactionBase, so that a body
+ * asking for it is told apart from one asking for Transaction. Its key holds a
+ * Transaction too.
  */
-class AuditedTransaction extends Context.Service<AuditedTransaction, RichTransaction>()(
-  "AuditedTransaction",
-) {}
+interface AuditedTransaction extends Firestore.TransactionBase {
+  readonly getDocs: Firestore.Firestore["getDocs"];
+}
+const AuditedTransaction = Context.Service<
+  AuditedTransaction,
+  AuditedTransaction & Firestore.Transaction
+>("AuditedTransaction");
 
 declare const richHooks: Firestore.MakeOptions<ReadOptions, ListenOptions>;
 
@@ -493,7 +498,7 @@ describe("make", () => {
           return richHooks.streamDoc(path, options);
         },
       }),
-    ).type.toBe<Firestore.With<ReadOptions, ListenOptions>>();
+    ).type.toBe<Firestore.With<ReadOptions, ListenOptions> & Firestore.Firestore>();
   });
 
   test("hands the read and listen hooks only undefined where no options are named", () => {
@@ -592,10 +597,21 @@ describe("make", () => {
     >();
   });
 
-  test("is a Firestore wherever its transaction hook offers further services", () => {
-    expect<
-      Firestore.With<never, never, {}, AuditedTransaction>
-    >().type.toBeAssignableTo<Firestore.Firestore>();
+  test("builds a Firestore wherever its transaction hook offers further services", () => {
+    const made = Firestore.make({
+      ...hooks,
+      runTransaction: Firestore.transactionFromCallback({
+        run,
+        operations: () => readsMany,
+        onError,
+        context: (transaction) => Context.make(AuditedTransaction, transaction),
+      }),
+    });
+    expect(made).type.toBeAssignableTo<Firestore.Firestore>();
+  });
+
+  test("tells a transaction service apart from Transaction", () => {
+    expect<AuditedTransaction>().type.not.toBeAssignableTo<Firestore.Transaction>();
   });
 
   test("takes a transaction hook written as a value, with no context", () => {
@@ -705,7 +721,7 @@ describe("make", () => {
       streamDoc: () => metaReads,
       streamDocs: () => metaQueryReads,
     });
-    expect(made).type.toBe<Firestore.With<never, never, Meta>>();
+    expect(made).type.toBe<Firestore.With<never, never, Meta> & Firestore.Firestore>();
   });
 
   test("refuses hooks that hand back different extras", () => {

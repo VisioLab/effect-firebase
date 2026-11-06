@@ -59,6 +59,8 @@ import type * as ClientDocumentSnapshot from "./ClientDocumentSnapshot.ts";
 import type * as ClientQuerySnapshot from "./ClientQuerySnapshot.ts";
 import * as internalFirestore from "./internal/firestore.ts";
 
+const TypeId = internalFirestore.TypeId;
+
 /**
  * The portable {@link Firestore}, plus what only the client SDK can do.
  *
@@ -78,7 +80,10 @@ import * as internalFirestore from "./internal/firestore.ts";
  * {@link ClientDocumentSnapshot.ClientDocumentSnapshot} or
  * {@link ClientQuerySnapshot.ClientQuerySnapshot} does.
  *
- * It can be handed to code that expects a {@link Firestore} as it is. Its
+ * The service its key holds is also a {@link Firestore}, so it can be handed
+ * to code that expects one as it is. The type itself only extends
+ * {@link Firestore.With}, so providing a {@link Firestore} alone, such as an
+ * in-memory fake, does not satisfy code that asks for it. Its
  * transactions are the portable {@link Firestore.Transaction}: the client SDK's
  * transactions read one document at a time.
  *
@@ -96,6 +101,8 @@ export interface ClientFirestore extends With<
   ListenOptions,
   { readonly metadata: ClientDocumentSnapshot.SnapshotMetadata }
 > {
+  readonly [TypeId]: typeof TypeId;
+
   /**
    * The client SDK's own `Firestore`, for the database the service was opened
    * on.
@@ -188,7 +195,7 @@ export interface ListenOptions {
  * @category services
  * @since 0.1.0
  */
-export const ClientFirestore = Context.Service<ClientFirestore>(
+export const ClientFirestore = Context.Service<ClientFirestore, ClientFirestore & Firestore>(
   "@visiolab/effect-firebase-client/firestore/ClientFirestore",
 );
 
@@ -348,14 +355,17 @@ export interface Options {
  * @category constructors
  * @since 0.1.0
  */
-export const make: (options?: Options) => Effect.Effect<ClientFirestore, never, App.App> =
-  Effect.fn("ClientFirestore.make")(function* (options?: Options) {
+export const make: (
+  options?: Options,
+) => Effect.Effect<ClientFirestore & Firestore, never, App.App> = Effect.fn("ClientFirestore.make")(
+  function* (options?: Options) {
     const firestore = yield* internalFirestore.openDatabase(options);
     return internalFirestore.fromDatabase(firestore);
-  });
+  },
+);
 
 /** The one service, under both its own tag and the portable one. */
-const both = (service: ClientFirestore) =>
+const both = (service: ClientFirestore & Firestore) =>
   Context.make(ClientFirestore, service).pipe(Context.add(Firestore, service));
 
 /**

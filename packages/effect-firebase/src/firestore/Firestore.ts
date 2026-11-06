@@ -55,6 +55,10 @@ import * as internalStreamFromListener from "./internal/streamFromListener.ts";
 import * as internalTransactionFromCallback from "./internal/transactionFromCallback.ts";
 import type * as QuerySnapshot from "./QuerySnapshot.ts";
 
+const TypeId = firestore.TypeId;
+
+const TransactionTypeId = firestore.TransactionTypeId;
+
 export {
   /**
    * The error every Firestore call fails with when the backend fails it.
@@ -221,7 +225,34 @@ export interface TransactionOptions {
  * @category models
  * @since 0.2.0
  */
-export interface Transaction {
+export interface Transaction extends TransactionBase {
+  readonly [TransactionTypeId]: typeof TransactionTypeId;
+}
+
+/**
+ * What every transaction can do: the reads and writes of {@link Transaction},
+ * without the type id that makes a type a {@link Transaction}.
+ *
+ * **When to use**
+ *
+ * Extend it to type a backend's richer transaction, as
+ * {@link AdminFirestore.AdminTransaction} does, and put {@link Transaction}
+ * back in that service's key. Application code asks for {@link Transaction}.
+ *
+ * **Details**
+ *
+ * A richer transaction that extended {@link Transaction} would be assignable
+ * to it, so every Firestore would drop it from a transaction body's
+ * requirements along with {@link Transaction}, and nothing would check that
+ * it is provided.
+ *
+ * @see {@link Transaction} for the portable transaction
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export interface TransactionBase {
   /**
    * Reads one document as part of the transaction. Works like
    * {@link With.getDoc}.
@@ -308,10 +339,13 @@ export type OptionsParameter<Options> = [Options] extends [never] ? [] : [option
  *   each document of a query snapshot, and on the query snapshot itself.
  * - `TransactionServices`: services a {@link With.runTransaction} body can ask
  *   for besides {@link Transaction}, such as a backend's own richer
- *   transaction. Give each its own nominal key, such as a class-style
- *   `Context.Service`. A key whose type is the transaction's own type is
- *   absorbed by {@link Transaction} and dropped from the body's requirements
- *   by every Firestore, so nothing would check that it is provided.
+ *   transaction. A service's type must not be assignable to
+ *   {@link Transaction}, so extend {@link TransactionBase}, give it a type id
+ *   of its own, and put {@link Transaction} back in its key's service type,
+ *   as {@link AdminFirestore.AdminTransaction} does. A type that is
+ *   assignable to {@link Transaction}, or to another backend's service, would
+ *   be dropped from the body's requirements along with it, so nothing would
+ *   check that it is provided.
  *
  * TypeScript does not compare `TransactionServices` when one `With` is
  * assigned to another, so a backend should test that a transaction body can
@@ -742,7 +776,9 @@ export interface With<
  * @category models
  * @since 0.2.0
  */
-export interface Firestore extends With {}
+export interface Firestore extends With {
+  readonly [TypeId]: typeof TypeId;
+}
 
 /**
  * Service key for the portable {@link Firestore}.
@@ -1124,11 +1160,14 @@ export interface MakeOptions<
  * The return type is inferred from the hooks: a {@link With} whose reads and
  * listens take the options the hooks take, whose snapshots carry the extra
  * they return, and whose transaction bodies get the services the transaction
- * hook's `context` offers. Hooks with none of those build a service
- * assignable to the portable {@link Firestore}.
+ * hook's `context` offers. It is always the portable {@link Firestore} as
+ * well, so a backend can provide it under {@link Firestore}.
  *
- * A backend's richer service extends what this returns, as
- * {@link AdminFirestore.AdminFirestore} does with its `instance`.
+ * A backend's richer service extends {@link With}, not {@link Firestore}, has a
+ * type id of its own, and its key's service type adds {@link Firestore} back,
+ * as {@link AdminFirestore.AdminFirestore} does. Its type then stays apart from
+ * {@link Firestore}, so providing a {@link Firestore} alone does not satisfy
+ * code that asks for the richer one.
  *
  * @see {@link transactionFromCallback} to build the `runTransaction` hook from an SDK callback
  * @see {@link streamFromListener} to build the `streamDoc` and `streamDocs` hooks from an SDK listener
@@ -1181,7 +1220,7 @@ export const make: <
   TransactionServices = never,
 >(
   options: MakeOptions<ReadOptions, ListenOptions, Extra, Operations, TransactionServices>,
-) => With<ReadOptions, ListenOptions, Extra, TransactionServices> = (options) =>
+) => With<ReadOptions, ListenOptions, Extra, TransactionServices> & Firestore = (options) =>
   firestore.make(options, Transaction);
 
 /**
