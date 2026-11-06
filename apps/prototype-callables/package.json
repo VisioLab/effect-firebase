@@ -1,0 +1,24 @@
+{
+  "name": "prototype-callables",
+  "private": true,
+  "type": "module",
+  "main": "dist/functions.mjs",
+  "engines": {
+    "node": "22"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "emulator": "vp run build && firebase emulators:start --only functions,auth --project demo-effect-firebase",
+    "call": "vpx src/call.ts"
+  },
+  "dependencies": {
+    "effect": "catalog:",
+    "firebase": "catalog:",
+    "firebase-admin": "catalog:",
+    "firebase-functions": "^7.0.0"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

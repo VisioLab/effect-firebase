@@ -1,0 +1,115 @@
+i  emulators: Starting emulators: auth, functions
+i  emulators: Detected demo project ID "demo-effect-firebase", emulated services will use a demo configuration and attempts to access non-emulated services for this project will fail.
+⚠  functions: Application Default Credentials detected. Non-emulated services will access production using these credentials. Be careful!
+⚠  emulators: The Emulator UI is not starting because none of the running emulators have a UI component.
+i  functions: Watching "/Users/florianstutzky/Repositories/effect-firebase/.claude/worktrees/functions-new/apps/prototype-callables" for Cloud Functions...
+✔  functions: Using node@22 from host.
+Serving at port 8647
+[prototype] module load {"FUNCTIONS_CONTROL_API":"true","FUNCTIONS_EMULATOR":"true","PORT":"8647","pid":43987}
+✔  functions: Loaded functions definitions from source: greet, users.create, users.get, users.slow.
+✔  functions[us-central1-greet]: http function initialized (http://127.0.0.1:5001/demo-effect-firebase/us-central1/greet).
+✔  functions[us-central1-users-create]: http function initialized (http://127.0.0.1:5001/demo-effect-firebase/us-central1/users-create).
+✔  functions[us-central1-users-get]: http function initialized (http://127.0.0.1:5001/demo-effect-firebase/us-central1/users-get).
+✔  functions[us-central1-users-slow]: http function initialized (http://127.0.0.1:5001/demo-effect-firebase/us-central1/users-slow).
+┌─────────────────────────────────────────────────────────────┐
+│ ✔  All emulators ready! It is now safe to connect your app. │
+└─────────────────────────────────────────────────────────────┘
+┌────────────────┬────────────────┐
+│ Emulator       │ Host:Port      │
+├────────────────┼────────────────┤
+│ Authentication │ 127.0.0.1:9099 │
+├────────────────┼────────────────┤
+│ Functions      │ 127.0.0.1:5001 │
+└────────────────┴────────────────┘
+  Emulator Hub host: 127.0.0.1 port: 4400
+  Other reserved ports: 4500
+Issues? Report them at https://github.com/firebase/firebase-tools/issues and attach the *-debug.log files.
+>  [prototype] module load {"FUNCTION_TARGET":"greet","K_SERVICE":"greet","FUNCTION_SIGNATURE_TYPE":"http","FUNCTIONS_EMULATOR":"true","PORT":"/var/folders/xx/5h6cl59n1gx6dtr7vqx3_tm80000gn/T/fire_emu_1d16ea7d9db7fe36.sock","pid":44060}
+i  functions: Beginning execution of "us-central1-greet"
+i  functions: Finished "us-central1-greet" in 9.245417ms
+>  [prototype] module load {"FUNCTION_TARGET":"users.get","K_SERVICE":"users-get","FUNCTION_SIGNATURE_TYPE":"http","FUNCTIONS_EMULATOR":"true","PORT":"/var/folders/xx/5h6cl59n1gx6dtr7vqx3_tm80000gn/T/fire_emu_4ac2253e118339d8.sock","pid":44064}
+i  functions: Beginning execution of "us-central1-users-get"
+>  [19:14:41.100] INFO (#2): [prototype] building Store
+i  functions: Finished "us-central1-users-get" in 8.880459ms
+>  [prototype] module load {"FUNCTION_TARGET":"users.create","K_SERVICE":"users-create","FUNCTION_SIGNATURE_TYPE":"http","FUNCTIONS_EMULATOR":"true","PORT":"/var/folders/xx/5h6cl59n1gx6dtr7vqx3_tm80000gn/T/fire_emu_38ef220759c5061c.sock","pid":44065}
+i  functions: Beginning execution of "us-central1-users-create"
+>  [19:14:41.645] INFO (#2): [prototype] building Store
+i  functions: Finished "us-central1-users-create" in 9.03925ms
+i  functions: Beginning execution of "us-central1-users-create"
+i  functions: Finished "us-central1-users-create" in 2.160792ms
+i  functions: Beginning execution of "us-central1-users-get"
+i  functions: Finished "us-central1-users-get" in 2.024583ms
+i  functions: Beginning execution of "us-central1-users-get"
+i  functions: Finished "us-central1-users-get" in 1.00375ms
+i  functions: Beginning execution of "us-central1-users-get"
+i  functions: Finished "us-central1-users-get" in 0.873708ms
+>  [prototype] module load {"FUNCTION_TARGET":"users.slow","K_SERVICE":"users-slow","FUNCTION_SIGNATURE_TYPE":"http","FUNCTIONS_EMULATOR":"true","PORT":"/var/folders/xx/5h6cl59n1gx6dtr7vqx3_tm80000gn/T/fire_emu_951647faa72b7a8c.sock","pid":44066}
+i  functions: Beginning execution of "us-central1-users-slow"
+>  [19:14:42.177] INFO (#2): [prototype] building Store
+i  functions: Finished "us-central1-users-slow" in 3013.527708ms
+i  functions: Beginning execution of "us-central1-greet"
+i  functions: Finished "us-central1-greet" in 1.994584ms
+i  functions: Beginning execution of "us-central1-users-get"
+i  functions: Finished "us-central1-users-get" in 1.194334ms
+i  functions: Beginning execution of "us-central1-users-create"
+i  functions: Finished "us-central1-users-create" in 1.224ms
+i  functions: Beginning execution of "us-central1-users-create"
+i  functions: Finished "us-central1-users-create" in 1.021458ms
+i  functions: Beginning execution of "us-central1-users-get"
+i  functions: Finished "us-central1-users-get" in 1.249792ms
+i  functions: Beginning execution of "us-central1-users-get"
+i  functions: Finished "us-central1-users-get" in 0.814916ms
+i  functions: Beginning execution of "us-central1-users-get"
+i  functions: Finished "us-central1-users-get" in 1.0465ms
+i  functions: Beginning execution of "us-central1-users-slow"
+i  functions: Finished "us-central1-users-slow" in 3004.571666ms
+i  functions: Beginning execution of "us-central1-greet"
+i  functions: Finished "us-central1-greet" in 1.376833ms
+i  functions: Beginning execution of "us-central1-users-get"
+i  functions: Finished "us-central1-users-get" in 1.940042ms
+i  functions: Beginning execution of "us-central1-users-create"
+i  functions: Finished "us-central1-users-create" in 1.414209ms
+i  functions: Beginning execution of "us-central1-users-create"
+i  functions: Finished "us-central1-users-create" in 0.962375ms
+i  functions: Beginning execution of "us-central1-users-get"
+i  functions: Finished "us-central1-users-get" in 1.276875ms
+i  functions: Beginning execution of "us-central1-users-get"
+i  functions: Finished "us-central1-users-get" in 0.841917ms
+i  functions: Beginning execution of "us-central1-users-get"
+i  functions: Finished "us-central1-users-get" in 0.741084ms
+i  functions: Beginning execution of "us-central1-users-slow"
+i  functions: Finished "us-central1-users-slow" in 3004.405042ms
+i  functions: Beginning execution of "us-central1-greet"
+i  functions: Finished "us-central1-greet" in 1.366834ms
+i  functions: Beginning execution of "us-central1-users-get"
+i  functions: Finished "us-central1-users-get" in 1.265583ms
+i  functions: Beginning execution of "us-central1-users-create"
+i  functions: Finished "us-central1-users-create" in 1.181625ms
+i  functions: Beginning execution of "us-central1-users-create"
+i  functions: Finished "us-central1-users-create" in 0.971625ms
+i  functions: Beginning execution of "us-central1-users-get"
+i  functions: Finished "us-central1-users-get" in 0.83725ms
+i  functions: Beginning execution of "us-central1-users-get"
+i  functions: Finished "us-central1-users-get" in 0.494458ms
+i  functions: Beginning execution of "us-central1-users-get"
+i  functions: Finished "us-central1-users-get" in 0.435375ms
+i  functions: Beginning execution of "us-central1-users-slow"
+i  functions: Finished "us-central1-users-slow" in 3001.938875ms
+>  [19:15:39.721] INFO (#10): [prototype] slow(3000) interrupted
+>  [prototype] SIGTERM received, closing memo map scope
+>  [19:16:18.056] INFO (#14): [prototype] Store finalizer start
+>  [19:16:20.057] INFO (#14): [prototype] Store finalizer done
+>  [prototype] scope closed after 2002ms
+i  emulators: Received SIGTERM for the first time. Starting a clean shutdown.
+i  emulators: Please wait for a clean shutdown or send the SIGTERM signal again to stop right now.
+i  emulators: Shutting down emulators.
+i  functions: Stopping Functions Emulator
+i  auth: Stopping Authentication Emulator
+i  eventarc: Stopping Eventarc Emulator
+i  tasks: Stopping Cloud Tasks Emulator
+i  hub: Stopping emulator hub
+i  logging: Stopping Logging Emulator
+>  [prototype] SIGTERM received, closing memo map scope
+>  [19:17:43.213] INFO (#22): [prototype] Store finalizer start
+>  [prototype] SIGTERM received, closing memo map scope
+>  [19:17:43.214] INFO (#11): [prototype] Store finalizer start
