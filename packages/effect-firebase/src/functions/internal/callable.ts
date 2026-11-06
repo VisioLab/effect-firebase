@@ -1,5 +1,6 @@
 /** @internal */
 import { Context, Effect, Layer, Pipeable, Schema } from "effect";
+import * as CallableError from "../CallableError.ts";
 
 /** @internal */
 export const TypeId = "~@visiolab/effect-firebase/functions/Callable";
@@ -15,6 +16,7 @@ export interface Fields {
   readonly name: string;
   readonly payload: Schema.Top;
   readonly success: Schema.Top;
+  readonly error: ReadonlySet<Schema.Top>;
 }
 
 const Proto = {
@@ -33,7 +35,7 @@ export const make = (fields: Fields) => Object.assign(Object.create(Proto), fiel
  *
  * @internal
  */
-export type HandlerService = (payload: unknown) => Effect.Effect<unknown>;
+export type HandlerService = (payload: unknown) => Effect.Effect<unknown, unknown>;
 
 /**
  * What `toLayer` takes, with the types its signature has already checked
@@ -81,13 +83,67 @@ export const toLayer = (group: string | undefined, name: string, handler: Handle
 const codec = (schema: Schema.Top) => Schema.toCodecJson(schema as Schema.Codec<unknown>);
 
 /** @internal */
+export const getErrorCode = (schema: Schema.Top): CallableError.ErrorCode =>
+  Schema.resolveAnnotations(schema)?.callableErrorCode ?? "internal";
+
+/**
+ * Turns a failure of the handler into the answer that carries it: the code of
+ * the declared schema it matches, a readable message, and the encoded error.
+ * A failure no declared schema matches, or one that doesn't encode, is a
+ * defect.
+ */
+const encodeFailure = (callable: Fields, error: unknown) =>
+  Effect.gen(function* () {
+    for (const schema of callable.error) {
+      if (!Schema.is(schema as Schema.Codec<unknown>)(error)) continue;
+      const code = getErrorCode(schema);
+      const details = yield* Effect.orDie(Schema.encodeUnknownEffect(codec(schema))(error));
+      const fields = error as { readonly message?: unknown; readonly _tag?: unknown };
+      const message =
+        typeof fields.message === "string" && fields.message !== ""
+          ? fields.message
+          : typeof fields._tag === "string"
+            ? fields._tag
+            : code;
+      return new CallableError.ResponseError({ code, message, details });
+    }
+    return yield* Effect.die(error);
+  });
+
+/** @internal */
 export const serve = (group: string | undefined, callable: Fields) =>
   Effect.map(Effect.service(handlerKey(group, callable.name)), (handler) => {
     const decode = Schema.decodeUnknownEffect(codec(callable.payload));
     const encode = Schema.encodeUnknownEffect(codec(callable.success));
+    const fail = (reason: CallableError.ResponseError) =>
+      new CallableError.CallableError({
+        callable: group === undefined ? callable.name : `${group}-${callable.name}`,
+        reason,
+      });
     return (data: unknown) =>
       decode(data).pipe(
-        Effect.flatMap(handler),
+        Effect.catch((error) =>
+          Effect.logDebug("The Payload of a Callable didn't decode", error).pipe(
+            Effect.andThen(
+              Effect.fail(
+                fail(
+                  new CallableError.ResponseError({
+                    code: "invalid-argument",
+                    message: "The Payload didn't decode",
+                    details: undefined,
+                  }),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Effect.flatMap((payload) =>
+          handler(payload).pipe(
+            Effect.catch((error) =>
+              Effect.flatMap(encodeFailure(callable, error), (reason) => Effect.fail(fail(reason))),
+            ),
+          ),
+        ),
         Effect.flatMap((value) => Effect.orDie(encode(value))),
       );
   });

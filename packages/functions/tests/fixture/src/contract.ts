@@ -5,6 +5,7 @@
  */
 import { Schema } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
+import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
 
 /** A Callable in no group, with a `Date` each way. */
@@ -51,3 +52,47 @@ export class Workers extends CallableGroup.make("workers").add(
   Callable.make("first", { success: BuiltBy }),
   Callable.make("second", { success: BuiltBy }),
 ) {}
+
+/** A declared error whose code its own annotations set. */
+export class NameTaken extends Schema.TaggedError<NameTaken, { readonly brand: unique symbol }>()(
+  "NameTaken",
+  { username: Schema.String, since: Schema.Date },
+  { callableErrorCode: "already-exists" },
+) {}
+
+/** A declared error that gets its code from `Callable.errorCode`. */
+export class Banned extends Schema.TaggedError<Banned, { readonly brand: unique symbol }>()(
+  "Banned",
+  { message: Schema.String },
+) {}
+
+/** A declared error without a code, so it is sent as `internal`. */
+export class Unexplained extends Schema.TaggedError<
+  Unexplained,
+  { readonly brand: unique symbol }
+>()("Unexplained", {}) {}
+
+/** Fails the way its Payload asks: with a declared error, a defect or an interrupt. */
+export const Fail = Callable.make("fail", {
+  payload: {
+    with: Schema.Literals([
+      "NameTaken",
+      "Banned",
+      "Unexplained",
+      "NotFound",
+      "defect",
+      "interrupt",
+    ]),
+  },
+  error: [
+    NameTaken,
+    Banned.pipe(Callable.errorCode("permission-denied")),
+    Unexplained,
+    CallableError.NotFound,
+  ],
+});
+
+/** Its Layer fails to build the first time, and answers with how often it was built. */
+export const Flaky = Callable.make("flaky", {
+  success: Schema.Struct({ builds: Schema.Finite }),
+});
