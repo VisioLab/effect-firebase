@@ -45,7 +45,10 @@ describe("CallableClient", () => {
         Effect.catchTag("NameTaken", (error) => Effect.succeed(error)),
       );
       expect(caught).toBeInstanceOf(NameTaken);
-      expect(caught).toMatchObject({ name: "Ada", since: new Date("2026-01-01T12:00:00.000Z") });
+      expect(caught).toMatchObject({
+        username: "Ada",
+        since: new Date("2026-01-01T12:00:00.000Z"),
+      });
     }).pipe(Effect.provide(FunctionsLive)),
   );
 
@@ -105,11 +108,10 @@ describe("CallableClient", () => {
     Effect.gen(function* () {
       // The client's contract has drifted from the server's: same tag and
       // code, different fields.
-      class SkewedNameTaken extends Schema.TaggedError<SkewedNameTaken>()(
-        "NameTaken",
-        { name: Schema.Finite },
-        { callableErrorCode: "already-exists" },
-      ) {}
+      class SkewedNameTaken extends Schema.TaggedError<
+        SkewedNameTaken,
+        { readonly brand: unique symbol }
+      >()("NameTaken", { username: Schema.Finite }, { callableErrorCode: "already-exists" }) {}
       const SkewedFail = Callable.make("fail", {
         payload: Fail.payload,
         error: SkewedNameTaken,
@@ -129,7 +131,7 @@ describe("CallableClient", () => {
         _tag: "ResponseError",
         code: "already-exists",
         message: "NameTaken",
-        details: { _tag: "NameTaken", name: "Ada", since: "2026-01-01T12:00:00.000Z" },
+        details: { _tag: "NameTaken", username: "Ada", since: "2026-01-01T12:00:00.000Z" },
       });
     }).pipe(Effect.provide(FunctionsLive)),
   );
