@@ -73,3 +73,16 @@ export const { users } = CallableFunction.group(Users, UsersLive, {
 - The options are a sparse map of `CallableOptions` keyed by member name. The group has none of its own.
 - A Callable can be in more than one group. Each group serves and implements it separately.
 - Build the client from the group, `CallableClient.make(Users)`. A client built from the member on its own calls the unprefixed name and gets `not-found`.
+
+## Tracing
+
+Every call runs in a `kind: "server"` span named `CallableFunction.<deployed name>`, such as `CallableFunction.users-create`, with the attributes `rpc.system: "firebase_callable"`, `rpc.method`, `rpc.service` (the group, for a member) and `faas.name`. Spans are exported only when the Layer you export provides a `Tracer`, for example from `@effect/opentelemetry`:
+
+```ts
+export const { users } = CallableFunction.group(Users, Layer.mergeAll(UsersLive, TracingLive));
+```
+
+- The span covers decoding the Payload, the handler and encoding the answer. On the call that builds the Layer, it covers the build too, and spans opened during the build are its children.
+- Its parent is the trace context Firebase reads from the request (`X-Cloud-Trace-Context`, else `traceparent`), so it joins the platform's trace. In the emulator it is a root span.
+- `CallableClient` opens a `kind: "client"` span per call. It isn't linked to the server span: the two land in separate traces.
+- Neither span carries a uid. Add one where you want it with `Effect.annotateCurrentSpan("enduser.id", uid)`.
