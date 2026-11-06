@@ -28,12 +28,14 @@
   "type": "module",
   "sideEffects": [],
   "exports": {
-    ".": "./src/https/index.ts",
+    "./https": "./src/https/index.ts",
+    "./https/CallableFunction": "./src/https/CallableFunction.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "exports": {
-      ".": "./dist/https/index.mjs",
+      "./https": "./dist/https/index.mjs",
+      "./https/CallableFunction": "./dist/https/CallableFunction.mjs",
       "./package.json": "./package.json"
     },
     "registry": "https://npm.pkg.github.com"
