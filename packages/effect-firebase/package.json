@@ -35,6 +35,8 @@
     "./firestore/Patch": "./src/firestore/Patch.ts",
     "./firestore/QuerySnapshot": "./src/firestore/QuerySnapshot.ts",
     "./firestore/Timestamp": "./src/firestore/Timestamp.ts",
+    "./functions": "./src/functions/index.ts",
+    "./functions/Callable": "./src/functions/Callable.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -55,6 +57,8 @@
       "./firestore/Patch": "./dist/firestore/Patch.mjs",
       "./firestore/QuerySnapshot": "./dist/firestore/QuerySnapshot.mjs",
       "./firestore/Timestamp": "./dist/firestore/Timestamp.mjs",
+      "./functions": "./dist/functions/index.mjs",
+      "./functions/Callable": "./dist/functions/Callable.mjs",
       "./package.json": "./package.json"
     },
     "registry": "https://npm.pkg.github.com"
