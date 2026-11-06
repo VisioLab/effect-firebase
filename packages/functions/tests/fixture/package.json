@@ -1,0 +1,9 @@
+{
+  "name": "effect-firebase-functions-fixture",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.mjs",
+  "engines": {
+    "node": "22"
+  }
+}

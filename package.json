@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "emulator": "firebase emulators:start --only firestore --project demo-effect-firebase",
+    "emulator": "vp run @visiolab/effect-firebase-functions#build-fixture && firebase emulators:start --only firestore,auth,functions --project demo-effect-firebase",
     "ready": "vp run check && vp run -r test && vp run test-types && vp run -r build",
     "test-types": "TSTYCHE_TYPESCRIPT_MODULE=typescript6 tstyche",
     "version-packages": "changeset version && vp fmt",
@@ -12,6 +12,7 @@
     "@changesets/changelog-github": "catalog:",
     "@changesets/cli": "catalog:",
     "@effect/tsgo": "catalog:",
+    "firebase-functions": "catalog:",
     "firebase-tools": "catalog:",
     "tstyche": "catalog:",
     "typescript": "catalog:",
