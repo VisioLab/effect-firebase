@@ -38,6 +38,7 @@
     "./functions": "./src/functions/index.ts",
     "./functions/Callable": "./src/functions/Callable.ts",
     "./functions/CallableError": "./src/functions/CallableError.ts",
+    "./functions/CallableGroup": "./src/functions/CallableGroup.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -61,6 +62,7 @@
       "./functions": "./dist/functions/index.mjs",
       "./functions/Callable": "./dist/functions/Callable.mjs",
       "./functions/CallableError": "./dist/functions/CallableError.mjs",
+      "./functions/CallableGroup": "./dist/functions/CallableGroup.mjs",
       "./package.json": "./package.json"
     },
     "registry": "https://npm.pkg.github.com"

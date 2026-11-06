@@ -13,3 +13,11 @@ export * as Callable from "./Callable.ts";
  * @since 0.3.0
  */
 export * as CallableError from "./CallableError.ts";
+/**
+ * Callable Groups: named sets of Callables that deploy under the group's name
+ * as a prefix.
+ *
+ * @stability unstable
+ * @since 0.3.0
+ */
+export * as CallableGroup from "./CallableGroup.ts";

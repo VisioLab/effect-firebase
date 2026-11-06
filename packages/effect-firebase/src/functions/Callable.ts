@@ -29,7 +29,9 @@
  * @since 0.3.0
  */
 import { type Effect, type Layer, type Pipeable, Schema } from "effect";
+import type * as CallableGroup from "./CallableGroup.ts";
 import * as internal from "./internal/callable.ts";
+import { isCallableGroup } from "./internal/callableGroup.ts";
 
 const TypeId = internal.TypeId;
 
@@ -238,10 +240,17 @@ export type HandlerFunction<C extends Any, R> = (
  *
  * **When to use**
  *
- * Use to write the server side of a Callable in no group. The Layer is what
- * `CallableFunction.make` from `@visiolab/effect-firebase-functions` serves.
+ * Use to write the server side of a Callable. The Layer is what
+ * `CallableFunction.make` or `CallableFunction.group` from
+ * `@visiolab/effect-firebase-functions` serves.
  *
  * **Details**
+ *
+ * Pass the Callable for a Callable in no group. Pass its group and its name
+ * for a member of a {@link CallableGroup.CallableGroup}: the Layer then
+ * provides `Handler<"users", "create">`, which serves the member in that group
+ * only. A Layer from the Callable on its own doesn't serve it in a group, and
+ * a Callable in two groups needs a Layer for each.
  *
  * Takes the handler itself, or an Effect that builds it. The Effect runs once,
  * when the Layer is built, so do per-instance setup there.
@@ -282,6 +291,21 @@ export type HandlerFunction<C extends Any, R> = (
  * );
  * ```
  *
+ * @example Implementing a member of a group
+ * ```ts
+ * import { Effect, Schema } from "effect";
+ * import { Callable, CallableGroup } from "@visiolab/effect-firebase/functions";
+ *
+ * const CreateUser = Callable.make("create", {
+ *   payload: { name: Schema.String },
+ *   success: Schema.String,
+ * });
+ *
+ * class Users extends CallableGroup.make("users").add(CreateUser) {}
+ *
+ * const CreateUserLive = Callable.toLayer(Users, "create", ({ name }) => Effect.succeed(name));
+ * ```
+ *
  * @see {@link make} for declaring the Callable
  * @see {@link serve} for running a call against the handler
  *
@@ -289,16 +313,37 @@ export type HandlerFunction<C extends Any, R> = (
  * @category constructors
  * @since 0.3.0
  */
-export const toLayer = <C extends Any, R = never, EB = never, RB = never>(
-  callable: C,
-  handler: HandlerFunction<C, R> | Effect.Effect<HandlerFunction<C, R>, EB, RB>,
-): Layer.Layer<HandlerFor<C>, EB, R | RB> =>
-  // The handler's requirements are checked here, by the signature, and
-  // provided where the Layer is built.
-  internal.toLayer(callable.name, handler as unknown as internal.HandlerInput) as never;
+export const toLayer: {
+  <C extends Any, R = never, EB = never, RB = never>(
+    callable: C,
+    handler: HandlerFunction<C, R> | Effect.Effect<HandlerFunction<C, R>, EB, RB>,
+  ): Layer.Layer<HandlerFor<C>, EB, R | RB>;
+  <
+    G extends CallableGroup.Any,
+    const Name extends CallableGroup.Names<G>,
+    R = never,
+    EB = never,
+    RB = never,
+  >(
+    group: G,
+    name: Name,
+    handler:
+      | HandlerFunction<CallableGroup.Member<G, Name>, R>
+      | Effect.Effect<HandlerFunction<CallableGroup.Member<G, Name>, R>, EB, RB>,
+  ): Layer.Layer<Handler<G["identifier"], Name>, EB, R | RB>;
+} = ((...args: ReadonlyArray<unknown>) =>
+  // The handler's requirements are checked by the signatures, and provided
+  // where the Layer is built.
+  isCallableGroup(args[0])
+    ? internal.toLayer(args[0].identifier, args[1] as string, args[2] as internal.HandlerInput)
+    : internal.toLayer(
+        undefined,
+        (args[0] as Any).name,
+        args[1] as internal.HandlerInput,
+      )) as never;
 
 /**
- * Runs one call to a Callable in no group, as it arrives on the wire.
+ * Runs one call to a Callable, as it arrives on the wire.
  *
  * **When to use**
  *
@@ -307,6 +352,9 @@ export const toLayer = <C extends Any, R = never, EB = never, RB = never>(
  * `firebase-functions`.
  *
  * **Details**
+ *
+ * Pass the Callable for a Callable in no group, or its group and its name for
+ * a member of a {@link CallableGroup.CallableGroup}.
  *
  * Returns a function that decodes the raw Payload with the Payload's
  * `Schema.toCodecJson`, runs the handler, and encodes the success value with
@@ -321,10 +369,23 @@ export const toLayer = <C extends Any, R = never, EB = never, RB = never>(
  * @category serving
  * @since 0.3.0
  */
-export const serve = <C extends Any>(
-  callable: C,
-): Effect.Effect<
-  (data: unknown) => Effect.Effect<unknown, Schema.SchemaError>,
-  never,
-  HandlerFor<C>
-> => internal.serve(callable) as never;
+export const serve: {
+  <C extends Any>(
+    callable: C,
+  ): Effect.Effect<
+    (data: unknown) => Effect.Effect<unknown, Schema.SchemaError>,
+    never,
+    HandlerFor<C>
+  >;
+  <G extends CallableGroup.Any, const Name extends CallableGroup.Names<G>>(
+    group: G,
+    name: Name,
+  ): Effect.Effect<
+    (data: unknown) => Effect.Effect<unknown, Schema.SchemaError>,
+    never,
+    Handler<G["identifier"], Name>
+  >;
+} = ((...args: ReadonlyArray<unknown>) =>
+  isCallableGroup(args[0])
+    ? internal.serve(args[0].identifier, args[0].callables[args[1] as string]!)
+    : internal.serve(undefined, args[0] as Any)) as never;

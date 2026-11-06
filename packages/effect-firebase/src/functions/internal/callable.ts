@@ -60,9 +60,9 @@ export const handlerKey = (group: string | undefined, name: string) =>
   );
 
 /** @internal */
-export const toLayer = (name: string, handler: HandlerInput) =>
+export const toLayer = (group: string | undefined, name: string, handler: HandlerInput) =>
   Layer.effect(
-    handlerKey(undefined, name),
+    handlerKey(group, name),
     Effect.gen(function* () {
       const run = Effect.isEffect(handler) ? yield* handler : handler;
       // The services the Layer was built with, under those of the call.
@@ -81,8 +81,8 @@ export const toLayer = (name: string, handler: HandlerInput) =>
 const codec = (schema: Schema.Top) => Schema.toCodecJson(schema as Schema.Codec<unknown>);
 
 /** @internal */
-export const serve = (callable: Fields) =>
-  Effect.map(Effect.service(handlerKey(undefined, callable.name)), (handler) => {
+export const serve = (group: string | undefined, callable: Fields) =>
+  Effect.map(Effect.service(handlerKey(group, callable.name)), (handler) => {
     const decode = Schema.decodeUnknownEffect(codec(callable.payload));
     const encode = Schema.encodeUnknownEffect(codec(callable.success));
     return (data: unknown) =>
