@@ -3,6 +3,7 @@ import { Effect, Layer, Schema } from "effect";
 import * as Callable from "../../src/functions/Callable.ts";
 import * as CallableError from "../../src/functions/CallableError.ts";
 import * as CallableGroup from "../../src/functions/CallableGroup.ts";
+import * as CallableRequest from "../../src/functions/CallableRequest.ts";
 
 const GetUser = Callable.make("get", { payload: { id: Schema.String }, success: Schema.String });
 const DeleteUser = Callable.make("delete", { payload: { id: Schema.String } });
@@ -10,8 +11,9 @@ const DeleteUser = Callable.make("delete", { payload: { id: Schema.String } });
 class Users extends CallableGroup.make("users").add(GetUser, DeleteUser) {}
 class Admins extends CallableGroup.make("admins").add(GetUser) {}
 
-const call = <A, E, R>(serve: Effect.Effect<(data: unknown) => Effect.Effect<A, E>, never, R>) =>
-  serve.pipe(Effect.flatMap((run) => run({ id: "ada" })));
+const call = <A, E, R>(
+  serve: Effect.Effect<(request: CallableRequest.CallableRequest) => Effect.Effect<A, E>, never, R>,
+) => serve.pipe(Effect.flatMap((run) => run(CallableRequest.make({ data: { id: "ada" } }))));
 
 describe("CallableGroup", () => {
   it("serves its members under their names", () => {

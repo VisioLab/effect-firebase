@@ -44,6 +44,7 @@ import type { Layer } from "effect";
 import type * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import type * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
 import type * as Https from "firebase-functions/v2/https";
+import type * as FunctionsCallableRequest from "./FunctionsCallableRequest.ts";
 import * as internal from "./internal/callableFunction.ts";
 
 /**
@@ -100,20 +101,29 @@ export type GroupOptions<G extends CallableGroup.Any> = {
  * **Details**
  *
  * `live` must provide the Callable's handler, from `Callable.toLayer`, and
- * leave nothing required. It may provide more. Give each export a Layer of its
- * own where you can: a cold instance then builds only what its own function
- * needs.
+ * the implementation of each of its middleware, such as
+ * `Caller.Authenticated.layer`, and leave nothing required. It may provide
+ * more. `CallableFunction` provides no middleware itself. Give each export a
+ * Layer of its own where you can: a cold instance then builds only what its
+ * own function needs.
  *
  * `options` is Firebase's `CallableOptions`, passed to `onCall` unchanged.
  *
  * The export is exactly what `onCall` returns, so its `__endpoint` and `run`
  * work as for any `onCall` function.
  *
+ * Each call runs the Callable's middleware chain, the one `Callable.handler`
+ * runs, with Firebase's request provided as both `CallableRequest` and
+ * {@link FunctionsCallableRequest.FunctionsCallableRequest}. The Payload is
+ * decoded inside the chain, after the middleware.
+ *
  * A failed call answers with an `HttpsError`:
  *
- * - A declared error is sent with its schema's code, the error's `message`
- *   (else its `_tag`) and the error encoded with `Schema.toCodecJson` as
- *   `details`, so the client decodes it back into its class.
+ * - A declared error, or an error of a middleware, is sent with its schema's
+ *   code, the error's `message` (else its `_tag`) and the error encoded with
+ *   `Schema.toCodecJson` as `details`, so the client decodes it back into its
+ *   class. A middleware that rejects the call answers before the Payload is
+ *   decoded.
  * - A Payload that doesn't decode is answered with `invalid-argument`, a
  *   generic message and no details. It is logged at Debug.
  * - A defect, or a success or error value that doesn't encode, is answered
@@ -144,7 +154,7 @@ export type GroupOptions<G extends CallableGroup.Any> = {
  */
 export const make = <C extends Callable.Any, E>(
   callable: C,
-  live: Layer.Layer<Callable.HandlerFor<C>, E>,
+  live: Layer.Layer<Callable.ChainServices<C, Callable.HandlerFor<C>>, E>,
   options?: Https.CallableOptions,
 ): Exports<C> =>
   ({
@@ -164,7 +174,8 @@ export const make = <C extends Callable.Any, E>(
  * **Details**
  *
  * `live` must provide the handler of every member, each from
- * `Callable.toLayer(Users, name, handler)`, and leave nothing required. A
+ * `Callable.toLayer(Users, name, handler)`, and the implementation of every
+ * member's middleware, and leave nothing required. A
  * handler from `Callable.toLayer` of the Callable on its own doesn't serve it
  * in the group. `live` may provide more, such as the handlers of other groups.
  *
@@ -213,7 +224,7 @@ export const make = <C extends Callable.Any, E>(
  */
 export const group = <G extends CallableGroup.Any, E>(
   group: G,
-  live: Layer.Layer<CallableGroup.Handlers<G>, E>,
+  live: Layer.Layer<CallableGroup.ChainServices<G>, E>,
   options?: GroupOptions<G>,
 ): GroupExports<G> => {
   const exports: Record<string, Export> = {};

@@ -131,6 +131,22 @@ export type Handlers<G extends Any> =
     : never;
 
 /**
+ * What serving every member of a {@link CallableGroup} requires: each
+ * member's {@link Callable.Handler}, its middleware implementations and what
+ * its middleware chain still requires.
+ *
+ * @stability unstable
+ * @category type-level
+ * @since 0.3.0
+ */
+export type ChainServices<G extends Any> =
+  Names<G> extends infer Name
+    ? Name extends string
+      ? Callable.ChainServices<Member<G, Name>, Callable.Handler<G["identifier"], Name>>
+      : never
+    : never;
+
+/**
  * Checks whether a value is a {@link CallableGroup}.
  *
  * @stability unstable

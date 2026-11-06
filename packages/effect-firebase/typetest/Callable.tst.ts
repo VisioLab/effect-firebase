@@ -1,3 +1,7 @@
+// The tests pass handlers that fail with undeclared errors on purpose, to check
+// they are type errors; the language service would flag each of them a second
+// time.
+// @effect-diagnostics missingEffectError:off
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import { Context, Effect, type Layer, Schema } from "effect";

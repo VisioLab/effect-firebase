@@ -30,12 +30,14 @@
   "exports": {
     "./https": "./src/https/index.ts",
     "./https/CallableFunction": "./src/https/CallableFunction.ts",
+    "./https/FunctionsCallableRequest": "./src/https/FunctionsCallableRequest.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "exports": {
       "./https": "./dist/https/index.mjs",
       "./https/CallableFunction": "./dist/https/CallableFunction.mjs",
+      "./https/FunctionsCallableRequest": "./dist/https/FunctionsCallableRequest.mjs",
       "./package.json": "./package.json"
     },
     "registry": "https://npm.pkg.github.com"

@@ -77,7 +77,17 @@ export type Members<T extends Callable.Any | CallableGroup.Any> = T extends Call
   ? CallableGroup.Callables<T>
   : T;
 
-const method = (functions: Sdk.Functions, callable: Callable.Any, deployedName: string) => {
+/**
+ * The client function of `callable`, deployed as `deployedName`. `errors` are
+ * the schemas of every error it can be answered with, its middleware's
+ * included.
+ */
+const method = (
+  functions: Sdk.Functions,
+  callable: Callable.Any,
+  deployedName: string,
+  errors: ReadonlyArray<Schema.Top>,
+) => {
   const call = Sdk.httpsCallable(functions, deployedName);
   const encode = Schema.encodeUnknownEffect(
     Schema.toCodecJson(callable.payload as Schema.Codec<unknown>),
@@ -111,9 +121,7 @@ const method = (functions: Sdk.Functions, callable: Callable.Any, deployedName: 
       return Effect.fail(fail(new CallableError.TransportError({ cause: error })));
     }
     const code = error.code.replace(/^functions\//, "") as CallableError.ErrorCode;
-    const candidates = [...callable.error].filter(
-      (schema) => Callable.getErrorCode(schema) === code,
-    );
+    const candidates = errors.filter((schema) => Callable.getErrorCode(schema) === code);
     if (candidates.length === 0 || error.details === undefined) {
       return Effect.fail(
         fail(
@@ -222,11 +230,18 @@ export const make = <T extends Callable.Any | CallableGroup.Any>(
   Effect.map(Effect.service(ClientFunctions.ClientFunctions), ({ instance }) => {
     if (!CallableGroup.isCallableGroup(target)) {
       const callable = target as Callable.Any;
-      return { [callable.name]: method(instance, callable, callable.name) } as Client<T>;
+      return {
+        [callable.name]: method(instance, callable, callable.name, Callable.errorSchemas(callable)),
+      } as Client<T>;
     }
     const client: Record<string, ReturnType<typeof method>> = {};
     for (const [name, callable] of Object.entries(target.callables)) {
-      client[name] = method(instance, callable, `${target.identifier}-${name}`);
+      client[name] = method(
+        instance,
+        callable,
+        `${target.identifier}-${name}`,
+        Callable.errorSchemas(target, name),
+      );
     }
     return client as Client<T>;
   });

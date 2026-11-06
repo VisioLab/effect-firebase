@@ -28,9 +28,11 @@
  * @stability unstable
  * @since 0.3.0
  */
-import { type Effect, type Layer, type Pipeable, Schema } from "effect";
+import { type Context, type Effect, type Layer, type Pipeable, Schema } from "effect";
 import type * as CallableError from "./CallableError.ts";
 import type * as CallableGroup from "./CallableGroup.ts";
+import type * as CallableMiddleware from "./CallableMiddleware.ts";
+import type * as CallableRequest from "./CallableRequest.ts";
 import * as internal from "./internal/callable.ts";
 import { isCallableGroup } from "./internal/callableGroup.ts";
 
@@ -54,6 +56,8 @@ export interface Callable<
   out Payload extends Schema.Top = Schema.Void,
   out Success extends Schema.Top = Schema.Void,
   out Error extends Schema.Top = never,
+  out Middleware = never,
+  out MiddlewareServices = never,
 >
   extends Pipeable.Pipeable {
   readonly [TypeId]: typeof TypeId;
@@ -65,10 +69,41 @@ export interface Callable<
   readonly success: Success;
   /** The schemas of the errors the handler can fail with. */
   readonly error: ReadonlySet<Error>;
+  /** The Callable's own middleware, in the order it was attached. */
+  readonly middlewares: ReadonlySet<CallableMiddleware.AnyKey>;
+  /** The middleware attached to the Callable, as a union. Types only. */
+  readonly "~Middleware": Middleware;
+  /** What the middleware chain still requires. Types only. */
+  readonly "~MiddlewareServices": MiddlewareServices;
+
+  /**
+   * Attaches a Callable Middleware to the Callable.
+   *
+   * **Details**
+   *
+   * Returns a new Callable. The middleware runs around every call, before
+   * the Payload is decoded. A middleware attached later wraps the ones
+   * attached before it, so it can provide what they require.
+   *
+   * Its `provides` are removed from what the handler's Layer requires, and
+   * its errors join the Callable's error union. Its implementation is
+   * required where the chain runs: by `CallableFunction` and by
+   * {@link handler}.
+   */
+  middleware<I extends CallableMiddleware.AnyId, S>(
+    middleware: Context.Key<I, S>,
+  ): Callable<
+    Name,
+    Payload,
+    Success,
+    Error,
+    Middleware | I,
+    CallableMiddleware.ApplyServices<I, MiddlewareServices>
+  >;
 }
 
 /**
- * Any {@link Callable}, whatever its name and schemas.
+ * Any {@link Callable}, whatever its name, schemas and middleware.
  *
  * @stability unstable
  * @category models
@@ -80,7 +115,39 @@ export interface Any {
   readonly payload: Schema.Top;
   readonly success: Schema.Top;
   readonly error: ReadonlySet<Schema.Top>;
+  readonly middlewares: ReadonlySet<CallableMiddleware.AnyKey>;
 }
+
+/**
+ * The middleware attached to a {@link Callable}, as a union of the middleware
+ * service types.
+ *
+ * @stability unstable
+ * @category type-level
+ * @since 0.3.0
+ */
+export type Middleware<C> = C extends { readonly "~Middleware": infer M } ? M : never;
+
+/**
+ * What the middleware chain of a {@link Callable} still requires: the
+ * `requires` of each middleware that no middleware outside it provides.
+ *
+ * @stability unstable
+ * @category type-level
+ * @since 0.3.0
+ */
+export type MiddlewareServices<C> = C extends { readonly "~MiddlewareServices": infer R }
+  ? Exclude<R, CallableRequest.CallableRequest>
+  : never;
+
+/**
+ * What the middleware of a {@link Callable} provides to its handler.
+ *
+ * @stability unstable
+ * @category type-level
+ * @since 0.3.0
+ */
+export type MiddlewareProvides<C> = CallableMiddleware.Provides<Middleware<C>>;
 
 /**
  * The Payload type of a {@link Callable}: what its handler receives.
@@ -108,11 +175,12 @@ export type Success<C extends Any> = C["success"]["Type"];
  * @since 0.3.0
  */
 export type ErrorSchema<C extends Any> =
-  C["error"] extends ReadonlySet<infer S extends Schema.Top> ? S : never;
+  | (C["error"] extends ReadonlySet<infer S extends Schema.Top> ? S : never)
+  | CallableMiddleware.ErrorSchema<Middleware<C>>;
 
 /**
  * The error type of a {@link Callable}: what its handler can fail with, and
- * what its client decodes back.
+ * what its client decodes back. It includes the errors of its middleware.
  *
  * @stability unstable
  * @category type-level
@@ -229,6 +297,7 @@ export const make = <
   const error: Schema.Top | ReadonlyArray<Schema.Top> | undefined = options?.error;
   return internal.make({
     error: new Set(error === undefined ? [] : Schema.isSchema(error) ? [error] : error),
+    middlewares: new Set(),
     name,
     payload:
       payload === undefined
@@ -295,6 +364,44 @@ export type HandlerFunction<C extends Any, R> = (
 ) => Effect.Effect<Success<C>, Error<C>, R>;
 
 /**
+ * What a handler that requires `R` leaves for its {@link toLayer} Layer to
+ * require: `R` without what the Callable's middleware provides and without
+ * the {@link CallableRequest.CallableRequest}, which every call provides.
+ *
+ * @stability unstable
+ * @category type-level
+ * @since 0.3.0
+ */
+export type HandlerServices<C, R> = Exclude<
+  R,
+  MiddlewareProvides<C> | CallableRequest.CallableRequest
+>;
+
+/**
+ * What {@link handler} yields: the Callable's handler behind its middleware
+ * chain, run in process.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export type HandlerCall<C extends Any> = (
+  payload: Payload<C>,
+  request: CallableRequest.Input,
+) => Effect.Effect<Success<C>, Error<C>>;
+
+/**
+ * What running the middleware chain of a {@link Callable} requires: its
+ * handler, each middleware implementation, and what the chain still
+ * requires.
+ *
+ * @stability unstable
+ * @category type-level
+ * @since 0.3.0
+ */
+export type ChainServices<C extends Any, H> = H | Middleware<C> | MiddlewareServices<C>;
+
+/**
  * Implements a Callable as a Layer.
  *
  * **When to use**
@@ -316,7 +423,11 @@ export type HandlerFunction<C extends Any, R> = (
  *
  * The Layer requires what the handler needs on each call and what building it
  * needs. Both are provided where the Layer is built: services built with the
- * Layer are shared by every call.
+ * Layer are shared by every call. What the Callable's middleware provides,
+ * such as the `Caller`, and the {@link CallableRequest.CallableRequest} are
+ * provided per call instead, so the Layer doesn't require them. Nor does it
+ * require the middleware's implementations: those are required where the
+ * chain runs.
  *
  * @example Implementing a Callable
  * ```ts
@@ -376,7 +487,7 @@ export const toLayer: {
   <C extends Any, R = never, EB = never, RB = never>(
     callable: C,
     handler: HandlerFunction<C, R> | Effect.Effect<HandlerFunction<C, R>, EB, RB>,
-  ): Layer.Layer<HandlerFor<C>, EB, R | RB>;
+  ): Layer.Layer<HandlerFor<C>, EB, HandlerServices<C, R> | RB>;
   <
     G extends CallableGroup.Any,
     const Name extends CallableGroup.Names<G>,
@@ -389,7 +500,11 @@ export const toLayer: {
     handler:
       | HandlerFunction<CallableGroup.Member<G, Name>, R>
       | Effect.Effect<HandlerFunction<CallableGroup.Member<G, Name>, R>, EB, RB>,
-  ): Layer.Layer<Handler<G["identifier"], Name>, EB, R | RB>;
+  ): Layer.Layer<
+    Handler<G["identifier"], Name>,
+    EB,
+    HandlerServices<CallableGroup.Member<G, Name>, R> | RB
+  >;
 } = ((...args: ReadonlyArray<unknown>) =>
   // The handler's requirements are checked by the signatures, and provided
   // where the Layer is built.
@@ -415,16 +530,23 @@ export const toLayer: {
  * Pass the Callable for a Callable in no group, or its group and its name for
  * a member of a {@link CallableGroup.CallableGroup}.
  *
- * Returns a function that decodes the raw Payload with the Payload's
- * `Schema.toCodecJson`, runs the handler, and encodes the success value with
- * the success schema's `Schema.toCodecJson`. Its result is plain JSON.
+ * Returns a function of the call's {@link CallableRequest.CallableRequest}. It
+ * runs the middleware chain, the same one {@link handler} runs. Inside it, it
+ * decodes the raw `data` with the Payload's `Schema.toCodecJson` and runs the
+ * handler. It then encodes the success value with the success schema's
+ * `Schema.toCodecJson`, so its result is plain JSON. The request is provided
+ * to the chain; provide an SDK's request service around the call yourself.
+ *
+ * Requires the handler, every middleware implementation, and what the chain
+ * still requires. They are read once, so a call needs nothing else.
  *
  * Every failure is a `CallableError` whose `ResponseError` reason is what to
  * answer with:
  *
- * - A declared error is sent with its schema's code, the error's `message`
- *   if it is a non-empty string, else its `_tag`, and the error encoded with
- *   its schema's `Schema.toCodecJson` as `details`.
+ * - A declared error, or an error of a middleware, is sent with its schema's
+ *   code, the error's `message` if it is a non-empty string, else its `_tag`,
+ *   and the error encoded with its schema's `Schema.toCodecJson` as
+ *   `details`.
  * - A raw Payload that doesn't decode is sent as `invalid-argument` with a
  *   generic message and no details. The `Schema.SchemaError` is logged at
  *   Debug.
@@ -436,6 +558,7 @@ export const toLayer: {
  * or `<group>-<name>` for a member of a group.
  *
  * @see {@link toLayer} for providing the handler
+ * @see {@link handler} for running the handler in process, with typed values
  *
  * @stability unstable
  * @category serving
@@ -445,22 +568,96 @@ export const serve: {
   <C extends Any>(
     callable: C,
   ): Effect.Effect<
-    (data: unknown) => Effect.Effect<unknown, CallableError.CallableError>,
+    (
+      request: CallableRequest.CallableRequest,
+    ) => Effect.Effect<unknown, CallableError.CallableError>,
     never,
-    HandlerFor<C>
+    ChainServices<C, HandlerFor<C>>
   >;
   <G extends CallableGroup.Any, const Name extends CallableGroup.Names<G>>(
     group: G,
     name: Name,
   ): Effect.Effect<
-    (data: unknown) => Effect.Effect<unknown, CallableError.CallableError>,
+    (
+      request: CallableRequest.CallableRequest,
+    ) => Effect.Effect<unknown, CallableError.CallableError>,
     never,
-    Handler<G["identifier"], Name>
+    ChainServices<CallableGroup.Member<G, Name>, Handler<G["identifier"], Name>>
   >;
 } = ((...args: ReadonlyArray<unknown>) =>
   isCallableGroup(args[0])
-    ? internal.serve(args[0].identifier, args[0].callables[args[1] as string]!)
-    : internal.serve(undefined, args[0] as Any)) as never;
+    ? internal.serve(args[0], args[0].callables[args[1] as string]!)
+    : internal.serve(undefined, args[0] as internal.Fields)) as never;
+
+/**
+ * Runs a Callable's handler in process, behind its middleware chain.
+ *
+ * **When to use**
+ *
+ * Use to test a handler and its middleware without the emulator and without
+ * `firebase-functions`. Provide the same Layers you serve it with, or stub a
+ * middleware with a Layer of your own.
+ *
+ * **Details**
+ *
+ * Pass the Callable for a Callable in no group, or its group and its name for
+ * a member of a {@link CallableGroup.CallableGroup}.
+ *
+ * Requires the handler, every middleware implementation, and what the chain
+ * still requires. A middleware whose `requires` no middleware outside it
+ * provides leaves that requirement here, so a chain in the wrong order is a
+ * type error where the Layers are provided.
+ *
+ * Yields a function of the Payload and a {@link CallableRequest.Input}: `{}`
+ * for a signed-out call, `{ auth: { uid, token } }` for a signed-in one. It
+ * encodes the Payload with `Schema.toCodecJson` as the request's raw `data`,
+ * so middleware sees what it would see on the wire. It runs the chain that
+ * `CallableFunction` runs, and fails with the Callable's declared errors and
+ * those of its middleware. The success value is the handler's, not encoded.
+ *
+ * @example Running a handler behind Authenticated
+ * ```ts
+ * import { Effect, Layer, Schema } from "effect";
+ * import { Callable, Caller } from "@visiolab/effect-firebase/functions";
+ *
+ * const WhoAmI = Callable.make("whoAmI", { success: Schema.String }).middleware(
+ *   Caller.Authenticated,
+ * );
+ *
+ * const WhoAmILive = Callable.toLayer(WhoAmI, () =>
+ *   Effect.map(Effect.service(Caller.Caller), ({ uid }) => uid),
+ * );
+ *
+ * const program = Effect.gen(function* () {
+ *   const whoAmI = yield* Callable.handler(WhoAmI);
+ *   // "ada"
+ *   return yield* whoAmI(undefined, { auth: { uid: "ada", token: {} } });
+ * }).pipe(Effect.provide(Layer.merge(WhoAmILive, Caller.Authenticated.layer)));
+ * ```
+ *
+ * @see {@link serve} for running a call as it arrives on the wire
+ * @see {@link toLayer} for providing the handler
+ *
+ * @stability unstable
+ * @category serving
+ * @since 0.3.0
+ */
+export const handler: {
+  <C extends Any>(
+    callable: C,
+  ): Effect.Effect<HandlerCall<C>, never, ChainServices<C, HandlerFor<C>>>;
+  <G extends CallableGroup.Any, const Name extends CallableGroup.Names<G>>(
+    group: G,
+    name: Name,
+  ): Effect.Effect<
+    HandlerCall<CallableGroup.Member<G, Name>>,
+    never,
+    ChainServices<CallableGroup.Member<G, Name>, Handler<G["identifier"], Name>>
+  >;
+} = ((...args: ReadonlyArray<unknown>) =>
+  isCallableGroup(args[0])
+    ? internal.handler(args[0], args[0].callables[args[1] as string]!)
+    : internal.handler(undefined, args[0] as internal.Fields)) as never;
 
 /**
  * Sets the Firebase error code a Callable answers with when it fails with
@@ -523,3 +720,31 @@ export const errorCode =
  * @since 0.3.0
  */
 export const getErrorCode: (schema: Schema.Top) => CallableError.ErrorCode = internal.getErrorCode;
+
+/**
+ * The schemas of every error a call can be answered with: the Callable's
+ * declared errors, then those of its middleware.
+ *
+ * **When to use**
+ *
+ * Use when calling Callables from a transport of your own, to decode an
+ * error's `details` against the schemas that carry its code.
+ *
+ * **Details**
+ *
+ * Pass the Callable for a Callable in no group, or its group and its name for
+ * a member of a {@link CallableGroup.CallableGroup}.
+ *
+ * @see {@link getErrorCode} for the code of each schema
+ *
+ * @stability unstable
+ * @category errors
+ * @since 0.3.0
+ */
+export const errorSchemas: {
+  (callable: Any): ReadonlyArray<Schema.Top>;
+  <G extends CallableGroup.Any>(group: G, name: CallableGroup.Names<G>): ReadonlyArray<Schema.Top>;
+} = ((...args: ReadonlyArray<unknown>) =>
+  isCallableGroup(args[0])
+    ? internal.errorSchemas(args[0], args[0].callables[args[1] as string]!)
+    : internal.errorSchemas(undefined, args[0] as internal.Fields)) as never;

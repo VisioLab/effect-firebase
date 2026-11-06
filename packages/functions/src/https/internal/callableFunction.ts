@@ -3,7 +3,9 @@ import { Cause, Effect, Exit, Layer, Scope, type Context } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import type * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
+import type * as CallableRequest from "@visiolab/effect-firebase/functions/CallableRequest";
 import * as Https from "firebase-functions/v2/https";
+import * as FunctionsCallableRequest from "../FunctionsCallableRequest.ts";
 
 /**
  * The memo map and scope every Layer of this process is built in, so a Layer
@@ -74,16 +76,20 @@ export const onCall = <R, E>(
 ) => {
   const context = lazyContext(live);
   const serve: Effect.Effect<
-    (data: unknown) => Effect.Effect<unknown, CallableError.CallableError>,
+    (
+      request: CallableRequest.CallableRequest,
+    ) => Effect.Effect<unknown, CallableError.CallableError>,
     never,
-    Callable.Handler<unknown, string>
+    unknown
   > = group === undefined ? Callable.serve(callable) : Callable.serve(group, callable.name);
   return Https.onCall<unknown, Promise<unknown>>(options, async (request, response) => {
     const services = await context();
     const signal = response?.signal;
+    const callRequest = FunctionsCallableRequest.make(request);
     const exit = await Effect.runPromiseExit(
       serve.pipe(
-        Effect.flatMap((run) => run(request.data)),
+        Effect.flatMap((run) => run(callRequest)),
+        Effect.provideContext(FunctionsCallableRequest.context(callRequest)),
         // The public signatures check that `live` provides the handler.
         Effect.provideContext(services as Context.Context<any>),
       ),
