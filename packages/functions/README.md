@@ -73,3 +73,30 @@ export const { users } = CallableFunction.group(Users, UsersLive, {
 - The options are a sparse map of `CallableOptions` keyed by member name. The group has none of its own.
 - A Callable can be in more than one group. Each group serves and implements it separately.
 - Build the client from the group, `CallableClient.make(Users)`. A client built from the member on its own calls the unprefixed name and gets `not-found`.
+
+## Middleware and the Caller
+
+Requirements such as "the caller is signed in" are Callable Middleware on the contract. The built-in `Caller.Authenticated` provides the `Caller` and fails a signed-out call with `CallableError.Unauthenticated`, before the Payload is decoded:
+
+```ts
+import { Effect, Layer, Schema } from "effect";
+import { Callable, Caller } from "@visiolab/effect-firebase/functions";
+import { CallableFunction } from "@visiolab/effect-firebase-functions/https";
+
+const WhoAmI = Callable.make("whoAmI", { success: Schema.String }).middleware(Caller.Authenticated);
+
+const WhoAmILive = Callable.toLayer(WhoAmI, () =>
+  Effect.map(Effect.service(Caller.Caller), ({ uid }) => uid),
+);
+
+// `Live` provides the handler and every middleware implementation.
+export const { whoAmI } = CallableFunction.make(
+  WhoAmI,
+  Layer.merge(WhoAmILive, Caller.Authenticated.layer),
+);
+```
+
+- Declare a middleware of your own with `CallableMiddleware.Service`. Its implementation wraps the call and reads the portable `CallableRequest`. `FunctionsCallableRequest` has the rest of Firebase's request, such as `rawRequest`.
+- A middleware attached later wraps the ones attached before it.
+- `CallableFunction` provides no middleware itself, so a `Live` without an implementation is a type error.
+- Run a handler in process, with its chain and without the emulator, through `Callable.handler(WhoAmI)`.
