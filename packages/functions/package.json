@@ -30,12 +30,16 @@
   "exports": {
     "./https": "./src/https/index.ts",
     "./https/CallableFunction": "./src/https/CallableFunction.ts",
+    "./logger": "./src/logger/index.ts",
+    "./logger/CloudLogging": "./src/logger/CloudLogging.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "exports": {
       "./https": "./dist/https/index.mjs",
       "./https/CallableFunction": "./dist/https/CallableFunction.mjs",
+      "./logger": "./dist/logger/index.mjs",
+      "./logger/CloudLogging": "./dist/logger/CloudLogging.mjs",
       "./package.json": "./package.json"
     },
     "registry": "https://npm.pkg.github.com"
