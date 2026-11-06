@@ -80,5 +80,5 @@ What runs on the server to answer calls to one **Callable**.
 _Avoid_: implementation, resolver
 
 **Callable Function**:
-The deployed Firebase function that serves a **Callable**.
+The deployed Firebase function that serves exactly one **Callable**.
 _Avoid_: cloud function, onCall export
