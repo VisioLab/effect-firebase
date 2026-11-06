@@ -9,7 +9,7 @@
  * @example Initializing the app for a program
  * ```ts
  * import { Effect } from "effect";
- * import { App } from "@visiolab/effect-firebase-admin";
+ * import { App } from "@visiolab/effect-firebase-admin/app";
  *
  * const program = Effect.gen(function* () {
  *   const app = yield* App.App;
@@ -28,9 +28,9 @@ import { Context, Effect, Layer, Schema } from "effect";
 import type * as Admin from "firebase-admin/app";
 // Only the module's documentation links to these.
 // oxlint-disable-next-line no-unused-vars
-import type * as Auth from "./Auth.ts";
+import type * as Auth from "../auth/Auth.ts";
 // oxlint-disable-next-line no-unused-vars
-import type * as AdminFirestore from "./firestore/AdminFirestore.ts";
+import type * as AdminFirestore from "../firestore/AdminFirestore.ts";
 import * as internalApp from "./internal/app.ts";
 
 /**
@@ -54,7 +54,7 @@ export interface App extends Admin.App {}
  * ```ts
  * import { Layer } from "effect";
  * import { getApp } from "firebase-admin/app";
- * import { App } from "@visiolab/effect-firebase-admin";
+ * import { App } from "@visiolab/effect-firebase-admin/app";
  *
  * const AppLive = Layer.succeed(App.App, getApp());
  * ```
@@ -65,7 +65,7 @@ export interface App extends Admin.App {}
  * @category services
  * @since 0.1.0
  */
-export const App = Context.Service<App>("@visiolab/effect-firebase-admin/App");
+export const App = Context.Service<App>("@visiolab/effect-firebase-admin/app/App");
 
 /**
  * Fails {@link make} and {@link layer} when the Admin SDK refuses to initialize
@@ -142,7 +142,7 @@ export const make = Effect.fn("App.make")(function* (options?: Admin.AppOptions,
  *
  * @example Initializing a named app with explicit options
  * ```ts
- * import { App } from "@visiolab/effect-firebase-admin";
+ * import { App } from "@visiolab/effect-firebase-admin/app";
  *
  * const AppLive = App.layer({ projectId: "my-project" }, "secondary");
  * ```

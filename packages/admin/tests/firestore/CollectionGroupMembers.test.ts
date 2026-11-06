@@ -4,7 +4,7 @@ import { Firestore, UndefinedCollectionError } from "@visiolab/effect-firebase/f
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as CollectionGroup from "@visiolab/effect-firebase/firestore/CollectionGroup";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
-import * as App from "../../src/App.ts";
+import * as App from "../../src/app/App.ts";
 import * as AdminFirestore from "../../src/firestore/AdminFirestore.ts";
 import { clear } from "./emulator.ts";
 

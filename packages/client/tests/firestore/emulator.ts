@@ -1,6 +1,6 @@
 import { Effect, Layer, Queue, Stream } from "effect";
 import { disableNetwork, enableNetwork } from "firebase/firestore";
-import * as App from "../../src/App.ts";
+import * as App from "../../src/app/App.ts";
 import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
 
 const host = process.env["FIRESTORE_EMULATOR_HOST"] ?? "127.0.0.1:8080";

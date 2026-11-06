@@ -14,7 +14,7 @@ pnpm add effect @visiolab/effect-firebase @visiolab/effect-firebase-client fireb
 
 ```ts
 import { Effect } from "effect";
-import { App } from "@visiolab/effect-firebase-client";
+import { App } from "@visiolab/effect-firebase-client/app";
 
 const program = Effect.gen(function* () {
   const app = yield* App.App;
@@ -31,7 +31,7 @@ An app already registered under the same name is not deleted when the scope clos
 ```ts
 import { Layer } from "effect";
 import { getApp } from "firebase/app";
-import { App } from "@visiolab/effect-firebase-client";
+import { App } from "@visiolab/effect-firebase-client/app";
 
 const AppLive = Layer.succeed(App.App, getApp());
 ```
@@ -43,7 +43,7 @@ const AppLive = Layer.succeed(App.App, getApp());
 ```ts
 import { Layer } from "effect";
 import { persistentLocalCache } from "firebase/firestore";
-import { App } from "@visiolab/effect-firebase-client";
+import { App } from "@visiolab/effect-firebase-client/app";
 import { ClientFirestore } from "@visiolab/effect-firebase-client/firestore";
 
 const FirestoreLive = ClientFirestore.layer({

@@ -2,8 +2,8 @@
  * What the SDK packages' `App` modules share.
  *
  * The app service itself belongs to each SDK package: see the `App` modules
- * of [`@visiolab/effect-firebase-admin`](/api/admin/App/) and
- * [`@visiolab/effect-firebase-client`](/api/client/App/).
+ * of [`@visiolab/effect-firebase-admin`](/api/admin/app/App/) and
+ * [`@visiolab/effect-firebase-client`](/api/client/app/App/).
  *
  * @stability unstable
  * @since 0.1.0

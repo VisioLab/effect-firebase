@@ -31,7 +31,7 @@ import {
   Timestamp as SdkTimestamp,
   vector,
 } from "firebase/firestore";
-import * as App from "../../src/App.ts";
+import * as App from "../../src/app/App.ts";
 import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
 import { clear, emulator, fresh, holding, offline } from "./emulator.ts";
 

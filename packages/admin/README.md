@@ -14,7 +14,7 @@ pnpm add effect @visiolab/effect-firebase @visiolab/effect-firebase-admin fireba
 
 ```ts
 import { Effect } from "effect";
-import { App } from "@visiolab/effect-firebase-admin";
+import { App } from "@visiolab/effect-firebase-admin/app";
 
 const program = Effect.gen(function* () {
   const app = yield* App.App;
@@ -29,7 +29,7 @@ An app already registered under the same name is not deleted when the scope clos
 ```ts
 import { Layer } from "effect";
 import { getApp } from "firebase-admin/app";
-import { App } from "@visiolab/effect-firebase-admin";
+import { App } from "@visiolab/effect-firebase-admin/app";
 
 const AppLive = Layer.succeed(App.App, getApp());
 ```
@@ -40,7 +40,7 @@ const AppLive = Layer.succeed(App.App, getApp());
 
 ```ts
 import { Layer } from "effect";
-import { App } from "@visiolab/effect-firebase-admin";
+import { App } from "@visiolab/effect-firebase-admin/app";
 import { AdminFirestore } from "@visiolab/effect-firebase-admin/firestore";
 
 const FirestoreLive = AdminFirestore.layer().pipe(Layer.provide(App.layer()));
@@ -60,7 +60,8 @@ Where it differs from the client SDK's:
 
 ```ts
 import { Effect, Layer } from "effect";
-import { App, Auth } from "@visiolab/effect-firebase-admin";
+import { App } from "@visiolab/effect-firebase-admin/app";
+import { Auth } from "@visiolab/effect-firebase-admin/auth";
 
 const makeAdmin = (idToken: string) =>
   Effect.gen(function* () {

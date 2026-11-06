@@ -1,4 +1,4 @@
-import * as App from "@visiolab/effect-firebase-admin/App";
+import * as App from "@visiolab/effect-firebase-admin/app/App";
 import * as AdminFirestore from "@visiolab/effect-firebase-admin/firestore/AdminFirestore";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as CollectionGroup from "@visiolab/effect-firebase/firestore/CollectionGroup";

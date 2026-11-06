@@ -10,7 +10,7 @@
  * ```ts
  * import { Effect, Layer, Schema } from "effect";
  * import { Collection, Firestore, FirestoreModel } from "@visiolab/effect-firebase/firestore";
- * import { App } from "@visiolab/effect-firebase-admin";
+ * import { App } from "@visiolab/effect-firebase-admin/app";
  * import { AdminFirestore } from "@visiolab/effect-firebase-admin/firestore";
  *
  * class Post extends FirestoreModel.Class<Post>("Post")({
@@ -40,7 +40,7 @@ import { Context, Effect, Layer } from "effect";
 import { Firestore, type With } from "@visiolab/effect-firebase/firestore/Firestore";
 import type { Transaction } from "@visiolab/effect-firebase/firestore/Firestore";
 import type * as Admin from "firebase-admin/firestore";
-import type * as App from "../App.ts";
+import type * as App from "../app/App.ts";
 import * as internalFirestore from "./internal/firestore.ts";
 
 /**
@@ -257,7 +257,7 @@ const both = (service: AdminFirestore) =>
  * @example Providing Firestore against the emulator
  * ```ts
  * import { Layer } from "effect";
- * import { App } from "@visiolab/effect-firebase-admin";
+ * import { App } from "@visiolab/effect-firebase-admin/app";
  * import { AdminFirestore } from "@visiolab/effect-firebase-admin/firestore";
  *
  * // The Admin SDK reads FIRESTORE_EMULATOR_HOST, such as "127.0.0.1:8080".

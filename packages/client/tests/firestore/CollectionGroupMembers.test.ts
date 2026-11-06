@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect, Equal, Layer, Schema } from "effect";
 import { Firestore, UndefinedCollectionError } from "@visiolab/effect-firebase/firestore/Firestore";
 import { Collection, CollectionGroup, FirestoreModel } from "@visiolab/effect-firebase/firestore";
-import * as App from "../../src/App.ts";
+import * as App from "../../src/app/App.ts";
 import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
 import { clear, emulator } from "./emulator.ts";
 

@@ -1,5 +1,5 @@
 import { Effect } from "effect";
-import { defaultAppName } from "@visiolab/effect-firebase/App";
+import { defaultAppName } from "@visiolab/effect-firebase/app/App";
 import * as Admin from "firebase-admin/app";
 import type * as App from "../App.ts";
 

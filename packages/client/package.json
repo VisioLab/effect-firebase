@@ -27,8 +27,8 @@
   "type": "module",
   "sideEffects": [],
   "exports": {
-    ".": "./src/index.ts",
-    "./App": "./src/App.ts",
+    "./app": "./src/app/index.ts",
+    "./app/App": "./src/app/App.ts",
     "./firestore": "./src/firestore/index.ts",
     "./firestore/ClientDocumentSnapshot": "./src/firestore/ClientDocumentSnapshot.ts",
     "./firestore/ClientFirestore": "./src/firestore/ClientFirestore.ts",
@@ -38,8 +38,8 @@
   },
   "publishConfig": {
     "exports": {
-      ".": "./dist/index.mjs",
-      "./App": "./dist/App.mjs",
+      "./app": "./dist/app/index.mjs",
+      "./app/App": "./dist/app/App.mjs",
       "./firestore": "./dist/firestore/index.mjs",
       "./firestore/ClientDocumentSnapshot": "./dist/firestore/ClientDocumentSnapshot.mjs",
       "./firestore/ClientFirestore": "./dist/firestore/ClientFirestore.mjs",
