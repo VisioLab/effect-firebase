@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 import { Context, Data, Effect, Layer, Logger } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
+import * as Caller from "@visiolab/effect-firebase/functions/Caller";
 import * as CallableFunction from "../../../src/https/CallableFunction.ts";
 import { onCall } from "firebase-functions/v2/https";
 import {
@@ -22,6 +23,7 @@ import {
   NameTaken,
   Unexplained,
   Users,
+  WhoAmI,
   Workers,
 } from "./contract.ts";
 
@@ -170,4 +172,14 @@ export const { flaky } = CallableFunction.make(
           Effect.succeed({ builds }),
     ),
   ).pipe(Layer.provide(ConnectionLive)),
+);
+
+export const { whoAmI } = CallableFunction.make(
+  WhoAmI,
+  Layer.merge(
+    Callable.toLayer(WhoAmI, ({ greeting }) =>
+      Effect.map(Effect.service(Caller.Caller), ({ uid }) => `${greeting}, ${uid}!`),
+    ),
+    Caller.Authenticated.layer,
+  ),
 );

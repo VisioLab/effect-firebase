@@ -21,6 +21,7 @@ export default async function (project: TestProject) {
   for (const [name, variable] of [
     ["Firestore", "FIRESTORE_EMULATOR_HOST"],
     ["Functions", "FUNCTIONS_EMULATOR_HOST"],
+    ["Auth", "FIREBASE_AUTH_EMULATOR_HOST"],
   ] as const) {
     const host = project.config.env[variable];
     if (await answers(host)) continue;

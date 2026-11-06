@@ -7,6 +7,7 @@ import { Schema } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
+import * as Caller from "@visiolab/effect-firebase/functions/Caller";
 
 /** A Callable in no group, with a `Date` each way. */
 export const Greet = Callable.make("greet", {
@@ -99,3 +100,9 @@ export const Flaky = Callable.make("flaky", {
 
 /** `Fail` again, as a member of a group, deployed as `failing-fail`. */
 export class Failing extends CallableGroup.make("failing").add(Fail) {}
+
+/** Greets the signed-in Caller by uid, behind `Authenticated`. */
+export const WhoAmI = Callable.make("whoAmI", {
+  payload: { greeting: Schema.String },
+  success: Schema.String,
+}).middleware(Caller.Authenticated);
