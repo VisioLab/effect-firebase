@@ -72,7 +72,7 @@ A server function the client calls by name, declared once as its name, its **Pay
 _Avoid_: rpc, endpoint, callable function (for the declaration)
 
 **Callable Group**:
-A named set of **Callables** whose functions deploy under the group's name as a prefix. A Callable belongs to at most one group, and groups do not nest.
+A named set of **Callables** whose functions deploy under the group's name as a prefix. A Callable may be added to more than one group, and each group serves and implements it separately. **Callable Middleware** attached to a group applies to all its Callables. Groups do not nest.
 _Avoid_: api, router, namespace
 
 **Payload**:
