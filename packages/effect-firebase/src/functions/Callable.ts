@@ -29,6 +29,7 @@
  * @since 0.3.0
  */
 import { type Effect, type Layer, type Pipeable, Schema } from "effect";
+import type * as CallableError from "./CallableError.ts";
 import * as internal from "./internal/callable.ts";
 
 const TypeId = internal.TypeId;
@@ -328,3 +329,66 @@ export const serve = <C extends Any>(
   never,
   HandlerFor<C>
 > => internal.serve(callable) as never;
+
+/**
+ * Sets the Firebase error code a Callable answers with when it fails with
+ * errors of this schema.
+ *
+ * **When to use**
+ *
+ * Use to give a code to an error schema you don't own. For an error class of
+ * your own, set `callableErrorCode` in its annotations instead, so every
+ * Callable that lists it uses the same code.
+ *
+ * **Details**
+ *
+ * An error schema without a code is sent as `internal`. The client reads the
+ * code to find the declared errors to decode the answer against, so the code
+ * is part of the contract.
+ *
+ * @example Giving codes to error schemas
+ * ```ts
+ * import { Schema } from "effect";
+ * import { Callable } from "@visiolab/effect-firebase/functions";
+ *
+ * class NameTaken extends Schema.TaggedError<NameTaken>()(
+ *   "NameTaken",
+ *   { name: Schema.String },
+ *   { callableErrorCode: "already-exists" },
+ * ) {}
+ *
+ * class Banned extends Schema.TaggedError<Banned>()("Banned", {}) {}
+ *
+ * const Register = Callable.make("register", {
+ *   payload: { name: Schema.String },
+ *   error: [NameTaken, Banned.pipe(Callable.errorCode("permission-denied"))],
+ * });
+ * ```
+ *
+ * @see {@link getErrorCode} for reading the code back
+ *
+ * @stability unstable
+ * @category errors
+ * @since 0.3.0
+ */
+export const errorCode =
+  (code: CallableError.ErrorCode) =>
+  <S extends Schema.Top>(self: S): S["Rebuild"] =>
+    self.annotate({ callableErrorCode: code });
+
+/**
+ * Reads the Firebase error code of an error schema: what {@link errorCode} or
+ * its `callableErrorCode` annotation set, else `internal`.
+ *
+ * **When to use**
+ *
+ * Use when serving or calling Callables from a transport of your own.
+ *
+ * @see {@link errorCode} for setting the code
+ *
+ * @stability unstable
+ * @category errors
+ * @since 0.3.0
+ */
+export const getErrorCode = (schema: Schema.Top): CallableError.ErrorCode =>
+  Schema.resolveAnnotations(schema)?.callableErrorCode ?? "internal";

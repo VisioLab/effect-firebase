@@ -1,11 +1,197 @@
 /**
- * The error a Callable Client fails with when a call goes wrong in a way the
- * contract doesn't declare.
+ * Errors of Callables: Firebase's error codes, built-in errors that carry
+ * them, and the error a Callable Client fails with when a call goes wrong in a
+ * way the contract doesn't declare.
  *
  * @stability unstable
  * @since 0.3.0
  */
 import { Schema } from "effect";
+
+/**
+ * Firebase's error codes, as `firebase-functions` and the client SDK name
+ * them, without `ok`.
+ *
+ * @stability unstable
+ * @category schemas
+ * @since 0.3.0
+ */
+export const ErrorCode = Schema.Literals([
+  "cancelled",
+  "unknown",
+  "invalid-argument",
+  "deadline-exceeded",
+  "not-found",
+  "already-exists",
+  "permission-denied",
+  "resource-exhausted",
+  "failed-precondition",
+  "aborted",
+  "out-of-range",
+  "unimplemented",
+  "internal",
+  "unavailable",
+  "data-loss",
+  "unauthenticated",
+]);
+
+/**
+ * One of Firebase's error codes, such as `not-found`.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export type ErrorCode = typeof ErrorCode.Type;
+
+declare module "effect/Schema" {
+  namespace Annotations {
+    interface Annotations {
+      /**
+       * The Firebase error code a Callable answers with when it fails with
+       * this error. Set it with `Callable.errorCode` or in a `TaggedError`'s
+       * annotations, and read it with `Callable.getErrorCode`.
+       */
+      readonly callableErrorCode?: ErrorCode | undefined;
+    }
+  }
+}
+
+/**
+ * The resource the call asks for doesn't exist. Its code is `not-found`.
+ *
+ * @example Failing with a built-in error
+ * ```ts
+ * import { Effect, Schema } from "effect";
+ * import { Callable, CallableError } from "@visiolab/effect-firebase/functions";
+ *
+ * const GetUser = Callable.make("getUser", {
+ *   payload: { id: Schema.String },
+ *   success: Schema.String,
+ *   error: CallableError.NotFound,
+ * });
+ *
+ * const GetUserLive = Callable.toLayer(GetUser, ({ id }) =>
+ *   Effect.fail(new CallableError.NotFound({ message: `No user ${id}` })),
+ * );
+ * ```
+ *
+ * @stability unstable
+ * @category built-in errors
+ * @since 0.3.0
+ */
+export class NotFound extends Schema.TaggedError<NotFound>()(
+  "NotFound",
+  { message: Schema.optional(Schema.String) },
+  { callableErrorCode: "not-found" },
+) {}
+
+/**
+ * The caller may not do what the call asks. Its code is `permission-denied`.
+ *
+ * @see {@link Unauthenticated} for a caller who isn't signed in
+ *
+ * @stability unstable
+ * @category built-in errors
+ * @since 0.3.0
+ */
+export class PermissionDenied extends Schema.TaggedError<PermissionDenied>()(
+  "PermissionDenied",
+  { message: Schema.optional(Schema.String) },
+  { callableErrorCode: "permission-denied" },
+) {}
+
+/**
+ * The caller isn't signed in. Its code is `unauthenticated`.
+ *
+ * @see {@link PermissionDenied} for a signed-in caller who may not do this
+ *
+ * @stability unstable
+ * @category built-in errors
+ * @since 0.3.0
+ */
+export class Unauthenticated extends Schema.TaggedError<Unauthenticated>()(
+  "Unauthenticated",
+  { message: Schema.optional(Schema.String) },
+  { callableErrorCode: "unauthenticated" },
+) {}
+
+/**
+ * The Payload is well-formed but its values are wrong. Its code is
+ * `invalid-argument`.
+ *
+ * **Details**
+ *
+ * A Payload that doesn't decode is answered with `invalid-argument` already,
+ * without this error. Use it for checks the Payload's schema can't express.
+ *
+ * @see {@link FailedPrecondition} for a valid Payload the current state rejects
+ *
+ * @stability unstable
+ * @category built-in errors
+ * @since 0.3.0
+ */
+export class InvalidArgument extends Schema.TaggedError<InvalidArgument>()(
+  "InvalidArgument",
+  { message: Schema.optional(Schema.String) },
+  { callableErrorCode: "invalid-argument" },
+) {}
+
+/**
+ * What the call would create exists already. Its code is `already-exists`.
+ *
+ * @stability unstable
+ * @category built-in errors
+ * @since 0.3.0
+ */
+export class AlreadyExists extends Schema.TaggedError<AlreadyExists>()(
+  "AlreadyExists",
+  { message: Schema.optional(Schema.String) },
+  { callableErrorCode: "already-exists" },
+) {}
+
+/**
+ * The system isn't in the state the call needs. Its code is
+ * `failed-precondition`.
+ *
+ * @see {@link InvalidArgument} for a Payload that is wrong whatever the state
+ *
+ * @stability unstable
+ * @category built-in errors
+ * @since 0.3.0
+ */
+export class FailedPrecondition extends Schema.TaggedError<FailedPrecondition>()(
+  "FailedPrecondition",
+  { message: Schema.optional(Schema.String) },
+  { callableErrorCode: "failed-precondition" },
+) {}
+
+/**
+ * A quota or rate limit ran out. Its code is `resource-exhausted`.
+ *
+ * @stability unstable
+ * @category built-in errors
+ * @since 0.3.0
+ */
+export class ResourceExhausted extends Schema.TaggedError<ResourceExhausted>()(
+  "ResourceExhausted",
+  { message: Schema.optional(Schema.String) },
+  { callableErrorCode: "resource-exhausted" },
+) {}
+
+/**
+ * The service can't answer right now, and the call may succeed if retried.
+ * Its code is `unavailable`.
+ *
+ * @stability unstable
+ * @category built-in errors
+ * @since 0.3.0
+ */
+export class Unavailable extends Schema.TaggedError<Unavailable>()(
+  "Unavailable",
+  { message: Schema.optional(Schema.String) },
+  { callableErrorCode: "unavailable" },
+) {}
 
 /**
  * No response arrived: the request never reached the server, or the
@@ -41,7 +227,7 @@ export class ResponseError extends Schema.TaggedError<
   { readonly brand: unique symbol }
 >()("ResponseError", {
   /** Firebase's error code, such as `internal`. */
-  code: Schema.String,
+  code: ErrorCode,
   /** The error's message, without the SDK's ` [status]` suffix. */
   message: Schema.String,
   /** The error's `details`, as the server sent them. */
