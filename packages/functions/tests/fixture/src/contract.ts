@@ -19,19 +19,23 @@ export const LayerBuilds = Callable.make("layerBuilds", {
 });
 
 /** A declared error whose code its own annotations set. */
-export class NameTaken extends Schema.TaggedError<NameTaken>()(
+export class NameTaken extends Schema.TaggedError<NameTaken, { readonly brand: unique symbol }>()(
   "NameTaken",
-  { name: Schema.String, since: Schema.Date },
+  { username: Schema.String, since: Schema.Date },
   { callableErrorCode: "already-exists" },
 ) {}
 
 /** A declared error that gets its code from `Callable.errorCode`. */
-export class Banned extends Schema.TaggedError<Banned>()("Banned", {
-  message: Schema.String,
-}) {}
+export class Banned extends Schema.TaggedError<Banned, { readonly brand: unique symbol }>()(
+  "Banned",
+  { message: Schema.String },
+) {}
 
 /** A declared error without a code, so it is sent as `internal`. */
-export class Unexplained extends Schema.TaggedError<Unexplained>()("Unexplained", {}) {}
+export class Unexplained extends Schema.TaggedError<
+  Unexplained,
+  { readonly brand: unique symbol }
+>()("Unexplained", {}) {}
 
 /** Fails the way its Payload asks: with a declared error, a defect or an interrupt. */
 export const Fail = Callable.make("fail", {

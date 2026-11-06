@@ -74,7 +74,7 @@ describe("CallableFunction", () => {
       expect(error).toMatchObject({
         code: "functions/already-exists",
         message: "NameTaken [409]",
-        details: { _tag: "NameTaken", name: "Ada", since: "2026-01-01T12:00:00.000Z" },
+        details: { _tag: "NameTaken", username: "Ada", since: "2026-01-01T12:00:00.000Z" },
       });
     }).pipe(Effect.scoped),
   );

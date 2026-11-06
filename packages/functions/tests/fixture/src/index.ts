@@ -6,7 +6,7 @@
  */
 import { appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { Context, Effect, Layer, Logger } from "effect";
+import { Context, Data, Effect, Layer, Logger } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import * as CallableFunction from "../../../src/https/CallableFunction.ts";
@@ -64,7 +64,7 @@ export const { fail } = CallableFunction.make(
     switch (failure) {
       case "NameTaken":
         return Effect.fail(
-          new NameTaken({ name: "Ada", since: new Date("2026-01-01T12:00:00.000Z") }),
+          new NameTaken({ username: "Ada", since: new Date("2026-01-01T12:00:00.000Z") }),
         );
       case "Banned":
         return Effect.fail(new Banned({ message: "Ada is banned" }));
@@ -91,12 +91,16 @@ class Connection extends Context.Service<Connection, { readonly builds: number }
   "fixture/Connection",
 ) {}
 
+class ConnectionRefused extends Data.TaggedError("ConnectionRefused")<{
+  readonly message: string;
+}> {}
+
 const ConnectionLive = Layer.effect(
   Connection,
   Effect.suspend(() => {
     connectionBuilds += 1;
     return connectionBuilds === 1
-      ? Effect.fail(new Error("The first build of the connection fails"))
+      ? Effect.fail(new ConnectionRefused({ message: "The first build of the connection fails" }))
       : Effect.succeed({ builds: connectionBuilds });
   }),
 );
