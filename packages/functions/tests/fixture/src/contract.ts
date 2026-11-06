@@ -51,3 +51,9 @@ export class Workers extends CallableGroup.make("workers").add(
   Callable.make("first", { success: BuiltBy }),
   Callable.make("second", { success: BuiltBy }),
 ) {}
+
+/** Opens a span of its own, tagged with the call's id, so a test can find the call's server span. */
+export const Traced = Callable.make("traced", { payload: { callId: Schema.String } });
+
+/** Serves {@link Traced} as `tracing-traced`, with a Layer whose build opens a span. */
+export class Tracing extends CallableGroup.make("tracing").add(Traced) {}
