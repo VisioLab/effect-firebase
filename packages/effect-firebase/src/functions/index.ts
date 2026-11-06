@@ -5,3 +5,11 @@
  * @since 0.3.0
  */
 export * as Callable from "./Callable.ts";
+/**
+ * The error a Callable Client fails with when a call goes wrong in a way the
+ * contract doesn't declare.
+ *
+ * @stability unstable
+ * @since 0.3.0
+ */
+export * as CallableError from "./CallableError.ts";

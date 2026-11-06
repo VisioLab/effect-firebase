@@ -37,6 +37,7 @@
     "./firestore/Timestamp": "./src/firestore/Timestamp.ts",
     "./functions": "./src/functions/index.ts",
     "./functions/Callable": "./src/functions/Callable.ts",
+    "./functions/CallableError": "./src/functions/CallableError.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -59,6 +60,7 @@
       "./firestore/Timestamp": "./dist/firestore/Timestamp.mjs",
       "./functions": "./dist/functions/index.mjs",
       "./functions/Callable": "./dist/functions/Callable.mjs",
+      "./functions/CallableError": "./dist/functions/CallableError.mjs",
       "./package.json": "./package.json"
     },
     "registry": "https://npm.pkg.github.com"

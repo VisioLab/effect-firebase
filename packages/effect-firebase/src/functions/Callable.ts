@@ -28,7 +28,7 @@
  * @stability unstable
  * @since 0.3.0
  */
-import { type Pipeable, Schema } from "effect";
+import { type Effect, type Layer, type Pipeable, Schema } from "effect";
 import * as internal from "./internal/callable.ts";
 
 const TypeId = internal.TypeId;
@@ -179,3 +179,152 @@ export const make = <
     success: options?.success ?? Schema.Void,
   }) as never;
 };
+
+/**
+ * Marks the {@link Handler} of a Callable in no group.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export interface NoGroup {
+  readonly [internal.NoGroupTypeId]: typeof internal.NoGroupTypeId;
+}
+
+/**
+ * The service a {@link toLayer} Layer provides: the Callable Handler of the
+ * Callable `Name`, as served in `Group`.
+ *
+ * **Details**
+ *
+ * A handler is keyed by its group and its name, so the handler of `greet` in
+ * no group is `Handler<NoGroup, "greet">`. A Layer that serves a Callable must
+ * provide the handler under exactly that key.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export interface Handler<Group, Name extends string> {
+  readonly [internal.HandlerTypeId]: {
+    readonly group: Group;
+    readonly name: Name;
+  };
+}
+
+/**
+ * The {@link Handler} of a Callable in no group.
+ *
+ * @stability unstable
+ * @category type-level
+ * @since 0.3.0
+ */
+export type HandlerFor<C extends Any> = Handler<NoGroup, C["name"]>;
+
+/**
+ * What implements a Callable: a function from the decoded Payload to an
+ * Effect of the success value.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export type HandlerFunction<C extends Any, R> = (
+  payload: Payload<C>,
+) => Effect.Effect<Success<C>, never, R>;
+
+/**
+ * Implements a Callable as a Layer.
+ *
+ * **When to use**
+ *
+ * Use to write the server side of a Callable in no group. The Layer is what
+ * `CallableFunction.make` from `@visiolab/effect-firebase-functions` serves.
+ *
+ * **Details**
+ *
+ * Takes the handler itself, or an Effect that builds it. The Effect runs once,
+ * when the Layer is built, so do per-instance setup there.
+ *
+ * The Layer requires what the handler needs on each call and what building it
+ * needs. Both are provided where the Layer is built: services built with the
+ * Layer are shared by every call.
+ *
+ * @example Implementing a Callable
+ * ```ts
+ * import { Effect, Schema } from "effect";
+ * import { Callable } from "@visiolab/effect-firebase/functions";
+ *
+ * const Greet = Callable.make("greet", {
+ *   payload: { name: Schema.String },
+ *   success: Schema.String,
+ * });
+ *
+ * const GreetLive = Callable.toLayer(Greet, ({ name }) => Effect.succeed(`Hello, ${name}!`));
+ * ```
+ *
+ * @example Building the handler once per instance
+ * ```ts
+ * import { Effect, Schema } from "effect";
+ * import { Callable } from "@visiolab/effect-firebase/functions";
+ *
+ * const Greet = Callable.make("greet", {
+ *   payload: { name: Schema.String },
+ *   success: Schema.String,
+ * });
+ *
+ * const GreetLive = Callable.toLayer(
+ *   Greet,
+ *   Effect.gen(function* () {
+ *     const greeting = yield* Effect.succeed("Hello");
+ *     return ({ name }) => Effect.succeed(`${greeting}, ${name}!`);
+ *   }),
+ * );
+ * ```
+ *
+ * @see {@link make} for declaring the Callable
+ * @see {@link serve} for running a call against the handler
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.3.0
+ */
+export const toLayer = <C extends Any, R = never, EB = never, RB = never>(
+  callable: C,
+  handler: HandlerFunction<C, R> | Effect.Effect<HandlerFunction<C, R>, EB, RB>,
+): Layer.Layer<HandlerFor<C>, EB, R | RB> =>
+  // The handler's requirements are checked here, by the signature, and
+  // provided where the Layer is built.
+  internal.toLayer(callable.name, handler as unknown as internal.HandlerInput) as never;
+
+/**
+ * Runs one call to a Callable in no group, as it arrives on the wire.
+ *
+ * **When to use**
+ *
+ * Use to serve Callables from a transport of your own. `CallableFunction`
+ * from `@visiolab/effect-firebase-functions` serves them through
+ * `firebase-functions`.
+ *
+ * **Details**
+ *
+ * Returns a function that decodes the raw Payload with the Payload's
+ * `Schema.toCodecJson`, runs the handler, and encodes the success value with
+ * the success schema's `Schema.toCodecJson`. Its result is plain JSON.
+ *
+ * Fails with the `Schema.SchemaError` when the raw Payload doesn't decode. A
+ * success value that doesn't encode is a defect.
+ *
+ * @see {@link toLayer} for providing the handler
+ *
+ * @stability unstable
+ * @category serving
+ * @since 0.3.0
+ */
+export const serve = <C extends Any>(
+  callable: C,
+): Effect.Effect<
+  (data: unknown) => Effect.Effect<unknown, Schema.SchemaError>,
+  never,
+  HandlerFor<C>
+> => internal.serve(callable) as never;
