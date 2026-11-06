@@ -87,6 +87,10 @@ _Avoid_: implementation, resolver
 The deployed Firebase function that serves exactly one **Callable**.
 _Avoid_: cloud function, onCall export
 
+**Callable Client**:
+What the app uses to call the **Callables** of one **Callable Group**, or one Callable in no group, all in one region.
+_Avoid_: stub, proxy, rpc client
+
 **Callable Middleware**:
 What runs around every call to the **Callables** it is attached to, before the **Payload** is read. It can reject the call, or tell the **Callable Handler** more about it, and the errors it can fail with are part of each Callable it is attached to.
 _Avoid_: guard, interceptor
