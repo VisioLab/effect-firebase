@@ -3,6 +3,7 @@
 // @effect-diagnostics missingLayerContext:off
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
+import * as Caller from "@visiolab/effect-firebase/functions/Caller";
 import * as CallableFunction from "@visiolab/effect-firebase-functions/https/CallableFunction";
 import { Context, Effect, Layer, Schema } from "effect";
 import { describe, expect, test } from "tstyche";
@@ -111,5 +112,23 @@ describe("CallableFunction.group", () => {
     expect(CallableFunction.group(Orders, Layer.merge(UsersLive, OrdersLive))).type.toBe<{
       readonly orders: { readonly get: CallableFunction.Export };
     }>();
+  });
+});
+
+const WhoAmI = Callable.make("whoAmI", { success: Schema.String }).middleware(Caller.Authenticated);
+const WhoAmILive = Callable.toLayer(WhoAmI, () =>
+  Effect.map(Effect.service(Caller.Caller), ({ uid }) => uid),
+);
+
+describe("CallableFunction.make with middleware", () => {
+  test("a Live with the handler and every middleware implementation is accepted", () => {
+    expect(
+      CallableFunction.make(WhoAmI, Layer.merge(WhoAmILive, Caller.Authenticated.layer)),
+    ).type.toBe<{ readonly whoAmI: CallableFunction.Export }>();
+  });
+
+  test("a Live without a middleware implementation is a type error", () => {
+    // @ts-expect-error not assignable
+    CallableFunction.make(WhoAmI, WhoAmILive);
   });
 });

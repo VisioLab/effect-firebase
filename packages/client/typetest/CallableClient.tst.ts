@@ -1,6 +1,7 @@
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
+import * as Caller from "@visiolab/effect-firebase/functions/Caller";
 import * as CallableClient from "@visiolab/effect-firebase-client/functions/CallableClient";
 import type * as ClientFunctions from "@visiolab/effect-firebase-client/functions/ClientFunctions";
 import { Effect, Schema } from "effect";
@@ -86,6 +87,21 @@ describe("CallableClient.make with a group", () => {
     >();
     expect<CallableClient.Client<typeof Users>["delete"]>().type.toBe<
       (payload: { readonly id: string }) => Effect.Effect<void, CallableError.CallableError>
+    >();
+  });
+});
+
+describe("CallableClient.make with middleware", () => {
+  test("fails with the middleware's errors too", () => {
+    const WhoAmI = Callable.make("whoAmI", {
+      success: Schema.String,
+      error: CallableError.NotFound,
+    }).middleware(Caller.Authenticated);
+    expect<ReturnType<CallableClient.Client<typeof WhoAmI>["whoAmI"]>>().type.toBe<
+      Effect.Effect<
+        string,
+        CallableError.NotFound | CallableError.Unauthenticated | CallableError.CallableError
+      >
     >();
   });
 });
