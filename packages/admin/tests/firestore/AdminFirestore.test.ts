@@ -12,7 +12,7 @@ import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreMo
 import * as Patch from "@visiolab/effect-firebase/firestore/Patch";
 import * as Admin from "firebase-admin/app";
 import { initializeFirestore } from "firebase-admin/firestore";
-import * as App from "../../src/App.ts";
+import * as App from "../../src/app/App.ts";
 import * as AdminFirestore from "../../src/firestore/AdminFirestore.ts";
 import { clear } from "./emulator.ts";
 

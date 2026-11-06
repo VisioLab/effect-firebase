@@ -1,4 +1,4 @@
-import type * as App from "@visiolab/effect-firebase-client/App";
+import type * as App from "@visiolab/effect-firebase-client/app/App";
 import type * as ClientDocumentSnapshot from "@visiolab/effect-firebase-client/firestore/ClientDocumentSnapshot";
 import * as ClientFirestore from "@visiolab/effect-firebase-client/firestore/ClientFirestore";
 import type * as ClientQuerySnapshot from "@visiolab/effect-firebase-client/firestore/ClientQuerySnapshot";

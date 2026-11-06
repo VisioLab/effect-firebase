@@ -31,7 +31,7 @@ import {
   Firestore,
   FirestoreModel,
 } from "@visiolab/effect-firebase/firestore";
-import { App } from "@visiolab/effect-firebase-admin";
+import { App } from "@visiolab/effect-firebase-admin/app";
 import { AdminFirestore } from "@visiolab/effect-firebase-admin/firestore";
 
 class User extends FirestoreModel.Class<User>("User")({

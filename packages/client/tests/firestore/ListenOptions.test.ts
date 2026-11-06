@@ -2,7 +2,7 @@ import { assert, describe, expect, it } from "@effect/vitest";
 import { Effect, Layer, Queue, Schema } from "effect";
 import { disableNetwork, enableNetwork } from "firebase/firestore";
 import { Collection, DocumentSnapshot, FirestoreModel } from "@visiolab/effect-firebase/firestore";
-import * as App from "../../src/App.ts";
+import * as App from "../../src/app/App.ts";
 import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
 import { emulator, fresh, listening, otherClient } from "./emulator.ts";
 

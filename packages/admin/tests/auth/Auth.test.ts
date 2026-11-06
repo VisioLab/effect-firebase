@@ -1,8 +1,8 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as Admin from "firebase-admin/app";
-import * as App from "../src/App.ts";
-import * as Auth from "../src/Auth.ts";
+import * as App from "../../src/app/App.ts";
+import * as Auth from "../../src/auth/Auth.ts";
 
 // A named app keeps each run independent of whatever the default app is, and of
 // the apps the other suites register.

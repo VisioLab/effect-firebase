@@ -8,7 +8,8 @@
  * @example Verifying an ID token
  * ```ts
  * import { Effect, Layer } from "effect";
- * import { App, Auth } from "@visiolab/effect-firebase-admin";
+ * import { App } from "@visiolab/effect-firebase-admin/app";
+ * import { Auth } from "@visiolab/effect-firebase-admin/auth";
  *
  * const uidOf = (idToken: string) =>
  *   Effect.gen(function* () {
@@ -28,7 +29,7 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import { FirebaseError } from "firebase-admin/app";
 import * as Admin from "firebase-admin/auth";
-import * as App from "./App.ts";
+import * as App from "../app/App.ts";
 
 /**
  * Fails a call on {@link Auth} when the Admin SDK rejects it, with what it
@@ -86,7 +87,7 @@ export interface Auth {
    * @example Setting custom claims
    * ```ts
    * import { Effect } from "effect";
-   * import { Auth } from "@visiolab/effect-firebase-admin";
+   * import { Auth } from "@visiolab/effect-firebase-admin/auth";
    *
    * const makeAdmin = (uid: string) =>
    *   Effect.gen(function* () {
@@ -167,7 +168,7 @@ export interface Auth {
  * @category services
  * @since 0.1.0
  */
-export const Auth = Context.Service<Auth>("@visiolab/effect-firebase-admin/Auth");
+export const Auth = Context.Service<Auth>("@visiolab/effect-firebase-admin/auth/Auth");
 
 /**
  * Builds {@link Auth} on the {@link App.App} in context.
@@ -241,7 +242,8 @@ export const make = Effect.gen(function* () {
  * @example Providing Auth
  * ```ts
  * import { Layer } from "effect";
- * import { App, Auth } from "@visiolab/effect-firebase-admin";
+ * import { App } from "@visiolab/effect-firebase-admin/app";
+ * import { Auth } from "@visiolab/effect-firebase-admin/auth";
  *
  * const AuthLive = Auth.layer.pipe(Layer.provide(App.layer()));
  * ```

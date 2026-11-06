@@ -2,7 +2,7 @@ import { Effect, Result } from "effect";
 import * as Firestore from "@visiolab/effect-firebase/firestore/Firestore";
 import { FirebaseError } from "firebase/app";
 import * as Client from "firebase/firestore";
-import * as App from "../../App.ts";
+import * as App from "../../app/App.ts";
 import type * as ClientFirestore from "../ClientFirestore.ts";
 import * as firestoreValue from "./firestoreValue.ts";
 import * as snapshotMetadata from "./snapshotMetadata.ts";

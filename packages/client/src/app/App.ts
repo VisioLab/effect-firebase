@@ -9,7 +9,7 @@
  * @example Initializing the app for a program
  * ```ts
  * import { Effect } from "effect";
- * import { App } from "@visiolab/effect-firebase-client";
+ * import { App } from "@visiolab/effect-firebase-client/app";
  *
  * const program = Effect.gen(function* () {
  *   const app = yield* App.App;
@@ -30,7 +30,7 @@ import { Context, Effect, Layer, Schema } from "effect";
 import type * as Client from "firebase/app";
 // Only the module's documentation links to it.
 // oxlint-disable-next-line no-unused-vars
-import type * as ClientFirestore from "./firestore/ClientFirestore.ts";
+import type * as ClientFirestore from "../firestore/ClientFirestore.ts";
 import * as internalApp from "./internal/app.ts";
 
 /**
@@ -54,7 +54,7 @@ export interface App extends Client.FirebaseApp {}
  * ```ts
  * import { Layer } from "effect";
  * import { getApp } from "firebase/app";
- * import { App } from "@visiolab/effect-firebase-client";
+ * import { App } from "@visiolab/effect-firebase-client/app";
  *
  * const AppLive = Layer.succeed(App.App, getApp());
  * ```
@@ -65,7 +65,7 @@ export interface App extends Client.FirebaseApp {}
  * @category services
  * @since 0.1.0
  */
-export const App = Context.Service<App>("@visiolab/effect-firebase-client/App");
+export const App = Context.Service<App>("@visiolab/effect-firebase-client/app/App");
 
 /**
  * Fails {@link make} and {@link layer} when the client SDK refuses to
@@ -142,7 +142,7 @@ export const make = Effect.fn("App.make")(function* (
  *
  * @example Initializing the app from the console's config
  * ```ts
- * import { App } from "@visiolab/effect-firebase-client";
+ * import { App } from "@visiolab/effect-firebase-client/app";
  *
  * const AppLive = App.layer({
  *   apiKey: "<api key>",

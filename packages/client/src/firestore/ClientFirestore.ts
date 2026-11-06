@@ -22,7 +22,7 @@
  * ```ts
  * import { Effect, Layer, Schema } from "effect";
  * import { Collection, FirestoreModel } from "@visiolab/effect-firebase/firestore";
- * import { App } from "@visiolab/effect-firebase-client";
+ * import { App } from "@visiolab/effect-firebase-client/app";
  * import { ClientFirestore } from "@visiolab/effect-firebase-client/firestore";
  *
  * class Post extends FirestoreModel.Class<Post>("Post")({
@@ -52,7 +52,7 @@
 import { Context, Effect, Layer } from "effect";
 import { Firestore, type With } from "@visiolab/effect-firebase/firestore/Firestore";
 import type { Firestore as SdkFirestore, FirestoreLocalCache } from "firebase/firestore";
-import type * as App from "../App.ts";
+import type * as App from "../app/App.ts";
 import type * as ClientDocumentSnapshot from "./ClientDocumentSnapshot.ts";
 // Only {@link ClientFirestore}'s documentation links to it.
 // oxlint-disable-next-line no-unused-vars
@@ -376,7 +376,7 @@ const both = (service: ClientFirestore) =>
  * ```ts
  * import { Layer } from "effect";
  * import { persistentLocalCache } from "firebase/firestore";
- * import { App } from "@visiolab/effect-firebase-client";
+ * import { App } from "@visiolab/effect-firebase-client/app";
  * import { ClientFirestore } from "@visiolab/effect-firebase-client/firestore";
  *
  * const FirestoreLive = ClientFirestore.layer({

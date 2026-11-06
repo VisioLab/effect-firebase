@@ -28,9 +28,10 @@
   "type": "module",
   "sideEffects": [],
   "exports": {
-    ".": "./src/index.ts",
-    "./App": "./src/App.ts",
-    "./Auth": "./src/Auth.ts",
+    "./app": "./src/app/index.ts",
+    "./app/App": "./src/app/App.ts",
+    "./auth": "./src/auth/index.ts",
+    "./auth/Auth": "./src/auth/Auth.ts",
     "./firestore": "./src/firestore/index.ts",
     "./firestore/AdminFirestore": "./src/firestore/AdminFirestore.ts",
     "./firestore/AdminFirestoreValue": "./src/firestore/AdminFirestoreValue.ts",
@@ -38,9 +39,10 @@
   },
   "publishConfig": {
     "exports": {
-      ".": "./dist/index.mjs",
-      "./App": "./dist/App.mjs",
-      "./Auth": "./dist/Auth.mjs",
+      "./app": "./dist/app/index.mjs",
+      "./app/App": "./dist/app/App.mjs",
+      "./auth": "./dist/auth/index.mjs",
+      "./auth/Auth": "./dist/auth/Auth.mjs",
       "./firestore": "./dist/firestore/index.mjs",
       "./firestore/AdminFirestore": "./dist/firestore/AdminFirestore.mjs",
       "./firestore/AdminFirestoreValue": "./dist/firestore/AdminFirestoreValue.mjs",

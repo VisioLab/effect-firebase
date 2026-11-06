@@ -83,7 +83,7 @@ and application default credentials:
 
 ```ts
 import { Effect, Layer } from "effect";
-import { App } from "@visiolab/effect-firebase-admin";
+import { App } from "@visiolab/effect-firebase-admin/app";
 import { AdminFirestore } from "@visiolab/effect-firebase-admin/firestore";
 
 const FirestoreLive = AdminFirestore.layer().pipe(Layer.provide(App.layer()));
@@ -97,7 +97,7 @@ With the client SDK, pass the app's config to `App.layer`:
 
 ```ts
 import { Effect, Layer } from "effect";
-import { App } from "@visiolab/effect-firebase-client";
+import { App } from "@visiolab/effect-firebase-client/app";
 import { ClientFirestore } from "@visiolab/effect-firebase-client/firestore";
 
 const FirestoreLive = ClientFirestore.layer().pipe(

@@ -19,8 +19,8 @@
   "type": "module",
   "sideEffects": [],
   "exports": {
-    ".": "./src/index.ts",
-    "./App": "./src/App.ts",
+    "./app": "./src/app/index.ts",
+    "./app/App": "./src/app/App.ts",
     "./firestore": "./src/firestore/index.ts",
     "./firestore/Collection": "./src/firestore/Collection.ts",
     "./firestore/CollectionGroup": "./src/firestore/CollectionGroup.ts",
@@ -39,8 +39,8 @@
   },
   "publishConfig": {
     "exports": {
-      ".": "./dist/index.mjs",
-      "./App": "./dist/App.mjs",
+      "./app": "./dist/app/index.mjs",
+      "./app/App": "./dist/app/App.mjs",
       "./firestore": "./dist/firestore/index.mjs",
       "./firestore/Collection": "./dist/firestore/Collection.mjs",
       "./firestore/CollectionGroup": "./dist/firestore/CollectionGroup.mjs",

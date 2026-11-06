@@ -9,7 +9,7 @@ import * as FirestoreSchema from "@visiolab/effect-firebase/firestore/FirestoreS
 import * as GeoPoint from "@visiolab/effect-firebase/firestore/GeoPoint";
 import * as Timestamp from "@visiolab/effect-firebase/firestore/Timestamp";
 import * as Admin from "firebase-admin/firestore";
-import * as App from "../../src/App.ts";
+import * as App from "../../src/app/App.ts";
 import * as AdminFirestore from "../../src/firestore/AdminFirestore.ts";
 import { clear } from "./emulator.ts";
 

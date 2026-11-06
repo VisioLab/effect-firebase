@@ -3,7 +3,7 @@ import { Effect, Layer, Schema } from "effect";
 import { deleteDoc, doc } from "firebase/firestore";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
-import * as App from "../../src/App.ts";
+import * as App from "../../src/app/App.ts";
 import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
 import { emulator, fresh, holding, offline, otherClient } from "./emulator.ts";
 
