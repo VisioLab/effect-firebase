@@ -2,8 +2,18 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import { deleteApp, initializeApp } from "firebase/app";
-import { connectFunctionsEmulator, getFunctions, httpsCallable } from "firebase/functions";
+import {
+  connectFunctionsEmulator,
+  FunctionsError,
+  getFunctions,
+  httpsCallable,
+} from "firebase/functions";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import * as CallableFunction from "../../src/https/CallableFunction.ts";
+
+/** Where the fixture's logger writes what the server logs, one JSON line per entry. */
+const serverLog = fileURLToPath(new URL("../server.log", import.meta.url));
 
 const [host = "127.0.0.1", port = "5001"] = (process.env["FUNCTIONS_EMULATOR_HOST"] ?? "").split(
   ":",
@@ -50,6 +60,71 @@ describe("CallableFunction", () => {
         expect(result.data).toEqual({ builds: 1 });
       }
     }).pipe(Effect.scoped),
+  );
+
+  it.effect("sends a declared error as its code, a readable message and the encoded error", () =>
+    Effect.gen(function* () {
+      const fail = httpsCallable(yield* functions, "fail");
+      const error = yield* Effect.flip(
+        Effect.tryPromise(() => fail({ with: "NameTaken" })).pipe(
+          Effect.mapError((error) => error.cause),
+        ),
+      );
+      expect(error).toBeInstanceOf(FunctionsError);
+      expect(error).toMatchObject({
+        code: "functions/already-exists",
+        message: "NameTaken [409]",
+        details: { _tag: "NameTaken", name: "Ada", since: "2026-01-01T12:00:00.000Z" },
+      });
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("answers a Payload that doesn't decode with invalid-argument and no details", () =>
+    Effect.gen(function* () {
+      const greet = httpsCallable(yield* functions, "greet");
+      const error = yield* Effect.flip(
+        Effect.tryPromise(() => greet({ name: 1, at: "yesterday" })).pipe(
+          Effect.mapError((error) => error.cause),
+        ),
+      );
+      expect(error).toMatchObject({ code: "functions/invalid-argument", details: undefined });
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("answers a defect with a bare internal, and logs its Cause", () =>
+    Effect.gen(function* () {
+      const fail = httpsCallable(yield* functions, "fail");
+      const error = yield* Effect.flip(
+        Effect.tryPromise(() => fail({ with: "defect" })).pipe(
+          Effect.mapError((error) => error.cause),
+        ),
+      );
+      expect(error).toMatchObject({
+        code: "functions/internal",
+        message: "INTERNAL [500]",
+        details: undefined,
+      });
+      const log = readFileSync(serverLog, "utf8");
+      expect(log).toContain("Boom: the handler broke");
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect(
+    "fails a call whose Layer fails to build with internal, and builds it again on the next",
+    () =>
+      Effect.gen(function* () {
+        const flaky = httpsCallable(yield* functions, "flaky");
+        // A warm instance from an earlier run has built the Layer already, so
+        // the failed first build shows only in the count it answers with.
+        const first = yield* Effect.result(
+          Effect.tryPromise(() => flaky()).pipe(Effect.mapError((error) => error.cause)),
+        );
+        if (first._tag === "Failure") {
+          expect(first.failure).toMatchObject({ code: "functions/internal", details: undefined });
+        }
+        const result = yield* Effect.promise(() => flaky());
+        expect(result.data).toEqual({ builds: 2 });
+      }).pipe(Effect.scoped),
   );
 
   it("builds nothing when the export is made or discovered", () => {

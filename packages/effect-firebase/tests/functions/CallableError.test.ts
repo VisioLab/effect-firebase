@@ -22,7 +22,10 @@ describe("built-in errors", () => {
 });
 
 describe("Callable.errorCode", () => {
-  class Missing extends Schema.TaggedError<Missing>()("Missing", {}) {}
+  class Missing extends Schema.TaggedError<Missing, { readonly brand: unique symbol }>()(
+    "Missing",
+    {},
+  ) {}
 
   it("sets the code of an error schema", () => {
     expect(Callable.getErrorCode(Missing.pipe(Callable.errorCode("not-found")))).toBe("not-found");
@@ -33,7 +36,7 @@ describe("Callable.errorCode", () => {
   });
 
   it("is read from a TaggedError's own annotations", () => {
-    class Taken extends Schema.TaggedError<Taken>()(
+    class Taken extends Schema.TaggedError<Taken, { readonly brand: unique symbol }>()(
       "Taken",
       {},
       { callableErrorCode: "already-exists" },

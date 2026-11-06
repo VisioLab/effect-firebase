@@ -80,7 +80,7 @@ declare module "effect/Schema" {
  * @category built-in errors
  * @since 0.3.0
  */
-export class NotFound extends Schema.TaggedError<NotFound>()(
+export class NotFound extends Schema.TaggedError<NotFound, { readonly brand: unique symbol }>()(
   "NotFound",
   { message: Schema.optional(Schema.String) },
   { callableErrorCode: "not-found" },
@@ -95,7 +95,10 @@ export class NotFound extends Schema.TaggedError<NotFound>()(
  * @category built-in errors
  * @since 0.3.0
  */
-export class PermissionDenied extends Schema.TaggedError<PermissionDenied>()(
+export class PermissionDenied extends Schema.TaggedError<
+  PermissionDenied,
+  { readonly brand: unique symbol }
+>()(
   "PermissionDenied",
   { message: Schema.optional(Schema.String) },
   { callableErrorCode: "permission-denied" },
@@ -110,7 +113,10 @@ export class PermissionDenied extends Schema.TaggedError<PermissionDenied>()(
  * @category built-in errors
  * @since 0.3.0
  */
-export class Unauthenticated extends Schema.TaggedError<Unauthenticated>()(
+export class Unauthenticated extends Schema.TaggedError<
+  Unauthenticated,
+  { readonly brand: unique symbol }
+>()(
   "Unauthenticated",
   { message: Schema.optional(Schema.String) },
   { callableErrorCode: "unauthenticated" },
@@ -131,7 +137,10 @@ export class Unauthenticated extends Schema.TaggedError<Unauthenticated>()(
  * @category built-in errors
  * @since 0.3.0
  */
-export class InvalidArgument extends Schema.TaggedError<InvalidArgument>()(
+export class InvalidArgument extends Schema.TaggedError<
+  InvalidArgument,
+  { readonly brand: unique symbol }
+>()(
   "InvalidArgument",
   { message: Schema.optional(Schema.String) },
   { callableErrorCode: "invalid-argument" },
@@ -144,7 +153,10 @@ export class InvalidArgument extends Schema.TaggedError<InvalidArgument>()(
  * @category built-in errors
  * @since 0.3.0
  */
-export class AlreadyExists extends Schema.TaggedError<AlreadyExists>()(
+export class AlreadyExists extends Schema.TaggedError<
+  AlreadyExists,
+  { readonly brand: unique symbol }
+>()(
   "AlreadyExists",
   { message: Schema.optional(Schema.String) },
   { callableErrorCode: "already-exists" },
@@ -160,7 +172,10 @@ export class AlreadyExists extends Schema.TaggedError<AlreadyExists>()(
  * @category built-in errors
  * @since 0.3.0
  */
-export class FailedPrecondition extends Schema.TaggedError<FailedPrecondition>()(
+export class FailedPrecondition extends Schema.TaggedError<
+  FailedPrecondition,
+  { readonly brand: unique symbol }
+>()(
   "FailedPrecondition",
   { message: Schema.optional(Schema.String) },
   { callableErrorCode: "failed-precondition" },
@@ -173,7 +188,10 @@ export class FailedPrecondition extends Schema.TaggedError<FailedPrecondition>()
  * @category built-in errors
  * @since 0.3.0
  */
-export class ResourceExhausted extends Schema.TaggedError<ResourceExhausted>()(
+export class ResourceExhausted extends Schema.TaggedError<
+  ResourceExhausted,
+  { readonly brand: unique symbol }
+>()(
   "ResourceExhausted",
   { message: Schema.optional(Schema.String) },
   { callableErrorCode: "resource-exhausted" },
@@ -187,7 +205,10 @@ export class ResourceExhausted extends Schema.TaggedError<ResourceExhausted>()(
  * @category built-in errors
  * @since 0.3.0
  */
-export class Unavailable extends Schema.TaggedError<Unavailable>()(
+export class Unavailable extends Schema.TaggedError<
+  Unavailable,
+  { readonly brand: unique symbol }
+>()(
   "Unavailable",
   { message: Schema.optional(Schema.String) },
   { callableErrorCode: "unavailable" },

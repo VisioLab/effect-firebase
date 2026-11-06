@@ -1,5 +1,5 @@
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
-import type * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
+import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import * as CallableClient from "@visiolab/effect-firebase-client/functions/CallableClient";
 import type * as ClientFunctions from "@visiolab/effect-firebase-client/functions/ClientFunctions";
 import { Effect, Schema } from "effect";
@@ -28,6 +28,19 @@ describe("CallableClient.make", () => {
         readonly name: string;
         readonly at: Date;
       }) => Effect.Effect<{ readonly message: string }, CallableError.CallableError>
+    >();
+  });
+
+  test("fails with exactly the declared errors or a CallableError", () => {
+    const Get = Callable.make("get", {
+      payload: { id: Schema.String },
+      error: [CallableError.NotFound, CallableError.PermissionDenied],
+    });
+    expect<ReturnType<CallableClient.Client<typeof Get>["get"]>>().type.toBe<
+      Effect.Effect<
+        void,
+        CallableError.NotFound | CallableError.PermissionDenied | CallableError.CallableError
+      >
     >();
   });
 

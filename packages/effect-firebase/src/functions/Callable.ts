@@ -51,6 +51,7 @@ export interface Callable<
   out Name extends string,
   out Payload extends Schema.Top = Schema.Void,
   out Success extends Schema.Top = Schema.Void,
+  out Error extends Schema.Top = never,
 >
   extends Pipeable.Pipeable {
   readonly [TypeId]: typeof TypeId;
@@ -60,6 +61,8 @@ export interface Callable<
   readonly payload: Payload;
   /** The schema of what the handler succeeds with. */
   readonly success: Success;
+  /** The schemas of the errors the handler can fail with. */
+  readonly error: ReadonlySet<Error>;
 }
 
 /**
@@ -74,6 +77,7 @@ export interface Any {
   readonly name: string;
   readonly payload: Schema.Top;
   readonly success: Schema.Top;
+  readonly error: ReadonlySet<Schema.Top>;
 }
 
 /**
@@ -95,6 +99,26 @@ export type Payload<C extends Any> = C["payload"]["Type"];
 export type Success<C extends Any> = C["success"]["Type"];
 
 /**
+ * The union of the error schemas of a {@link Callable}.
+ *
+ * @stability unstable
+ * @category type-level
+ * @since 0.3.0
+ */
+export type ErrorSchema<C extends Any> =
+  C["error"] extends ReadonlySet<infer S extends Schema.Top> ? S : never;
+
+/**
+ * The error type of a {@link Callable}: what its handler can fail with, and
+ * what its client decodes back.
+ *
+ * @stability unstable
+ * @category type-level
+ * @since 0.3.0
+ */
+export type Error<C extends Any> = ErrorSchema<C>["Type"];
+
+/**
  * Options for {@link make}.
  *
  * @stability unstable
@@ -104,6 +128,7 @@ export type Success<C extends Any> = C["success"]["Type"];
 export interface MakeOptions<
   Payload extends Schema.Top | Schema.Struct.Fields,
   Success extends Schema.Top,
+  Error extends Schema.Top | ReadonlyArray<Schema.Top> = never,
 > {
   /**
    * What the client sends: a schema, or the fields of a struct. Leave it out
@@ -115,6 +140,11 @@ export interface MakeOptions<
    * with nothing.
    */
   readonly success?: Success | undefined;
+  /**
+   * The errors the handler can fail with: one schema or an array. Leave it
+   * out for a Callable that never fails with an error of its own.
+   */
+  readonly error?: Error | undefined;
 }
 
 /**
@@ -128,12 +158,17 @@ export interface MakeOptions<
  * **Details**
  *
  * `payload` takes a schema or the fields of a struct, and defaults to
- * `Schema.Void`. `success` defaults to `Schema.Void`.
+ * `Schema.Void`. `success` defaults to `Schema.Void`. `error` takes one
+ * schema or an array; without it the Callable never fails with an error of
+ * its own, and its client fails only with `CallableError`.
  *
- * Both are sent through `Schema.toCodecJson`, so they must round-trip through
- * JSON. `Schema.Unknown` is the safe choice for "any JSON". `Schema.Any` skips
- * every check and is an escape hatch. A schema that can't round-trip fails at
- * runtime, not at compile time.
+ * All of them are sent through `Schema.toCodecJson`, so they must round-trip
+ * through JSON. `Schema.Unknown` is the safe choice for "any JSON".
+ * `Schema.Any` skips every check and is an escape hatch. A schema that can't
+ * round-trip fails at runtime, not at compile time.
+ *
+ * An error is sent with the Firebase error code of its schema, `internal`
+ * unless {@link errorCode} or its `callableErrorCode` annotation sets one.
  *
  * @example Declaring a Callable with a Payload and a success value
  * ```ts
@@ -146,7 +181,25 @@ export interface MakeOptions<
  * });
  * ```
  *
+ * @example Declaring the errors a Callable can fail with
+ * ```ts
+ * import { Schema } from "effect";
+ * import { Callable, CallableError } from "@visiolab/effect-firebase/functions";
+ *
+ * class NameTaken extends Schema.TaggedError<NameTaken>()(
+ *   "NameTaken",
+ *   { name: Schema.String },
+ *   { callableErrorCode: "already-exists" },
+ * ) {}
+ *
+ * const Register = Callable.make("register", {
+ *   payload: { name: Schema.String },
+ *   error: [NameTaken, CallableError.PermissionDenied],
+ * });
+ * ```
+ *
  * @see {@link toLayer} for implementing the Callable on the server
+ * @see {@link errorCode} for giving an error schema its code
  *
  * @stability unstable
  * @category constructors
@@ -156,9 +209,10 @@ export const make = <
   const Name extends string,
   Payload extends Schema.Top | Schema.Struct.Fields = Schema.Void,
   Success extends Schema.Top = Schema.Void,
+  const Error extends Schema.Top | ReadonlyArray<Schema.Top> = never,
 >(
   name: Name,
-  options?: MakeOptions<Payload, Success>,
+  options?: MakeOptions<Payload, Success, Error>,
 ): Callable<
   Name,
   Payload extends Schema.Top
@@ -166,10 +220,13 @@ export const make = <
     : Payload extends Schema.Struct.Fields
       ? Schema.Struct<Payload>
       : never,
-  Success
+  Success,
+  Error extends ReadonlyArray<Schema.Top> ? Error[number] : Error
 > => {
   const payload = options?.payload;
+  const error: Schema.Top | ReadonlyArray<Schema.Top> | undefined = options?.error;
   return internal.make({
+    error: new Set(error === undefined ? [] : Schema.isSchema(error) ? [error] : error),
     name,
     payload:
       payload === undefined
@@ -224,7 +281,8 @@ export type HandlerFor<C extends Any> = Handler<NoGroup, C["name"]>;
 
 /**
  * What implements a Callable: a function from the decoded Payload to an
- * Effect of the success value.
+ * Effect of the success value, failing only with the Callable's declared
+ * errors.
  *
  * @stability unstable
  * @category models
@@ -232,7 +290,7 @@ export type HandlerFor<C extends Any> = Handler<NoGroup, C["name"]>;
  */
 export type HandlerFunction<C extends Any, R> = (
   payload: Payload<C>,
-) => Effect.Effect<Success<C>, never, R>;
+) => Effect.Effect<Success<C>, Error<C>, R>;
 
 /**
  * Implements a Callable as a Layer.
@@ -313,8 +371,18 @@ export const toLayer = <C extends Any, R = never, EB = never, RB = never>(
  * `Schema.toCodecJson`, runs the handler, and encodes the success value with
  * the success schema's `Schema.toCodecJson`. Its result is plain JSON.
  *
- * Fails with the `Schema.SchemaError` when the raw Payload doesn't decode. A
- * success value that doesn't encode is a defect.
+ * Every failure is a `CallableError` whose `ResponseError` reason is what to
+ * answer with:
+ *
+ * - A declared error is sent with its schema's code, the error's `message`
+ *   if it is a non-empty string, else its `_tag`, and the error encoded with
+ *   its schema's `Schema.toCodecJson` as `details`.
+ * - A raw Payload that doesn't decode is sent as `invalid-argument` with a
+ *   generic message and no details. The `Schema.SchemaError` is logged at
+ *   Debug.
+ *
+ * A defect, or a success or error value that doesn't encode, is a defect.
+ * Answer it with a bare `internal`, so nothing of it reaches the caller.
  *
  * @see {@link toLayer} for providing the handler
  *
@@ -325,7 +393,7 @@ export const toLayer = <C extends Any, R = never, EB = never, RB = never>(
 export const serve = <C extends Any>(
   callable: C,
 ): Effect.Effect<
-  (data: unknown) => Effect.Effect<unknown, Schema.SchemaError>,
+  (data: unknown) => Effect.Effect<unknown, CallableError.CallableError>,
   never,
   HandlerFor<C>
 > => internal.serve(callable) as never;
@@ -390,5 +458,4 @@ export const errorCode =
  * @category errors
  * @since 0.3.0
  */
-export const getErrorCode = (schema: Schema.Top): CallableError.ErrorCode =>
-  Schema.resolveAnnotations(schema)?.callableErrorCode ?? "internal";
+export const getErrorCode: (schema: Schema.Top) => CallableError.ErrorCode = internal.getErrorCode;
