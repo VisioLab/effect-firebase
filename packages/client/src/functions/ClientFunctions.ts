@@ -2,6 +2,10 @@
  * Cloud Functions for Firebase on the client SDK: the `Functions` instance
  * that a Callable Client calls through, for one region.
  *
+ * A call that fails with `not-found` usually went to the wrong region, or to a
+ * name the server doesn't export: build the client of a Callable Group's
+ * member from its group, so it calls `<group>-<name>`.
+ *
  * @example Pointing the client at a region
  * ```ts
  * import { Layer } from "effect";
@@ -75,7 +79,8 @@ export interface Emulator {
 export interface Options {
   /**
    * The region the functions are deployed to, such as `europe-west1`, or a
-   * custom domain that serves them. Defaults to the SDK's, `us-central1`.
+   * custom domain that serves them. Defaults to the SDK's, `us-central1`. A
+   * function called in a region it isn't deployed to fails with `not-found`.
    */
   readonly regionOrCustomDomain?: string | undefined;
   /** Calls the Functions emulator at this address instead of the deployed functions. */
