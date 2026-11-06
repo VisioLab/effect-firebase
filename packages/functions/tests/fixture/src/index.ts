@@ -4,11 +4,11 @@
  * The root `firebase.json` points its `functions` source at this fixture, and
  * `vp run emulator` bundles it into `dist` before it starts the emulator.
  */
-import { Effect } from "effect";
+import { Effect, Layer } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableFunction from "../../../src/https/CallableFunction.ts";
 import { onCall } from "firebase-functions/v2/https";
-import { Greet, LayerBuilds } from "./contract.ts";
+import { Admins, Greet, LayerBuilds, Users, Workers } from "./contract.ts";
 
 /** Answers with the message it was sent. */
 export const echo = onCall<{ readonly message: string }>((request) => ({
@@ -38,3 +38,37 @@ export const { layerBuilds } = CallableFunction.make(
     }),
   ),
 );
+
+export const { users } = CallableFunction.group(
+  Users,
+  Layer.mergeAll(
+    Callable.toLayer(Users, "create", ({ name, birthday }) =>
+      Effect.succeed({ id: name.toLowerCase(), name, birthday }),
+    ),
+    Callable.toLayer(Users, "get", ({ id }) => Effect.succeed({ id, servedBy: "users" })),
+    Callable.toLayer(Users, "delete", () => Effect.void),
+  ),
+  { delete: { region: "europe-west1" } },
+);
+
+export const { admins } = CallableFunction.group(
+  Admins,
+  Callable.toLayer(Admins, "get", ({ id }) => Effect.succeed({ id, servedBy: "admins" })),
+);
+
+/** How often the Layer of `workers` was built in this process. */
+let workerBuilds = 0;
+
+/** One Layer for both members, which records the function it was built for. */
+const WorkersLive = Layer.unwrap(
+  Effect.sync(() => {
+    workerBuilds += 1;
+    const builtBy = { target: process.env["FUNCTION_TARGET"] ?? "", builds: workerBuilds };
+    return Layer.mergeAll(
+      Callable.toLayer(Workers, "first", () => Effect.succeed(builtBy)),
+      Callable.toLayer(Workers, "second", () => Effect.succeed(builtBy)),
+    );
+  }),
+);
+
+export const { workers } = CallableFunction.group(Workers, WorkersLive);

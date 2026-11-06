@@ -1,6 +1,8 @@
 /**
  * Serves Callables as Callable Functions: real `onCall` exports that plain
- * `firebase deploy` deploys.
+ * `firebase deploy` deploys. {@link make} serves a Callable in no group under
+ * its name, and {@link group} serves each member of a Callable Group as
+ * `<group>-<name>`.
  *
  * Each export is built at once and synchronously, and builds nothing: the
  * Layer that implements it is built on the first call, so discovery and deploy
@@ -40,6 +42,7 @@
  */
 import type { Layer } from "effect";
 import type * as Callable from "@visiolab/effect-firebase/functions/Callable";
+import type * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
 import type * as Https from "firebase-functions/v2/https";
 import * as internal from "./internal/callableFunction.ts";
 
@@ -61,6 +64,30 @@ export type Export = Https.CallableFunction<unknown, Promise<unknown>>;
  * @since 0.1.0
  */
 export type Exports<C extends Callable.Any> = { readonly [K in C["name"]]: Export };
+
+/**
+ * The exports of {@link group}: one Callable Function per member, keyed by the
+ * member's name, under the group's name.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.1.0
+ */
+export type GroupExports<G extends CallableGroup.Any> = {
+  readonly [K in G["identifier"]]: { readonly [N in CallableGroup.Names<G>]: Export };
+};
+
+/**
+ * The options of {@link group}: Firebase's `CallableOptions` per member, keyed
+ * by the member's name. Members left out get none.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.1.0
+ */
+export type GroupOptions<G extends CallableGroup.Any> = {
+  readonly [N in CallableGroup.Names<G>]?: Https.CallableOptions;
+};
 
 /**
  * Serves a Callable in no group as a Callable Function.
@@ -97,6 +124,8 @@ export type Exports<C extends Callable.Any> = { readonly [K in C["name"]]: Expor
  * export const { ping } = CallableFunction.make(Ping, Callable.toLayer(Ping, () => Effect.void));
  * ```
  *
+ * @see {@link group} for serving the members of a Callable Group
+ *
  * @stability unstable
  * @category constructors
  * @since 0.1.0
@@ -107,5 +136,82 @@ export const make = <C extends Callable.Any, E>(
   options?: Https.CallableOptions,
 ): Exports<C> =>
   ({
-    [callable.name]: internal.onCall(callable, live, options),
+    [callable.name]: internal.onCall(undefined, callable, live, options),
   }) as Exports<C>;
+
+/**
+ * Serves the members of a Callable Group, each as a Callable Function of its
+ * own.
+ *
+ * **When to use**
+ *
+ * Use to export a Callable Group. Destructure the result into the module's
+ * exports, so `export const { users } = CallableFunction.group(Users, Live)`
+ * deploys `users-create`, `users-delete` and so on.
+ *
+ * **Details**
+ *
+ * `live` must provide the handler of every member, each from
+ * `Callable.toLayer(Users, name, handler)`, and leave nothing required. A
+ * handler from `Callable.toLayer` of the Callable on its own doesn't serve it
+ * in the group. `live` may provide more, such as the handlers of other groups.
+ *
+ * Each member is its own function, with a worker of its own. A worker builds
+ * `live` on the first call to its own function, and never for another
+ * member's. One `live` per group is fine. Split it when members need very
+ * different services, so a cold instance builds only what its function needs.
+ *
+ * `options` holds Firebase's `CallableOptions` per member, keyed by the
+ * member's name, each passed to that member's `onCall` unchanged. The group has
+ * no options of its own: set those once with `setGlobalOptions`.
+ *
+ * Each export is exactly what `onCall` returns, and fails as one from
+ * {@link make} does.
+ *
+ * @example Exporting a Callable Group
+ * ```ts
+ * import { Effect, Layer, Schema } from "effect";
+ * import { Callable, CallableGroup } from "@visiolab/effect-firebase/functions";
+ * import { CallableFunction } from "@visiolab/effect-firebase-functions/https";
+ *
+ * const CreateUser = Callable.make("create", {
+ *   payload: { name: Schema.String },
+ *   success: Schema.String,
+ * });
+ * const DeleteUser = Callable.make("delete", { payload: { id: Schema.String } });
+ *
+ * class Users extends CallableGroup.make("users").add(CreateUser, DeleteUser) {}
+ *
+ * const UsersLive = Layer.mergeAll(
+ *   Callable.toLayer(Users, "create", ({ name }) => Effect.succeed(name)),
+ *   Callable.toLayer(Users, "delete", () => Effect.void),
+ * );
+ *
+ * // Deploys `users-create` and `users-delete`.
+ * export const { users } = CallableFunction.group(Users, UsersLive, {
+ *   delete: { region: "europe-west1" },
+ * });
+ * ```
+ *
+ * @see {@link make} for serving a Callable in no group
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.1.0
+ */
+export const group = <G extends CallableGroup.Any, E>(
+  group: G,
+  live: Layer.Layer<CallableGroup.Handlers<G>, E>,
+  options?: GroupOptions<G>,
+): GroupExports<G> => {
+  const exports: Record<string, Export> = {};
+  for (const [name, callable] of Object.entries(group.callables)) {
+    exports[name] = internal.onCall(
+      group,
+      callable,
+      live,
+      (options as Record<string, Https.CallableOptions | undefined> | undefined)?.[name],
+    );
+  }
+  return { [group.identifier]: exports } as GroupExports<G>;
+};

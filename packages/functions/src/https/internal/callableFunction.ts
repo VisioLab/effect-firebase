@@ -1,6 +1,7 @@
 /** @internal */
-import { Cause, Effect, Exit, Layer, Scope, type Context } from "effect";
+import { Cause, Effect, Exit, Layer, Scope, type Context, type Schema } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
+import type * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
 import * as Https from "firebase-functions/v2/https";
 
 /**
@@ -30,15 +31,27 @@ const lazyContext = <R, E>(live: Layer.Layer<R, E>) => {
 
 const internalError = () => new Https.HttpsError("internal", "INTERNAL");
 
-/** @internal */
-export const onCall = <C extends Callable.Any, E>(
-  callable: C,
-  live: Layer.Layer<Callable.HandlerFor<C>, E>,
+/**
+ * The one Callable Function of `callable`, in `group` or in no group. Each
+ * export builds `live` on its own first call, so a worker that serves one
+ * export builds nothing for the others.
+ *
+ * @internal
+ */
+export const onCall = <R, E>(
+  group: CallableGroup.Any | undefined,
+  callable: Callable.Any,
+  live: Layer.Layer<R, E>,
   options: Https.CallableOptions = {},
 ) => {
   const context = lazyContext(live);
+  const serve: Effect.Effect<
+    (data: unknown) => Effect.Effect<unknown, Schema.SchemaError>,
+    never,
+    Callable.Handler<unknown, string>
+  > = group === undefined ? Callable.serve(callable) : Callable.serve(group, callable.name);
   return Https.onCall<unknown, Promise<unknown>>(options, async (request) => {
-    let services: Context.Context<Callable.HandlerFor<C>>;
+    let services: Context.Context<R>;
     try {
       services = await context();
     } catch (error) {
@@ -46,9 +59,10 @@ export const onCall = <C extends Callable.Any, E>(
       throw internalError();
     }
     const exit = await Effect.runPromiseExit(
-      Callable.serve(callable).pipe(
-        Effect.flatMap((serve) => serve(request.data)),
-        Effect.provideContext(services),
+      serve.pipe(
+        Effect.flatMap((run) => run(request.data)),
+        // The public signatures check that `live` provides the handler.
+        Effect.provideContext(services as Context.Context<any>),
       ),
     );
     if (Exit.isSuccess(exit)) return exit.value;
