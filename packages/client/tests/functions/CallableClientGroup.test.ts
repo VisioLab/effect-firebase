@@ -4,7 +4,13 @@ import * as CallableError from "@visiolab/effect-firebase/functions/CallableErro
 import * as App from "../../src/app/App.ts";
 import * as CallableClient from "../../src/functions/CallableClient.ts";
 import * as ClientFunctions from "../../src/functions/ClientFunctions.ts";
-import { Admins, CreateUser, Users } from "../../../functions/tests/fixture/src/contract.ts";
+import {
+  Admins,
+  CreateUser,
+  Failing,
+  NameTaken,
+  Users,
+} from "../../../functions/tests/fixture/src/contract.ts";
 import { emulator } from "./emulator.ts";
 
 /** Functions in `region`, under a named app of its own. */
@@ -67,6 +73,33 @@ describe("CallableClient with a group", () => {
     Effect.gen(function* () {
       const { create } = yield* CallableClient.make(CreateUser);
       expect(yield* responseCode(create({ name: "Ada", birthday: new Date() }))).toBe("not-found");
+    }).pipe(Effect.provide(FunctionsLive)),
+  );
+
+  it.effect("decodes a member's declared error into its class", () =>
+    Effect.gen(function* () {
+      const failing = yield* CallableClient.make(Failing);
+      const caught = yield* failing.fail({ with: "NameTaken" }).pipe(
+        Effect.as(undefined),
+        Effect.catchTag("NameTaken", (error) => Effect.succeed(error)),
+      );
+      expect(caught).toBeInstanceOf(NameTaken);
+      expect(caught).toMatchObject({
+        username: "Ada",
+        since: new Date("2026-01-01T12:00:00.000Z"),
+      });
+    }).pipe(Effect.provide(FunctionsLive)),
+  );
+
+  it.effect("names the deployed function in a member's CallableError", () =>
+    Effect.gen(function* () {
+      const failing = yield* CallableClient.make(Failing);
+      const error = yield* Effect.flip(failing.fail({ with: "defect" }));
+      expect(error).toBeInstanceOf(CallableError.CallableError);
+      expect(error).toMatchObject({
+        callable: "failing-fail",
+        reason: { _tag: "ResponseError", code: "internal" },
+      });
     }).pipe(Effect.provide(FunctionsLive)),
   );
 });

@@ -1,6 +1,7 @@
 /** @internal */
-import { Cause, Effect, Exit, Layer, Scope, type Context, type Schema } from "effect";
+import { Cause, Effect, Exit, Layer, Scope, type Context } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
+import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import type * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
 import * as Https from "firebase-functions/v2/https";
 import { DeferredTracer, externalParent } from "./serverSpan.ts";
@@ -13,10 +14,16 @@ import { DeferredTracer, externalParent } from "./serverSpan.ts";
 const memoMap = Layer.makeMemoMapUnsafe();
 const scope = Scope.makeUnsafe();
 
+const internalError = () => new Https.HttpsError("internal", "INTERNAL");
+
 /**
  * Builds `live` on the first call, and hands every later call the same
  * services. Concurrent first calls share one build. The build runs under the
  * span and Tracer of the call that starts it, so it nests under that call.
+ *
+ * A failed build fails the call and is tried again on the next call. A Layer
+ * that fails closes the scope it was built in, which drops its failed entries
+ * from the memo map, so the retry builds anew.
  */
 const lazyContext = <R, E>(live: Layer.Layer<R, E>) => {
   let pending: Promise<Exit.Exit<Context.Context<R>, E>> | undefined;
@@ -32,7 +39,42 @@ const lazyContext = <R, E>(live: Layer.Layer<R, E>) => {
   });
 };
 
-const internalError = () => new Https.HttpsError("internal", "INTERNAL");
+/** Whether `cause` is a failure `Callable.serve` already turned into an answer. */
+const isAnswer = <E>(cause: Cause.Cause<E>) => {
+  const failure = cause.reasons.find(Cause.isFailReason)?.error;
+  return failure instanceof CallableError.CallableError && failure.reason._tag === "ResponseError";
+};
+
+/**
+ * Logs the Cause of a call that failed unexpectedly: a defect, or a failure
+ * that isn't an answer. Answers and interrupts aren't logged.
+ */
+const logUnexpected =
+  (message: string) =>
+  <E>(cause: Cause.Cause<E>) =>
+    isAnswer(cause) || Cause.hasInterruptsOnly(cause)
+      ? Effect.void
+      : Effect.logError(message, Cause.pretty(cause));
+
+/**
+ * The `HttpsError` a failed call answers with. A failure is already the
+ * answer `Callable.serve` chose. An interrupt is `cancelled` when the client
+ * went away and `unavailable` otherwise. Anything else, logged in the call's
+ * span by {@link logUnexpected}, is a bare `internal`.
+ */
+const toHttpsError = (cause: Cause.Cause<unknown>, aborted: boolean) => {
+  const failure = cause.reasons.find(Cause.isFailReason)?.error;
+  if (failure instanceof CallableError.CallableError && failure.reason._tag === "ResponseError") {
+    const { code, message, details } = failure.reason;
+    return new Https.HttpsError(code, message, details);
+  }
+  if (Cause.hasInterruptsOnly(cause)) {
+    return aborted
+      ? new Https.HttpsError("cancelled", "CANCELLED")
+      : new Https.HttpsError("unavailable", "UNAVAILABLE");
+  }
+  return internalError();
+};
 
 /**
  * The one Callable Function of `callable`, in `group` or in no group. Each
@@ -49,7 +91,7 @@ export const onCall = <R, E>(
 ) => {
   const context = lazyContext(live);
   const serve: Effect.Effect<
-    (data: unknown) => Effect.Effect<unknown, Schema.SchemaError>,
+    (data: unknown) => Effect.Effect<unknown, CallableError.CallableError>,
     never,
     Callable.Handler<unknown, string>
   > = group === undefined ? Callable.serve(callable) : Callable.serve(group, callable.name);
@@ -63,20 +105,20 @@ export const onCall = <R, E>(
       "faas.name": deployedName,
     },
   } as const;
-  return Https.onCall<unknown, Promise<unknown>>(options, async (request) => {
+  return Https.onCall<unknown, Promise<unknown>>(options, async (request, response) => {
     const parent = externalParent();
     const deferred = new DeferredTracer();
+    const signal = response?.signal;
     const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {
         const services = yield* context.pipe(
-          Effect.tapCause((cause) =>
-            Effect.logError("The Layer of a Callable failed to build", Cause.pretty(cause)),
-          ),
+          Effect.onError(logUnexpected("The Layer of a Callable failed to build")),
         );
         deferred.attach(services as Context.Context<never>);
         return yield* serve.pipe(
           Effect.flatMap((run) => run(request.data)),
-          Effect.tapCause((cause) => Effect.logError("A Callable failed", Cause.pretty(cause))),
+          // Logged with the services of `live`, so a logger it provides is used.
+          Effect.onError(logUnexpected("A Callable failed")),
           // The public signatures check that `live` provides the handler.
           Effect.provideContext(services as Context.Context<any>),
         );
@@ -84,8 +126,9 @@ export const onCall = <R, E>(
         Effect.withSpan(`CallableFunction.${deployedName}`, { ...spanOptions, parent }),
         Effect.withTracer(deferred.tracer),
       ),
+      signal === undefined ? undefined : { signal },
     );
     if (Exit.isSuccess(exit)) return exit.value;
-    throw internalError();
+    throw toHttpsError(exit.cause, signal?.aborted === true);
   });
 };

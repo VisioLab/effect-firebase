@@ -124,9 +124,21 @@ export type GroupOptions<G extends CallableGroup.Any> = {
  * The export is exactly what `onCall` returns, so its `__endpoint` and `run`
  * work as for any `onCall` function.
  *
- * If the Payload doesn't decode, the handler fails or dies, or the Layer fails
- * to build, the call fails with a bare `internal` error and the cause is
- * logged.
+ * A failed call answers with an `HttpsError`:
+ *
+ * - A declared error is sent with its schema's code, the error's `message`
+ *   (else its `_tag`) and the error encoded with `Schema.toCodecJson` as
+ *   `details`, so the client decodes it back into its class.
+ * - A Payload that doesn't decode is answered with `invalid-argument`, a
+ *   generic message and no details. It is logged at Debug.
+ * - A defect, or a success or error value that doesn't encode, is answered
+ *   with a bare `internal`. Its Cause is logged at Error, with the logger of
+ *   `live` if it provides one.
+ * - A Layer that fails to build answers the call with a bare `internal` and
+ *   is logged at Error. The next call builds it again.
+ * - An interrupt of the handler is answered with `unavailable`. When the
+ *   client disconnects, the handler is interrupted and the call is answered
+ *   with `cancelled`, as far as the platform reports the disconnect.
  *
  * @example Exporting a Callable Function
  * ```ts

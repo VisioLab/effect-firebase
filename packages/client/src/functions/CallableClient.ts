@@ -35,7 +35,7 @@
  * @since 0.2.0
  */
 import { Effect, Schema } from "effect";
-import type * as Callable from "@visiolab/effect-firebase/functions/Callable";
+import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import * as Sdk from "firebase/functions";
@@ -43,7 +43,7 @@ import * as ClientFunctions from "./ClientFunctions.ts";
 
 /**
  * A client of one Callable: a function from its Payload to an Effect of its
- * success value.
+ * success value, failing with its declared errors or a `CallableError`.
  *
  * @stability unstable
  * @category models
@@ -51,7 +51,7 @@ import * as ClientFunctions from "./ClientFunctions.ts";
  */
 export type Method<C extends Callable.Any> = (
   payload: Callable.Payload<C>,
-) => Effect.Effect<Callable.Success<C>, CallableError.CallableError>;
+) => Effect.Effect<Callable.Success<C>, Callable.Error<C> | CallableError.CallableError>;
 
 /**
  * What {@link make} returns: one {@link Method} per Callable, keyed by the
@@ -101,28 +101,54 @@ const method = (
   );
   const fail = (reason: CallableError.Reason) =>
     new CallableError.CallableError({ callable: deployedName, reason });
-  return (payload: unknown) =>
-    Effect.gen(function* () {
-      const data = yield* encode(payload).pipe(
-        Effect.mapError((cause) => fail(new CallableError.EncodeError({ cause }))),
+  const run = Effect.fn(
+    `CallableClient.${deployedName}`,
+    span,
+  )(function* (payload: unknown) {
+    const data = yield* encode(payload).pipe(
+      Effect.mapError((cause) => fail(new CallableError.EncodeError({ cause }))),
+    );
+    const result = yield* Effect.tryPromise({
+      try: () => call(data),
+      catch: (error) => error,
+    }).pipe(Effect.catch(decodeFailure));
+    return yield* decode(result.data).pipe(
+      Effect.mapError((cause) => fail(new CallableError.DecodeError({ cause }))),
+    );
+  });
+
+  /**
+   * Turns what the SDK threw into the declared error it carries, or into a
+   * `CallableError`.
+   */
+  const decodeFailure = (error: unknown): Effect.Effect<never, unknown> => {
+    // No answer arrived: the SDK reports a network failure as status 0.
+    if (!(error instanceof Sdk.FunctionsError) || error.message.endsWith(" [0]")) {
+      return Effect.fail(fail(new CallableError.TransportError({ cause: error })));
+    }
+    const code = error.code.replace(/^functions\//, "") as CallableError.ErrorCode;
+    const candidates = [...callable.error].filter(
+      (schema) => Callable.getErrorCode(schema) === code,
+    );
+    if (candidates.length === 0 || error.details === undefined) {
+      return Effect.fail(
+        fail(
+          new CallableError.ResponseError({
+            code,
+            message: error.message.replace(/ \[\d+\]$/, ""),
+            details: error.details,
+          }),
+        ),
       );
-      const result = yield* Effect.tryPromise({
-        try: () => call(data),
-        catch: (error) =>
-          fail(
-            error instanceof Sdk.FunctionsError
-              ? new CallableError.ResponseError({
-                  code: error.code.replace(/^functions\//, ""),
-                  message: error.message.replace(/ \[\d+\]$/, ""),
-                  details: error.details,
-                })
-              : new CallableError.TransportError({ cause: error }),
-          ),
-      });
-      return yield* decode(result.data).pipe(
-        Effect.mapError((cause) => fail(new CallableError.DecodeError({ cause }))),
-      );
-    }).pipe(Effect.withSpan(`CallableClient.${deployedName}`, span));
+    }
+    return Schema.decodeUnknownEffect(
+      Schema.toCodecJson(Schema.Union(candidates) as unknown as Schema.Codec<unknown>),
+    )(error.details).pipe(
+      Effect.mapError((cause) => fail(new CallableError.DecodeError({ cause }))),
+      Effect.flatMap(Effect.fail),
+    );
+  };
+  return run;
 };
 
 /**
@@ -146,15 +172,23 @@ const method = (
  * export, and fails with `not-found`. Nothing checks this at runtime.
  *
  * Each call encodes the Payload with `Schema.toCodecJson`, sends it as is
- * through the SDK's `httpsCallable`, and decodes the answer the same way. It
- * fails with a {@link CallableError.CallableError}:
+ * through the SDK's `httpsCallable`, and decodes the answer the same way.
+ *
+ * When the server answers with an error, the client strips the `functions/`
+ * prefix from its code and decodes its `details` against the declared errors
+ * that carry that code. It fails with the decoded error, so `Effect.catchTag`
+ * recovers from it. Every other failure is a
+ * {@link CallableError.CallableError}:
  *
  * - `EncodeError` when the Payload doesn't encode. Nothing is sent.
- * - `DecodeError` when the answer doesn't decode.
- * - `ResponseError` when the server answers with an error. `not-found` usually
- *   means a wrong region, or a name the server doesn't export, such as a
- *   group's member called without its group.
- * - `TransportError` when the SDK fails without an answer.
+ * - `DecodeError` when the success value doesn't decode, or the `details` of
+ *   an error don't decode against the declared errors with its code, as after
+ *   the server and the client drift apart.
+ * - `ResponseError` when the server answers with a code no declared error
+ *   carries, or without details, as on a defect. `not-found` usually means a
+ *   wrong region, or a name the server doesn't export, such as a group's
+ *   member called without its group.
+ * - `TransportError` when no answer arrived.
  *
  * Each call runs in a `kind: "client"` span named `CallableClient.<deployed
  * name>`, such as `CallableClient.users-create`, with the attributes

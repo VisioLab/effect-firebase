@@ -1,6 +1,6 @@
 // The tests pass Layers with requirements left on purpose, to check they are
 // type errors; the language service would flag each of them a second time.
-// @effect-diagnostics missing-layer-context:off
+// @effect-diagnostics missingLayerContext:off
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
 import * as CallableFunction from "@visiolab/effect-firebase-functions/https/CallableFunction";
