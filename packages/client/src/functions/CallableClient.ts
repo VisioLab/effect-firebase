@@ -77,7 +77,21 @@ export type Members<T extends Callable.Any | CallableGroup.Any> = T extends Call
   ? CallableGroup.Callables<T>
   : T;
 
-const method = (functions: Sdk.Functions, callable: Callable.Any, deployedName: string) => {
+const method = (
+  functions: Sdk.Functions,
+  callable: Callable.Any,
+  group: string | undefined,
+  deployedName: string,
+) => {
+  const span = {
+    kind: "client",
+    attributes: {
+      "rpc.system": "firebase_callable",
+      "rpc.method": callable.name,
+      ...(group === undefined ? {} : { "rpc.service": group }),
+      "faas.name": deployedName,
+    },
+  } as const;
   const call = Sdk.httpsCallable(functions, deployedName);
   const encode = Schema.encodeUnknownEffect(
     Schema.toCodecJson(callable.payload as Schema.Codec<unknown>),
@@ -108,7 +122,7 @@ const method = (functions: Sdk.Functions, callable: Callable.Any, deployedName: 
       return yield* decode(result.data).pipe(
         Effect.mapError((cause) => fail(new CallableError.DecodeError({ cause }))),
       );
-    });
+    }).pipe(Effect.withSpan(`CallableClient.${deployedName}`, span));
 };
 
 /**
@@ -141,6 +155,14 @@ const method = (functions: Sdk.Functions, callable: Callable.Any, deployedName: 
  *   means a wrong region, or a name the server doesn't export, such as a
  *   group's member called without its group.
  * - `TransportError` when the SDK fails without an answer.
+ *
+ * Each call runs in a `kind: "client"` span named `CallableClient.<deployed
+ * name>`, such as `CallableClient.users-create`, with the attributes
+ * `rpc.system: "firebase_callable"`, `rpc.method` (the Callable's name),
+ * `rpc.service` (the group, for a member) and `faas.name` (the deployed name).
+ * The span isn't linked to the server's span of the same call: the two land in
+ * separate traces. It carries no uid; add one with `Effect.annotateCurrentSpan`
+ * around the call when you want it.
  *
  * @example Injecting a client as a service
  * ```ts
@@ -190,11 +212,11 @@ export const make = <T extends Callable.Any | CallableGroup.Any>(
   Effect.map(Effect.service(ClientFunctions.ClientFunctions), ({ instance }) => {
     if (!CallableGroup.isCallableGroup(target)) {
       const callable = target as Callable.Any;
-      return { [callable.name]: method(instance, callable, callable.name) } as Client<T>;
+      return { [callable.name]: method(instance, callable, undefined, callable.name) } as Client<T>;
     }
     const client: Record<string, ReturnType<typeof method>> = {};
     for (const [name, callable] of Object.entries(target.callables)) {
-      client[name] = method(instance, callable, `${target.identifier}-${name}`);
+      client[name] = method(instance, callable, target.identifier, `${target.identifier}-${name}`);
     }
     return client as Client<T>;
   });
