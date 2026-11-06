@@ -1,0 +1,153 @@
+/**
+ * Callable Clients: call the Callables a server serves, with the Payload, the
+ * success value and the errors typed by their contract.
+ *
+ * A client calls through the {@link ClientFunctions.ClientFunctions} in
+ * context, so the region and the emulator are set once, where that is
+ * provided.
+ *
+ * @example Calling a Callable
+ * ```ts
+ * import { Effect, Layer, Schema } from "effect";
+ * import { Callable } from "@visiolab/effect-firebase/functions";
+ * import { App } from "@visiolab/effect-firebase-client/app";
+ * import { CallableClient, ClientFunctions } from "@visiolab/effect-firebase-client/functions";
+ *
+ * const Greet = Callable.make("greet", {
+ *   payload: { name: Schema.String },
+ *   success: Schema.String,
+ * });
+ *
+ * const program = Effect.gen(function* () {
+ *   const { greet } = yield* CallableClient.make(Greet);
+ *   const message = yield* greet({ name: "Ada" });
+ *   yield* Effect.log(message);
+ * });
+ *
+ * const FunctionsLive = ClientFunctions.layer().pipe(
+ *   Layer.provide(App.layer({ apiKey: "<api key>", projectId: "my-project", appId: "<app id>" })),
+ * );
+ *
+ * program.pipe(Effect.provide(FunctionsLive));
+ * ```
+ *
+ * @stability unstable
+ * @since 0.2.0
+ */
+import { Effect, Schema } from "effect";
+import type * as Callable from "@visiolab/effect-firebase/functions/Callable";
+import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
+import * as Sdk from "firebase/functions";
+import * as ClientFunctions from "./ClientFunctions.ts";
+
+/**
+ * A client of one Callable: a function from its Payload to an Effect of its
+ * success value.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export type Method<C extends Callable.Any> = (
+  payload: Callable.Payload<C>,
+) => Effect.Effect<Callable.Success<C>, CallableError.CallableError>;
+
+/**
+ * What {@link make} returns: one {@link Method} per Callable, keyed by the
+ * Callable's name.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export type Client<C extends Callable.Any> = { readonly [K in C["name"]]: Method<C> };
+
+const method = (functions: Sdk.Functions, callable: Callable.Any, deployedName: string) => {
+  const call = Sdk.httpsCallable(functions, deployedName);
+  const encode = Schema.encodeUnknownEffect(
+    Schema.toCodecJson(callable.payload as Schema.Codec<unknown>),
+  );
+  const decode = Schema.decodeUnknownEffect(
+    Schema.toCodecJson(callable.success as Schema.Codec<unknown>),
+  );
+  const fail = (reason: CallableError.Reason) =>
+    new CallableError.CallableError({ callable: deployedName, reason });
+  return (payload: unknown) =>
+    Effect.gen(function* () {
+      const data = yield* encode(payload).pipe(
+        Effect.mapError((cause) => fail(new CallableError.EncodeError({ cause }))),
+      );
+      const result = yield* Effect.tryPromise({
+        try: () => call(data),
+        catch: (error) =>
+          fail(
+            error instanceof Sdk.FunctionsError
+              ? new CallableError.ResponseError({
+                  code: error.code.replace(/^functions\//, ""),
+                  message: error.message.replace(/ \[\d+\]$/, ""),
+                  details: error.details,
+                })
+              : new CallableError.TransportError({ cause: error }),
+          ),
+      });
+      return yield* decode(result.data).pipe(
+        Effect.mapError((cause) => fail(new CallableError.DecodeError({ cause }))),
+      );
+    });
+};
+
+/**
+ * Builds the client of a Callable in no group.
+ *
+ * **When to use**
+ *
+ * Use to call a Callable from the browser or any other client SDK program.
+ *
+ * **Details**
+ *
+ * Returns a record with one function, keyed by the Callable's name, so
+ * `const { greet } = yield* CallableClient.make(Greet)`. The region of the
+ * {@link ClientFunctions.ClientFunctions} in context is bound once, here.
+ *
+ * Each call encodes the Payload with `Schema.toCodecJson`, sends it as is
+ * through the SDK's `httpsCallable`, and decodes the answer the same way. It
+ * fails with a {@link CallableError.CallableError}:
+ *
+ * - `EncodeError` when the Payload doesn't encode. Nothing is sent.
+ * - `DecodeError` when the answer doesn't decode.
+ * - `ResponseError` when the server answers with an error. `not-found` usually
+ *   means a wrong region or a name the server doesn't export.
+ * - `TransportError` when the SDK fails without an answer.
+ *
+ * @example Injecting a client as a service
+ * ```ts
+ * import { Context, Layer, Schema } from "effect";
+ * import { Callable } from "@visiolab/effect-firebase/functions";
+ * import { CallableClient } from "@visiolab/effect-firebase-client/functions";
+ *
+ * const Greet = Callable.make("greet", {
+ *   payload: { name: Schema.String },
+ *   success: Schema.String,
+ * });
+ *
+ * class GreetClient extends Context.Service<GreetClient, CallableClient.Client<typeof Greet>>()(
+ *   "app/GreetClient",
+ * ) {
+ *   static readonly layer = Layer.effect(GreetClient, CallableClient.make(Greet));
+ * }
+ * ```
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.2.0
+ */
+export const make = <C extends Callable.Any>(
+  callable: C,
+): Effect.Effect<Client<C>, never, ClientFunctions.ClientFunctions> =>
+  Effect.map(
+    Effect.service(ClientFunctions.ClientFunctions),
+    ({ instance }) =>
+      ({
+        [callable.name]: method(instance, callable, callable.name),
+      }) as Client<C>,
+  );
