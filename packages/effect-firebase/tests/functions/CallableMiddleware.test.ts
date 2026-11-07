@@ -136,6 +136,30 @@ describe("Callable.handler", () => {
     }),
   );
 
+  it.effect("reads back the whole Payload from the request it makes when none is given", () =>
+    Effect.gen(function* () {
+      const seen: Array<string> = [];
+      const Note = Callable.make("note", { payload: { text: Schema.String } }).middleware(Recorder);
+      const note = yield* Callable.handler(Note).pipe(
+        Effect.provide(
+          Layer.merge(
+            Callable.toLayer(Note, () => Effect.void),
+            Layer.succeed(Recorder, (effect) =>
+              Effect.gen(function* () {
+                const { rawRequest } = yield* CallableRequest.CallableRequest;
+                seen.push(yield* Effect.orDie(rawRequest.text));
+                return yield* effect;
+              }),
+            ),
+          ),
+        ),
+      );
+      const text = "x".repeat(1_000_000);
+      yield* note({ text }, {});
+      expect(seen).toEqual([`{"text":"${text}"}`]);
+    }),
+  );
+
   it.effect("lets a middleware that wraps the call catch the handler's error", () =>
     Effect.gen(function* () {
       const Lookup = Callable.make("lookup", {

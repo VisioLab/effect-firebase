@@ -275,9 +275,8 @@ export const handler = (group: CallableGroup.Fields | undefined, callable: Field
     return (payload: unknown, input: CallableRequest.Input) =>
       encode(payload).pipe(
         Effect.orDie,
-        Effect.flatMap((data) => {
-          let rawRequest = input.rawRequest;
-          return run({
+        Effect.flatMap((data) =>
+          run({
             auth:
               input.auth === undefined
                 ? undefined
@@ -289,12 +288,9 @@ export const handler = (group: CallableGroup.Fields | undefined, callable: Field
             app: input.app,
             instanceIdToken: input.instanceIdToken,
             data,
-            // Built on first read, so a call that never reads it pays nothing.
-            get rawRequest() {
-              return (rawRequest ??= syntheticRequest(name, data));
-            },
-          });
-        }),
+            rawRequest: input.rawRequest ?? syntheticRequest(name, data),
+          }),
+        ),
         // The Payload was encoded from its own type, so a Payload that doesn't
         // decode back is a defect of its schema.
         Effect.catchIf(

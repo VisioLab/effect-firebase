@@ -82,8 +82,8 @@ export interface App {
  *
  * `rawRequest` is the HTTP request the call came in, as Effect's
  * `HttpServerRequest`. `CallableFunction` builds it from Firebase's request,
- * and `Callable.handler` from {@link Input.rawRequest}. Both build it when it
- * is first read, so a call that never reads it pays nothing.
+ * streaming its body without copying the bytes, and `Callable.handler` takes
+ * it from {@link Input.rawRequest}.
  *
  * @stability unstable
  * @category models

@@ -640,7 +640,7 @@ export const serve: {
  * encodes the Payload with `Schema.toCodecJson` as the request's raw `data`,
  * so middleware sees what it would see on the wire. The request's
  * `rawRequest` is the input's, or else a JSON `POST` of the encoded Payload to
- * `http://localhost/<deployed name>`, built on first read (see
+ * `http://localhost/<deployed name>` (see
  * {@link CallableRequest.Input.rawRequest}). It runs the chain that
  * `CallableFunction` runs, and fails with the Callable's declared errors and
  * those of its middleware. The success value is the handler's, not encoded.
