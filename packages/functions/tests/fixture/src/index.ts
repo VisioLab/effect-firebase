@@ -10,10 +10,14 @@ import { Cause, Context, Data, Effect, Exit, Layer, Logger, Option, Tracer } fro
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import * as Caller from "@visiolab/effect-firebase/functions/Caller";
+import * as CallableRequest from "@visiolab/effect-firebase/functions/CallableRequest";
 import * as CallableFunction from "../../../src/https/CallableFunction.ts";
+import * as FunctionsCallableRequest from "../../../src/https/FunctionsCallableRequest.ts";
 import { onCall } from "firebase-functions/v2/https";
 import {
   Admins,
+  Audit,
+  Audited,
   Banned,
   BrokenBuild,
   Fail,
@@ -285,4 +289,34 @@ class LayerBroke extends Data.TaggedError("LayerBroke")<{ readonly message: stri
 export const { brokenBuild } = CallableFunction.make(
   BrokenBuild,
   Callable.toLayer(BrokenBuild, Effect.fail(new LayerBroke({ message: "The Layer broke" }))),
+);
+
+/**
+ * Tags the call's span and logs with the call's id from the raw data, logs
+ * whether Firebase's request reached it, and logs "Rejected" when the call it
+ * wraps fails.
+ */
+const AuditLive = Layer.succeed(Audit, (effect) =>
+  Effect.gen(function* () {
+    const { data } = yield* CallableRequest.CallableRequest;
+    const callId = String((data as { readonly callId?: unknown } | null)?.callId);
+    const firebase = yield* Effect.serviceOption(FunctionsCallableRequest.FunctionsCallableRequest);
+    yield* Effect.annotateCurrentSpan("callId", callId);
+    yield* Effect.log("Audit").pipe(
+      Effect.annotateLogs({ callId, hasRawRequest: Option.isSome(firebase) }),
+    );
+    return yield* effect.pipe(
+      Effect.tapCause(() => Effect.logWarning("Rejected").pipe(Effect.annotateLogs({ callId }))),
+    );
+  }),
+);
+
+export const { audited } = CallableFunction.make(
+  Audited,
+  Layer.mergeAll(
+    Callable.toLayer(Audited, () => Effect.void),
+    Caller.Authenticated.layer,
+    AuditLive,
+    SpanRecorder,
+  ),
 );

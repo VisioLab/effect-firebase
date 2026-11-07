@@ -7,6 +7,7 @@ import { Schema } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
+import * as CallableMiddleware from "@visiolab/effect-firebase/functions/CallableMiddleware";
 import * as Caller from "@visiolab/effect-firebase/functions/Caller";
 
 /** A Callable in no group, with a `Date` each way. */
@@ -118,3 +119,11 @@ export const Logged = Callable.make("logged", { payload: { callId: Schema.String
 
 /** Its Layer always fails to build. */
 export const BrokenBuild = Callable.make("brokenBuild");
+
+/** Logs each call it wraps, and logs again when that call fails. */
+export class Audit extends CallableMiddleware.Service<Audit>()("Audit") {}
+
+/** `Audit` outside `Authenticated`, so `Audit` logs the rejection of a signed-out call. */
+export const Audited = Callable.make("audited", { payload: { callId: Schema.String } })
+  .middleware(Caller.Authenticated)
+  .middleware(Audit);

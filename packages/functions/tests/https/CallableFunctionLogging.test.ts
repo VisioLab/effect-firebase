@@ -109,6 +109,35 @@ describe("CallableFunction logging", () => {
     }),
   );
 
+  it.effect(
+    "logs from middleware, and its rejection of a signed-out call, under the call's span",
+    () =>
+      Effect.gen(function* () {
+        const traceId = randomTraceId();
+        const callId = crypto.randomUUID();
+        expect(yield* call("audited", traceId, { callId })).toBe(401);
+        const server = readLines<RecordedSpan>(spansLog).find(
+          (span) =>
+            span.name === "CallableFunction.audited" && span.attributes["callId"] === callId,
+        );
+        expect(server).toBeDefined();
+        const entries = readEntries().filter((entry) => entry["callId"] === callId);
+        expect(entries.map((entry) => [entry["message"], entry["severity"]])).toEqual([
+          ["Audit", "INFO"],
+          ["Rejected", "WARNING"],
+        ]);
+        // Firebase's request reaches the middleware, inside the call's span.
+        expect(entries[0]?.["hasRawRequest"]).toBe(true);
+        for (const entry of entries) {
+          expect(entry).toMatchObject({
+            "logging.googleapis.com/trace": traceField(traceId),
+            "logging.googleapis.com/spanId": server?.spanId,
+            "logging.googleapis.com/trace_sampled": true,
+          });
+        }
+      }),
+  );
+
   it.effect("logs concurrent calls each under its own trace", () =>
     Effect.gen(function* () {
       const calls = Array.from({ length: 4 }, () => ({
