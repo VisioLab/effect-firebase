@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Cause, Effect, Logger, References, Tracer } from "effect";
+import { Cause, Effect, Layer, Logger, References, Tracer } from "effect";
 import { TestConsole } from "effect/testing";
 import * as CloudLogging from "../../src/logger/CloudLogging.ts";
 
@@ -16,7 +16,7 @@ const captured = <A, E>(effect: Effect.Effect<A, E>) =>
       log: parse(yield* TestConsole.logLines),
       error: parse(yield* TestConsole.errorLines),
     };
-  }).pipe(Effect.provide(CloudLogging.layer), Effect.provide(TestConsole.layer));
+  }).pipe(Effect.provide(Layer.merge(CloudLogging.layer, TestConsole.layer)));
 
 describe("CloudLogging", () => {
   it.effect("writes the trace of the current span", () =>
