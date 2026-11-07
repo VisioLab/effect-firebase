@@ -1,6 +1,6 @@
 /**
- * Serves Callables as Callable Functions: real `onCall` exports that plain
- * `firebase deploy` deploys. {@link make} serves a Callable in no group under
+ * Serves Callables as Callable Functions, which plain `firebase deploy`
+ * deploys. {@link make} serves a Callable in no group under
  * its name, and {@link group} serves each member of a Callable Group as
  * `<group>-<name>`.
  *
@@ -41,7 +41,8 @@
  * current span, so concurrent calls on one instance each log under their own
  * trace. A `Logger.layer` in the Layer replaces it. Logs of a first call's
  * Layer build are written once the build is done, when the spans they were
- * logged under have their final ids. Entries carry no uid; add one in the
+ * logged under have their final ids. Entries carry no timestamp, so Cloud
+ * Logging stamps them with the time the build finished. Entries carry no uid; add one in the
  * handler with `Effect.annotateLogs`.
  *
  * @example Serving a Callable
@@ -193,6 +194,9 @@ export type Live<Services, E> = Layer.Layer<
  * ```
  *
  * @see {@link group} for serving the members of a Callable Group
+ * @see {@link Callable.serve} for serving from a transport of your own
+ * @see {@link Callable.handler} for running the handler in process
+ * @see {@link CallableClient.make} for calling it from the client
  *
  * @stability unstable
  * @category constructors
@@ -269,6 +273,7 @@ export const make = <C extends Callable.Any, E>(
  * ```
  *
  * @see {@link make} for serving a Callable in no group
+ * @see {@link CallableClient.make} for calling the members from the client
  *
  * @stability unstable
  * @category constructors

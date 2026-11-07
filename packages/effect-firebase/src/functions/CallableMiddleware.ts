@@ -41,6 +41,9 @@
 import type { Context, Effect, Schema } from "effect";
 import type { unhandled } from "effect/Types";
 import type * as Callable from "./Callable.ts";
+// Only the documentation links to it.
+// oxlint-disable-next-line no-unused-vars
+import type * as CallableGroup from "./CallableGroup.ts";
 import type * as CallableRequest from "./CallableRequest.ts";
 import * as internal from "./internal/callableMiddleware.ts";
 
@@ -81,6 +84,10 @@ export interface Options {
  * `Provides`. The implementation may run it, fail instead, or catch what it
  * fails with. It may require what middleware outside it provides, and always
  * the {@link CallableRequest.CallableRequest}.
+ *
+ * A Payload that doesn't decode fails `effect` too. An implementation that
+ * catches every failure catches that one as well, and the caller then no
+ * longer gets `invalid-argument`. Catch only the errors you mean to.
  *
  * @stability unstable
  * @category models
@@ -229,7 +236,9 @@ export type ServiceClass<
  * Callable's declared errors, and the client decodes them back.
  *
  * The middleware runs before the Payload is decoded, so a call it rejects
- * learns nothing from the Payload's decoding.
+ * learns nothing from the Payload's decoding. The decoding runs inside the
+ * chain, so an implementation that catches every failure also catches a
+ * Payload that doesn't decode.
  *
  * @example Declaring a middleware
  * ```ts
@@ -245,6 +254,7 @@ export type ServiceClass<
  * ```
  *
  * @see {@link Callable.Callable.middleware} for attaching it to a Callable
+ * @see {@link CallableGroup.CallableGroup.middleware} for attaching it to every member of a group
  * @see {@link Caller.Authenticated} for the built-in middleware
  *
  * @stability unstable

@@ -123,6 +123,8 @@ export class Authenticated extends CallableMiddleware.Service<
    *
    * Use where the chain runs, in production and in process alike.
    *
+   * @stability unstable
+   * @category layers
    * @since 0.3.0
    */
   static readonly layer: Layer.Layer<Authenticated> = Layer.succeed(this, (effect) =>

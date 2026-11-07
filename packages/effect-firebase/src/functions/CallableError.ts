@@ -218,6 +218,12 @@ export class Unavailable extends Schema.TaggedError<
  * No response arrived: the request never reached the server, or the
  * connection broke before it answered.
  *
+ * **Details**
+ *
+ * The client SDK reports a network failure as an `internal` error with HTTP
+ * status 0. `CallableClient` tells it from a server's `internal` by that
+ * status alone.
+ *
  * @stability unstable
  * @category errors
  * @since 0.3.0
@@ -301,8 +307,8 @@ export type Reason = TransportError | ResponseError | EncodeError | DecodeError;
  *
  * **When to use**
  *
- * Match on `reason` to recover from one kind of failure, with
- * `Effect.catchReason`.
+ * Use `Effect.catchReason` on its `reason` to recover from one kind of
+ * failure, such as a missing response.
  *
  * @example Recovering from a missing response
  * ```ts

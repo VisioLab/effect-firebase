@@ -42,9 +42,9 @@ const TypeId = internal.TypeId;
  * it a name of its own in types and in hovers. Its name is `identifier`, since
  * a class already has a `name` of its own.
  *
- * A Callable's name is unique within its group. A Callable can be in more than
- * one group, and each group serves and implements it separately. Groups don't
- * nest.
+ * A Callable's name is unique within its group. `.add` checks this when the
+ * module loads; the types don't. A Callable can be in more than one group,
+ * and each group serves and implements it separately. Groups don't nest.
  *
  * @stability unstable
  * @category models
@@ -77,7 +77,7 @@ export interface CallableGroup<
    *
    * Returns a new group that keeps the group's middleware. Throws when a
    * Callable's name is already taken in the group, so a clash fails when the
-   * module loads, before anything deploys.
+   * module loads, before anything deploys. The types don't catch a clash.
    */
   add<const A extends ReadonlyArray<Callable.Any>>(
     ...callables: A
@@ -100,6 +100,12 @@ export interface CallableGroup<
    * requires, and its errors join each member's error union, on the server
    * and in the client. Its implementation is required where the chain runs:
    * by `CallableFunction.group` and by {@link Callable.handler}.
+   *
+   * Middleware isn't deduplicated: the same middleware on the group and on a
+   * member runs twice for that member.
+   *
+   * @see {@link CallableMiddleware.Service} for declaring a middleware
+   * @see {@link Callable.Callable.middleware} for attaching one to a single Callable
    */
   middleware<I extends CallableMiddleware.AnyId, S>(
     middleware: Context.Key<I, S>,
@@ -239,7 +245,9 @@ export type ChainServices<G extends Any> =
     : never;
 
 /**
- * Checks whether a value is a {@link CallableGroup}.
+ * Checks whether a value is a {@link CallableGroup}. A building block for the
+ * functions and client packages, which take a Callable or a group. Most apps
+ * don't need it.
  *
  * @stability unstable
  * @category guards
@@ -279,7 +287,6 @@ export const isCallableGroup: (u: unknown) => u is Any = internal.isCallableGrou
  * class Admins extends CallableGroup.make("admins").add(GetUser) {}
  * ```
  *
- * @see {@link Callable.make} for declaring the members
  * @example Requiring sign-in for every member
  * ```ts
  * import { Effect, Layer, Schema } from "effect";
@@ -306,6 +313,7 @@ export const isCallableGroup: (u: unknown) => u is Any = internal.isCallableGrou
  * );
  * ```
  *
+ * @see {@link Callable.make} for declaring the members
  * @see {@link Callable.toLayer} for implementing a member
  * @see {@link Callable.handler} for running a member behind the group's middleware
  *

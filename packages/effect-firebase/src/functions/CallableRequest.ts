@@ -66,7 +66,8 @@ export interface App {
 }
 
 /**
- * The fields of a {@link CallableRequest}, without its brand.
+ * The fields of a {@link CallableRequest}, without its brand. A building block
+ * for the functions package's request service. Most apps don't need it.
  *
  * **Details**
  *
@@ -151,12 +152,14 @@ export interface Input {
 }
 
 /**
- * Makes a {@link CallableRequest} from its fields.
+ * Makes a {@link CallableRequest} from its fields. A building block for the
+ * functions package. Most apps don't need it.
  *
  * **When to use**
  *
  * Use when serving Callables from a transport of your own, to build the
- * request that `Callable.serve` takes. `Callable.handler` builds it for you.
+ * request that `Callable.serve` takes. `CallableFunction` and
+ * `Callable.handler` build it for you.
  *
  * **Details**
  *

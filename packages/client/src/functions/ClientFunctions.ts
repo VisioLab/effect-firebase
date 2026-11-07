@@ -44,10 +44,12 @@ export interface ClientFunctions {
  *
  * **When to use**
  *
- * Provide it with {@link layer}. A {@link CallableClient.make} client reads it
- * once, when it is built.
+ * Use to give every Callable Client one region and emulator setting. Provide
+ * it with {@link layer}. A {@link CallableClient.make} client reads it once,
+ * when it is built.
  *
  * @see {@link layer} for providing it
+ * @see {@link CallableClient.make} for the clients that call through it
  *
  * @stability unstable
  * @category services

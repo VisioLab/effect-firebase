@@ -103,6 +103,14 @@ export interface Callable<
    * its errors join the Callable's error union. Its implementation is
    * required where the chain runs: by `CallableFunction` and by
    * {@link handler}.
+   *
+   * The Payload is decoded inside the chain, so a middleware that catches
+   * every failure also catches a Payload that doesn't decode, and the caller
+   * then no longer gets `invalid-argument`. The same middleware on the
+   * Callable and on its group runs twice.
+   *
+   * @see {@link CallableMiddleware.Service} for declaring a middleware
+   * @see {@link CallableGroup.CallableGroup.middleware} for attaching one to every member of a group
    */
   middleware<I extends CallableMiddleware.AnyId, S>(
     middleware: Context.Key<I, S>,
@@ -285,6 +293,7 @@ export interface MakeOptions<
  *
  * @see {@link toLayer} for implementing the Callable on the server
  * @see {@link errorCode} for giving an error schema its code
+ * @see {@link CallableGroup.make} for collecting Callables under one prefix
  *
  * @stability unstable
  * @category constructors
@@ -532,7 +541,8 @@ export const toLayer: {
 }) as never;
 
 /**
- * Runs one call to a Callable, as it arrives on the wire.
+ * Runs one call to a Callable, as it arrives on the wire. A building block for
+ * the functions package. Most apps don't need it.
  *
  * **When to use**
  *
@@ -574,6 +584,8 @@ export const toLayer: {
  *
  * @see {@link toLayer} for providing the handler
  * @see {@link handler} for running the handler in process, with typed values
+ * @see {@link CallableFunction.make} for serving through `firebase-functions`
+ * @see {@link deployment} for the name and span attributes a transport uses
  *
  * @stability unstable
  * @category serving
@@ -651,6 +663,7 @@ export const serve: {
  *
  * @see {@link serve} for running a call as it arrives on the wire
  * @see {@link toLayer} for providing the handler
+ * @see {@link CallableFunction.make} for serving the same chain through `firebase-functions`
  *
  * @stability unstable
  * @category serving
@@ -718,13 +731,15 @@ export const errorCode =
 
 /**
  * Reads the Firebase error code of an error schema: what {@link errorCode} or
- * its `callableErrorCode` annotation set, else `internal`.
+ * its `callableErrorCode` annotation set, else `internal`. A building block
+ * for the functions and client packages. Most apps don't need it.
  *
  * **When to use**
  *
  * Use when serving or calling Callables from a transport of your own.
  *
  * @see {@link errorCode} for setting the code
+ * @see {@link errorSchemas} for the schemas a call can be answered with
  *
  * @stability unstable
  * @category errors
@@ -734,7 +749,8 @@ export const getErrorCode: (schema: Schema.Top) => CallableError.ErrorCode = int
 
 /**
  * The schemas of every error a call can be answered with: the Callable's
- * declared errors, then those of its middleware.
+ * declared errors, then those of its middleware. A building block for the
+ * client package. Most apps don't need it.
  *
  * **When to use**
  *
@@ -747,6 +763,7 @@ export const getErrorCode: (schema: Schema.Top) => CallableError.ErrorCode = int
  * a member of a {@link CallableGroup.CallableGroup}.
  *
  * @see {@link getErrorCode} for the code of each schema
+ * @see {@link deployment} for the name a transport calls
  *
  * @stability unstable
  * @category errors

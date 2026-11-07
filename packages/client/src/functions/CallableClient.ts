@@ -192,7 +192,9 @@ const method = (
  *   carries, or without details, as on a defect. `not-found` usually means a
  *   wrong region, or a name the server doesn't export, such as a group's
  *   member called without its group.
- * - `TransportError` when no answer arrived.
+ * - `TransportError` when no answer arrived. The SDK reports a network
+ *   failure as an `internal` error with HTTP status 0, and the client tells
+ *   it from a server's `internal` by that status alone.
  *
  * Each call runs in a `kind: "client"` span named `CallableClient.<deployed
  * name>`, such as `CallableClient.users-create`, with the attributes
@@ -239,6 +241,10 @@ const method = (
  *   return yield* users.create({ name: "Ada" });
  * });
  * ```
+ *
+ * @see {@link ClientFunctions.ClientFunctions} for the region and emulator it calls
+ * @see {@link CallableFunction.make} for serving a Callable in no group
+ * @see {@link CallableFunction.group} for serving the members of a group
  *
  * @stability unstable
  * @category constructors
