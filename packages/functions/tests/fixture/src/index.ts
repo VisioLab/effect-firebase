@@ -6,7 +6,7 @@
  */
 import { appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { Context, Data, Effect, Layer, Logger } from "effect";
+import { Context, Data, Effect, Exit, Layer, Logger, Option, Tracer } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import * as Caller from "@visiolab/effect-firebase/functions/Caller";
@@ -20,6 +20,8 @@ import {
   Flaky,
   Greet,
   LayerBuilds,
+  Traced,
+  Tracing,
   NameTaken,
   Unexplained,
   Users,
@@ -89,6 +91,64 @@ const WorkersLive = Layer.unwrap(
 );
 
 export const { workers } = CallableFunction.group(Workers, WorkersLive);
+
+/**
+ * Where {@link SpanRecorder} writes the spans it ends, one JSON line each:
+ * `packages/functions/tests/spans.log`, outside the fixture source the
+ * emulator watches. The tests read it back.
+ */
+const spansLog = fileURLToPath(new URL("../../spans.log", import.meta.url));
+
+/** A span that writes itself to {@link spansLog} when it ends. */
+class RecordedSpan extends Tracer.NativeSpan {
+  override end(endTime: bigint, exit: Exit.Exit<unknown, unknown>) {
+    super.end(endTime, exit);
+    const parent = Option.getOrUndefined(this.parent);
+    const line = {
+      name: this.name,
+      kind: this.kind,
+      traceId: this.traceId,
+      spanId: this.spanId,
+      sampled: this.sampled,
+      attributes: Object.fromEntries(this.attributes),
+      parent:
+        parent === undefined
+          ? null
+          : { traceId: parent.traceId, spanId: parent.spanId, sampled: parent.sampled },
+      startTime: String(this.startTime),
+      endTime: String(endTime),
+      success: Exit.isSuccess(exit),
+    };
+    appendFileSync(spansLog, `${JSON.stringify(line)}\n`);
+  }
+}
+
+/** The test Tracer: a `Live` that provides it has its spans recorded. */
+const SpanRecorder = Layer.succeed(
+  Tracer.Tracer,
+  Tracer.make({ span: (options) => new RecordedSpan(options) }),
+);
+
+/** Opens a span tagged with the call's id, as an app's handler would open its own. */
+const handleTraced = ({ callId }: { readonly callId: string }) =>
+  Effect.void.pipe(Effect.withSpan("fixture.handler", { attributes: { callId } }));
+
+export const { traced } = CallableFunction.make(
+  Traced,
+  Layer.mergeAll(Callable.toLayer(Traced, handleTraced), SpanRecorder),
+);
+
+export const { tracing } = CallableFunction.group(
+  Tracing,
+  Layer.mergeAll(
+    Callable.toLayer(
+      Tracing,
+      "traced",
+      Effect.sleep("50 millis").pipe(Effect.withSpan("fixture.build"), Effect.as(handleTraced)),
+    ),
+    SpanRecorder,
+  ),
+);
 
 /**
  * Where the fixture's own logger writes, one JSON line per entry, so the tests

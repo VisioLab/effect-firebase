@@ -100,3 +100,16 @@ export const { whoAmI } = CallableFunction.make(
 - A middleware attached later wraps the ones attached before it.
 - `CallableFunction` provides no middleware itself, so a `Live` without an implementation is a type error.
 - Run a handler in process, with its chain and without the emulator, through `Callable.handler(WhoAmI)`.
+
+## Tracing
+
+Every call runs in a `kind: "server"` span named `CallableFunction.<deployed name>`, such as `CallableFunction.users-create`, with the attributes `rpc.system: "firebase_callable"`, `rpc.method`, `rpc.service` (the group, for a member) and `faas.name`. Spans are exported only when the Layer you export provides a `Tracer`, for example from `@effect/opentelemetry`:
+
+```ts
+export const { users } = CallableFunction.group(Users, Layer.mergeAll(UsersLive, TracingLive));
+```
+
+- The span covers the middleware, decoding the Payload, the handler and encoding the answer. On the call that builds the Layer, it covers the build too, and spans opened during the build are its children.
+- Its parent is the trace context Firebase reads from the request (`X-Cloud-Trace-Context`, else `traceparent`), so it joins the platform's trace. In the emulator it is a root span.
+- `CallableClient` opens a `kind: "client"` span per call. It isn't linked to the server span: the two land in separate traces.
+- Neither span carries a uid. Add one where you want it with `Effect.annotateCurrentSpan("enduser.id", uid)`.

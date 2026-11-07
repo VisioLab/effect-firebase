@@ -21,6 +21,21 @@
  * - Call `setGlobalOptions` before any function is defined, as Firebase
  *   requires.
  *
+ * Every call runs in a `kind: "server"` span named `CallableFunction.<deployed
+ * name>`, such as `CallableFunction.users-create`, with the attributes
+ * `rpc.system: "firebase_callable"`, `rpc.method` (the Callable's name),
+ * `rpc.service` (the group, for a member) and `faas.name` (the deployed name).
+ * The span covers the Payload decoding, the handler and the encoding of the
+ * answer, and the Layer build on the call that triggers it. Spans the handler
+ * or the build open are its children. The span is always on, and is exported
+ * only when the Layer provides a `Tracer`.
+ *
+ * The span's parent is the trace context Firebase reads from the request: the
+ * `X-Cloud-Trace-Context` header, else `traceparent`. With neither, as in the
+ * emulator, the span is a root span. The client's span of the same call is not
+ * linked to it, so the two land in separate traces. The span carries no uid;
+ * add one in the handler with `Effect.annotateCurrentSpan`.
+ *
  * @example Serving a Callable
  * ```ts
  * import { Effect, Schema } from "effect";

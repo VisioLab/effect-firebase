@@ -78,16 +78,26 @@ export type Members<T extends Callable.Any | CallableGroup.Any> = T extends Call
   : T;
 
 /**
- * The client function of `callable`, deployed as `deployedName`. `errors` are
- * the schemas of every error it can be answered with, its middleware's
- * included.
+ * The client function of `callable`, in `group` or in no group, deployed as
+ * `deployedName`. `errors` are the schemas of every error it can be answered
+ * with, its middleware's included.
  */
 const method = (
   functions: Sdk.Functions,
   callable: Callable.Any,
+  group: string | undefined,
   deployedName: string,
   errors: ReadonlyArray<Schema.Top>,
 ) => {
+  const span = {
+    kind: "client",
+    attributes: {
+      "rpc.system": "firebase_callable",
+      "rpc.method": callable.name,
+      ...(group === undefined ? {} : { "rpc.service": group }),
+      "faas.name": deployedName,
+    },
+  } as const;
   const call = Sdk.httpsCallable(functions, deployedName);
   const encode = Schema.encodeUnknownEffect(
     Schema.toCodecJson(callable.payload as Schema.Codec<unknown>),
@@ -97,19 +107,21 @@ const method = (
   );
   const fail = (reason: CallableError.Reason) =>
     new CallableError.CallableError({ callable: deployedName, reason });
-  const run = (payload: unknown) =>
-    Effect.gen(function* () {
-      const data = yield* encode(payload).pipe(
-        Effect.mapError((cause) => fail(new CallableError.EncodeError({ cause }))),
-      );
-      const result = yield* Effect.tryPromise({
-        try: () => call(data),
-        catch: (error) => error,
-      }).pipe(Effect.catch(decodeFailure));
-      return yield* decode(result.data).pipe(
-        Effect.mapError((cause) => fail(new CallableError.DecodeError({ cause }))),
-      );
-    });
+  const run = Effect.fn(
+    `CallableClient.${deployedName}`,
+    span,
+  )(function* (payload: unknown) {
+    const data = yield* encode(payload).pipe(
+      Effect.mapError((cause) => fail(new CallableError.EncodeError({ cause }))),
+    );
+    const result = yield* Effect.tryPromise({
+      try: () => call(data),
+      catch: (error) => error,
+    }).pipe(Effect.catch(decodeFailure));
+    return yield* decode(result.data).pipe(
+      Effect.mapError((cause) => fail(new CallableError.DecodeError({ cause }))),
+    );
+  });
 
   /**
    * Turns what the SDK threw into the declared error it carries, or into a
@@ -182,6 +194,14 @@ const method = (
  *   member called without its group.
  * - `TransportError` when no answer arrived.
  *
+ * Each call runs in a `kind: "client"` span named `CallableClient.<deployed
+ * name>`, such as `CallableClient.users-create`, with the attributes
+ * `rpc.system: "firebase_callable"`, `rpc.method` (the Callable's name),
+ * `rpc.service` (the group, for a member) and `faas.name` (the deployed name).
+ * The span isn't linked to the server's span of the same call: the two land in
+ * separate traces. It carries no uid; add one with `Effect.annotateCurrentSpan`
+ * around the call when you want it.
+ *
  * @example Injecting a client as a service
  * ```ts
  * import { Context, Layer, Schema } from "effect";
@@ -231,7 +251,13 @@ export const make = <T extends Callable.Any | CallableGroup.Any>(
     if (!CallableGroup.isCallableGroup(target)) {
       const callable = target as Callable.Any;
       return {
-        [callable.name]: method(instance, callable, callable.name, Callable.errorSchemas(callable)),
+        [callable.name]: method(
+          instance,
+          callable,
+          undefined,
+          callable.name,
+          Callable.errorSchemas(callable),
+        ),
       } as Client<T>;
     }
     const client: Record<string, ReturnType<typeof method>> = {};
@@ -239,6 +265,7 @@ export const make = <T extends Callable.Any | CallableGroup.Any>(
       client[name] = method(
         instance,
         callable,
+        target.identifier,
         `${target.identifier}-${name}`,
         Callable.errorSchemas(target, name),
       );
