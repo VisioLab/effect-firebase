@@ -25,10 +25,11 @@ export default async function (project: TestProject) {
   ] as const) {
     const host = project.config.env[variable];
     if (await answers(host)) continue;
-    const message = `The ${name} emulator is not running at ${host}. Start it with \`vp run emulator\` from the repository root.`;
-    // A stack of its own, so the reporter prints the message: mapping the
-    // setup file's stack trace through Vite's module runner throws, and the
-    // reporter then prints that error in place of this one.
-    throw Object.assign(new Error(message), { stack: `Error: ${message}` });
+    // Known issue: the reporter prints `TypeError: code.charCodeAt is not a
+    // function` in place of this message. Vite's module runner fails to map
+    // this file's stack trace through its source map.
+    throw new Error(
+      `The ${name} emulator is not running at ${host}. Start it with \`vp run emulator\` from the repository root.`,
+    );
   }
 }
