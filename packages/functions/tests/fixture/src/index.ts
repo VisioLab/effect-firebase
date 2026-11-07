@@ -13,6 +13,7 @@ import * as Caller from "@visiolab/effect-firebase/functions/Caller";
 import * as CallableFunction from "../../../src/https/CallableFunction.ts";
 import { onCall } from "firebase-functions/v2/https";
 import {
+  Accounts,
   Admins,
   Banned,
   Fail,
@@ -73,6 +74,17 @@ export const { users } = CallableFunction.group(
 export const { admins } = CallableFunction.group(
   Admins,
   Callable.toLayer(Admins, "get", ({ id }) => Effect.succeed({ id, servedBy: "admins" })),
+);
+
+export const { accounts } = CallableFunction.group(
+  Accounts,
+  Layer.mergeAll(
+    Callable.toLayer(Accounts, "get", ({ id }) => Effect.succeed({ id, servedBy: "accounts" })),
+    Callable.toLayer(Accounts, "me", () =>
+      Effect.map(Effect.service(Caller.Caller), ({ uid }) => uid),
+    ),
+    Caller.Authenticated.layer,
+  ),
 );
 
 /** How often the Layer of `workers` was built in this process. */

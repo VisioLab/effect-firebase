@@ -45,6 +45,18 @@ export class Users extends CallableGroup.make("users").add(CreateUser, GetUser, 
 
 export class Admins extends CallableGroup.make("admins").add(GetUser) {}
 
+/** Answers with the uid of the Caller that group middleware provides. */
+export const Me = Callable.make("me", { success: Schema.String });
+
+/**
+ * {@link GetUser} again, behind `Authenticated` as group middleware, and
+ * {@link Me}, added after the middleware.
+ */
+export class Accounts extends CallableGroup.make("accounts")
+  .add(GetUser)
+  .middleware(Caller.Authenticated)
+  .add(Me) {}
+
 /** What a member of `workers` answers: the worker that built its Layer, and how often. */
 const BuiltBy = Schema.Struct({ target: Schema.String, builds: Schema.Finite });
 
