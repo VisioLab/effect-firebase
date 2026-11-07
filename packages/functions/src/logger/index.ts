@@ -3,6 +3,6 @@
  * of the fiber's current span.
  *
  * @stability unstable
- * @since 0.1.0
+ * @since 0.3.0
  */
 export * as CloudLogging from "./CloudLogging.ts";

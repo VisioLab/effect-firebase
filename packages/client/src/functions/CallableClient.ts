@@ -32,7 +32,7 @@
  * ```
  *
  * @stability unstable
- * @since 0.2.0
+ * @since 0.3.0
  */
 import { Effect, Schema } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
@@ -47,7 +47,7 @@ import * as ClientFunctions from "./ClientFunctions.ts";
  *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.3.0
  */
 export type Method<C extends Callable.Any> = (
   payload: Callable.Payload<C>,
@@ -59,7 +59,7 @@ export type Method<C extends Callable.Any> = (
  *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.3.0
  */
 export type Client<T extends Callable.Any | CallableGroup.Any> = {
   readonly [C in Members<T> as C["name"]]: Method<C>;
@@ -76,7 +76,7 @@ export type Client<T extends Callable.Any | CallableGroup.Any> = {
  *
  * @stability unstable
  * @category type-level
- * @since 0.2.0
+ * @since 0.3.0
  */
 export type Members<T extends Callable.Any | CallableGroup.Any> = T extends CallableGroup.Any
   ? CallableGroup.Names<T> extends infer Name
@@ -272,7 +272,7 @@ const method = (
  *
  * @stability unstable
  * @category constructors
- * @since 0.2.0
+ * @since 0.3.0
  */
 export const make = <T extends Callable.Any | CallableGroup.Any>(
   target: T,

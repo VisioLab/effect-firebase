@@ -47,7 +47,7 @@ import * as snapshotMetadata from "./internal/snapshotMetadata.ts";
  *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.3.0
  */
 export type Existing<C extends Collection.Any> = C extends Collection.Any
   ? ClientDocumentSnapshot.Existing<C>
