@@ -3,7 +3,7 @@ import { Effect, Layer } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import { deleteApp, initializeApp } from "firebase/app";
 import { connectFunctionsEmulator, getFunctions, httpsCallable } from "firebase/functions";
-import * as CallableFunction from "../../src/https/CallableFunction.ts";
+import * as Functions from "../../src/Functions.ts";
 import { Users } from "../fixture/src/contract.ts";
 
 const [host = "127.0.0.1", port = "5001"] = (process.env["FUNCTIONS_EMULATOR_HOST"] ?? "").split(
@@ -68,7 +68,7 @@ describe("CallableFunction.group", () => {
   );
 
   it("passes the options by member name, and none to the others", () => {
-    const { users } = CallableFunction.group(
+    const { users } = Functions.group(
       Users,
       Layer.mergeAll(
         Callable.toLayer(Users, "create", () => Effect.die("not called")),

@@ -1,6 +1,6 @@
 # @visiolab/effect-firebase-functions
 
-Serves the Callables of [`@visiolab/effect-firebase`](https://github.com/VisioLab/effect-firebase/tree/main/packages/effect-firebase) as Cloud Functions for Firebase, with `firebase-functions`. The client calls them with `CallableClient` from [`@visiolab/effect-firebase-client`](https://github.com/VisioLab/effect-firebase/tree/main/packages/client).
+Deploys the Functions of [`@visiolab/effect-firebase`](https://github.com/VisioLab/effect-firebase/tree/main/packages/effect-firebase) as Cloud Functions for Firebase, with `firebase-functions`. A Function is a server function declared once by its name and what runs it. Callables are the kind of Function the client calls, with `CallableClient` from [`@visiolab/effect-firebase-client`](https://github.com/VisioLab/effect-firebase/tree/main/packages/client).
 
 ```sh
 pnpm add effect @visiolab/effect-firebase @visiolab/effect-firebase-functions firebase-functions
@@ -20,20 +20,20 @@ export const Greet = Callable.make("greet", {
 });
 ```
 
-Implement it as a Layer, and export it with `CallableFunction.make`:
+Implement it as a Layer, and export it with `Functions.make`:
 
 ```ts
 import { Effect } from "effect";
 import { Callable } from "@visiolab/effect-firebase/functions";
-import { CallableFunction } from "@visiolab/effect-firebase-functions/https";
+import { Functions } from "@visiolab/effect-firebase-functions";
 import { Greet } from "./contract.ts";
 
 const GreetLive = Callable.toLayer(Greet, ({ name }) => Effect.succeed(`Hello, ${name}!`));
 
-export const { greet } = CallableFunction.make(Greet, GreetLive, { region: "europe-west1" });
+export const { greet } = Functions.make(Greet, GreetLive, { region: "europe-west1" });
 ```
 
-Each export is exactly what `onCall` returns, so plain `firebase deploy` deploys it. The third argument is Firebase's `CallableOptions`, passed through unchanged.
+`Functions.make` dispatches on the Function's kind. For a Callable, the export is exactly what `onCall` returns, so plain `firebase deploy` deploys it, and the third argument is Firebase's `CallableOptions`, passed through unchanged.
 
 - The Layer is built on the first call, not at deploy or when the module loads. Every Layer is built through one memo map per process, so concurrent first calls share one build.
 - `minInstances` keeps an instance alive, but its Layer is still built on the first call.
@@ -41,14 +41,14 @@ Each export is exactly what `onCall` returns, so plain `firebase deploy` deploys
 - Give each export a Layer of its own where you can, so a cold instance builds only what its function needs.
 - Call `setGlobalOptions` before any function is defined, as Firebase requires.
 
-## Callable Groups
+## Function Groups
 
-Collect related Callables into a Callable Group. Each member deploys under the group's name as a prefix:
+Collect related Functions, of any kind, into a Function Group. Each member deploys under the group's name as a prefix:
 
 ```ts
 import { Effect, Layer, Schema } from "effect";
-import { Callable, CallableGroup } from "@visiolab/effect-firebase/functions";
-import { CallableFunction } from "@visiolab/effect-firebase-functions/https";
+import { Callable, FunctionGroup } from "@visiolab/effect-firebase/functions";
+import { Functions } from "@visiolab/effect-firebase-functions";
 
 const CreateUser = Callable.make("create", {
   payload: { name: Schema.String },
@@ -56,7 +56,7 @@ const CreateUser = Callable.make("create", {
 });
 const DeleteUser = Callable.make("delete", { payload: { id: Schema.String } });
 
-class Users extends CallableGroup.make("users").add(CreateUser, DeleteUser) {}
+class Users extends FunctionGroup.make("users").add(CreateUser, DeleteUser) {}
 
 const UsersLive = Layer.mergeAll(
   Callable.toLayer(Users, "create", ({ name }) => Effect.succeed(name)),
@@ -64,16 +64,16 @@ const UsersLive = Layer.mergeAll(
 );
 
 // Deploys `users-create` and `users-delete`.
-export const { users } = CallableFunction.group(Users, UsersLive, {
+export const { users } = Functions.group(Users, UsersLive, {
   delete: { region: "europe-west1" },
 });
 ```
 
 - Implement a member with `Callable.toLayer(Users, "create", handler)`. A Layer from the Callable on its own doesn't serve it in the group.
-- The options are a sparse map of `CallableOptions` keyed by member name. The group has none of its own.
-- A Callable can be in more than one group. Each group serves and implements it separately.
+- The options are a sparse map keyed by member name, each typed by the member's kind: `CallableOptions` for a Callable. The group has none of its own.
+- A Function can be in more than one group. Each group serves and implements it separately.
 - Names must be unique within a group. `.add` throws when a name is taken, so the clash fails when the module loads. The types don't catch it.
-- Build the client from the group, `CallableClient.make(Users)`. A client built from the member on its own calls the unprefixed name and gets `not-found`.
+- Build the client from the group, `CallableClient.make(Users)`. It has a function for each of the group's Callables. A client built from the member on its own calls the unprefixed name and gets `not-found`.
 
 ## Middleware and the Caller
 
@@ -82,7 +82,7 @@ Requirements such as "the caller is signed in" are Callable Middleware on the co
 ```ts
 import { Effect, Layer, Schema } from "effect";
 import { Callable, Caller } from "@visiolab/effect-firebase/functions";
-import { CallableFunction } from "@visiolab/effect-firebase-functions/https";
+import { Functions } from "@visiolab/effect-firebase-functions";
 
 const WhoAmI = Callable.make("whoAmI", { success: Schema.String }).middleware(Caller.Authenticated);
 
@@ -91,7 +91,7 @@ const WhoAmILive = Callable.toLayer(WhoAmI, () =>
 );
 
 // `Live` provides the handler and every middleware implementation.
-export const { whoAmI } = CallableFunction.make(
+export const { whoAmI } = Functions.make(
   WhoAmI,
   Layer.merge(WhoAmILive, Caller.Authenticated.layer),
 );
@@ -101,23 +101,23 @@ export const { whoAmI } = CallableFunction.make(
 - The Firebase web SDK's `httpsCallable` can't send custom headers. A header of your own reaches `rawRequest` only from callers that don't use it, such as another server. Headers like `user-agent` and `accept-language` are there for every caller.
 - A middleware attached later wraps the ones attached before it.
 - The Payload is decoded inside the chain, so a middleware that catches every failure also catches a Payload that doesn't decode. The caller then no longer gets `invalid-argument`. Catch only the errors you mean to.
-- `CallableFunction` provides no middleware itself, so a `Live` without an implementation is a type error.
+- `Functions` provides no middleware itself, so a `Live` without an implementation is a type error.
 - Run a handler in process, with its chain and without the emulator, through `Callable.handler(WhoAmI)`. Pass a `rawRequest` built with `HttpServerRequest.fromWeb` to test a middleware that reads headers or the address; left out, it is a JSON `POST` of the Payload to `http://localhost/<deployed name>`.
 
 ### Middleware in a group
 
-A Callable Group carries no middleware. Attach a middleware to each member that needs it:
+A Function Group carries no middleware. Attach a middleware to each member that needs it:
 
 ```ts
 import { Effect, Layer, Schema } from "effect";
-import { Callable, CallableGroup, Caller } from "@visiolab/effect-firebase/functions";
-import { CallableFunction } from "@visiolab/effect-firebase-functions/https";
+import { Callable, FunctionGroup, Caller } from "@visiolab/effect-firebase/functions";
+import { Functions } from "@visiolab/effect-firebase-functions";
 
 const Me = Callable.make("me", { success: Schema.String }).middleware(Caller.Authenticated);
 
-class Accounts extends CallableGroup.make("accounts").add(Me) {}
+class Accounts extends FunctionGroup.make("accounts").add(Me) {}
 
-export const { accounts } = CallableFunction.group(
+export const { accounts } = Functions.group(
   Accounts,
   Layer.merge(
     Callable.toLayer(Accounts, "me", () =>
@@ -133,7 +133,7 @@ export const { accounts } = CallableFunction.group(
 Every call runs in a `kind: "server"` span named `CallableFunction.<deployed name>`, such as `CallableFunction.users-create`, with the attributes `rpc.system: "firebase_callable"`, `rpc.method`, `rpc.service` (the group, for a member) and `faas.name`. Spans are exported only when the Layer you export provides a `Tracer`, for example from `@effect/opentelemetry`:
 
 ```ts
-export const { users } = CallableFunction.group(Users, Layer.mergeAll(UsersLive, TracingLive));
+export const { users } = Functions.group(Users, Layer.mergeAll(UsersLive, TracingLive));
 ```
 
 - The span covers the middleware, decoding the Payload, the handler and encoding the answer. On the call that builds the Layer, it covers the build too, and spans opened during the build are its children.
@@ -154,7 +154,7 @@ Every call logs through `CloudLogging.layer`, which writes each Effect log as on
 - Logs written while the first call builds the Layer are held until the build is done, so they get the spans' final ids. Entries carry no timestamp of their own, so Cloud Logging stamps them with the time the build finished.
 - Provide a `Logger.layer` in the Layer you export to log differently.
 
-To log the same way outside a Callable Function, provide the layer yourself:
+To log the same way outside a deployed Function, provide the layer yourself:
 
 ```ts
 import { Effect } from "effect";

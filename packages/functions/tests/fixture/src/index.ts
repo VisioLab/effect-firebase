@@ -11,7 +11,7 @@ import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import * as Caller from "@visiolab/effect-firebase/functions/Caller";
 import * as CallableRequest from "@visiolab/effect-firebase/functions/CallableRequest";
-import * as CallableFunction from "../../../src/https/CallableFunction.ts";
+import * as Functions from "../../../src/Functions.ts";
 import { onCall } from "firebase-functions/v2/https";
 import {
   Accounts,
@@ -43,7 +43,7 @@ export const echo = onCall<{ readonly message: string }>((request) => ({
   echoed: request.data.message,
 }));
 
-export const { greet } = CallableFunction.make(
+export const { greet } = Functions.make(
   Greet,
   Callable.toLayer(Greet, ({ name, at }) =>
     Effect.succeed({
@@ -56,7 +56,7 @@ export const { greet } = CallableFunction.make(
 /** How often the Layer of `layerBuilds` was built in this process. */
 let builds = 0;
 
-export const { layerBuilds } = CallableFunction.make(
+export const { layerBuilds } = Functions.make(
   LayerBuilds,
   Callable.toLayer(
     LayerBuilds,
@@ -67,7 +67,7 @@ export const { layerBuilds } = CallableFunction.make(
   ),
 );
 
-export const { users } = CallableFunction.group(
+export const { users } = Functions.group(
   Users,
   Layer.mergeAll(
     Callable.toLayer(Users, "create", ({ name, birthday }) =>
@@ -79,12 +79,12 @@ export const { users } = CallableFunction.group(
   { delete: { region: "europe-west1" } },
 );
 
-export const { admins } = CallableFunction.group(
+export const { admins } = Functions.group(
   Admins,
   Callable.toLayer(Admins, "get", ({ id }) => Effect.succeed({ id, servedBy: "admins" })),
 );
 
-export const { accounts } = CallableFunction.group(
+export const { accounts } = Functions.group(
   Accounts,
   Layer.mergeAll(
     Callable.toLayer(Accounts, "get", ({ id }) => Effect.succeed({ id, servedBy: "accounts" })),
@@ -110,7 +110,7 @@ const WorkersLive = Layer.unwrap(
   }),
 );
 
-export const { workers } = CallableFunction.group(Workers, WorkersLive);
+export const { workers } = Functions.group(Workers, WorkersLive);
 
 /**
  * Where {@link SpanRecorder} writes the spans it ends, one JSON line each:
@@ -153,12 +153,12 @@ const SpanRecorder = Layer.succeed(
 const handleTraced = ({ callId }: { readonly callId: string }) =>
   Effect.void.pipe(Effect.withSpan("fixture.handler", { attributes: { callId } }));
 
-export const { traced } = CallableFunction.make(
+export const { traced } = Functions.make(
   Traced,
   Layer.mergeAll(Callable.toLayer(Traced, handleTraced), SpanRecorder),
 );
 
-export const { tracing } = CallableFunction.group(
+export const { tracing } = Functions.group(
   Tracing,
   Layer.mergeAll(
     Callable.toLayer(
@@ -207,15 +207,12 @@ const failWith = ({ with: failure }: Callable.Payload<typeof Fail>) => {
   }
 };
 
-export const { fail } = CallableFunction.make(
+export const { fail } = Functions.make(
   Fail,
   Callable.toLayer(Fail, failWith).pipe(Layer.merge(ServerLogLive)),
 );
 
-export const { failing } = CallableFunction.group(
-  Failing,
-  Callable.toLayer(Failing, "fail", failWith),
-);
+export const { failing } = Functions.group(Failing, Callable.toLayer(Failing, "fail", failWith));
 
 /** How often the connection of `flaky` was built in this process. */
 let connectionBuilds = 0;
@@ -242,7 +239,7 @@ const ConnectionLive = Layer.effect(
   }),
 );
 
-export const { flaky } = CallableFunction.make(
+export const { flaky } = Functions.make(
   Flaky,
   Callable.toLayer(
     Flaky,
@@ -255,7 +252,7 @@ export const { flaky } = CallableFunction.make(
   ).pipe(Layer.provide(ConnectionLive)),
 );
 
-export const { whoAmI } = CallableFunction.make(
+export const { whoAmI } = Functions.make(
   WhoAmI,
   Layer.merge(
     Callable.toLayer(WhoAmI, ({ greeting }) =>
@@ -280,7 +277,7 @@ for (const method of ["log", "error"] as const) {
   };
 }
 
-export const { logged } = CallableFunction.make(
+export const { logged } = Functions.make(
   Logged,
   Layer.mergeAll(
     Callable.toLayer(
@@ -302,7 +299,7 @@ export const { logged } = CallableFunction.make(
 
 class LayerBroke extends Data.TaggedError("LayerBroke")<{ readonly message: string }> {}
 
-export const { brokenBuild } = CallableFunction.make(
+export const { brokenBuild } = Functions.make(
   BrokenBuild,
   Callable.toLayer(BrokenBuild, Effect.fail(new LayerBroke({ message: "The Layer broke" }))),
 );
@@ -330,7 +327,7 @@ const AuditLive = Layer.succeed(Audit, (effect) =>
   }),
 );
 
-export const { audited } = CallableFunction.make(
+export const { audited } = Functions.make(
   Audited,
   Layer.mergeAll(
     Callable.toLayer(Audited, () => Effect.void),
@@ -340,7 +337,7 @@ export const { audited } = CallableFunction.make(
   ),
 );
 
-export const { requestHeader } = CallableFunction.make(
+export const { requestHeader } = Functions.make(
   RequestHeader,
   Callable.toLayer(RequestHeader, () =>
     Effect.map(
@@ -350,7 +347,7 @@ export const { requestHeader } = CallableFunction.make(
   ),
 );
 
-export const { sleep } = CallableFunction.make(
+export const { sleep } = Functions.make(
   Sleep,
   Callable.toLayer(Sleep, ({ millis }) => Effect.sleep(millis)),
 );

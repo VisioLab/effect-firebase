@@ -6,7 +6,7 @@
  * requires from middleware outside it and the errors it can fail with. It is
  * attached to a Callable with `.middleware(M)`, and implemented as a Layer of a
  * function that wraps the call. The implementation is provided where the
- * chain runs: to `CallableFunction` from `@visiolab/effect-firebase-functions`,
+ * chain runs: to `Functions` from `@visiolab/effect-firebase-functions`,
  * or to `Callable.handler`.
  *
  * @example Declaring, attaching and implementing a middleware

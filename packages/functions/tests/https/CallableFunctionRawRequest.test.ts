@@ -3,7 +3,7 @@ import { Effect, Option, Schema } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableRequest from "@visiolab/effect-firebase/functions/CallableRequest";
 import type * as Https from "firebase-functions/v2/https";
-import * as CallableFunction from "../../src/https/CallableFunction.ts";
+import * as Functions from "../../src/Functions.ts";
 
 /** What `echo` saw of its `rawRequest`. */
 const Seen = Schema.Struct({
@@ -30,7 +30,7 @@ const expressRequest = (rawBody: Buffer) =>
 
 /** Runs `echo` in process, as `firebase-functions` would on a call, with `onRead` run before the body is read. */
 const call = (rawBody: Buffer, onRead: () => void) => {
-  const { echo } = CallableFunction.make(
+  const { echo } = Functions.make(
     Echo,
     Callable.toLayer(Echo, () =>
       Effect.gen(function* () {

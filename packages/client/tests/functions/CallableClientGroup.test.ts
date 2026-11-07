@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
+import * as FunctionGroup from "@visiolab/effect-firebase/functions/FunctionGroup";
 import * as App from "../../src/app/App.ts";
 import * as CallableClient from "../../src/functions/CallableClient.ts";
 import * as ClientFunctions from "../../src/functions/ClientFunctions.ts";
@@ -100,6 +101,18 @@ describe("CallableClient with a group", () => {
         callable: "failing-fail",
         reason: { _tag: "ResponseError", code: "internal" },
       });
+    }).pipe(Effect.provide(FunctionsLive)),
+  );
+
+  it.effect("leaves out the members of other kinds", () =>
+    Effect.gen(function* () {
+      // A Function of a kind no client calls, standing in for a Document Trigger.
+      const OnSignUp = { kind: "Other", name: "onSignUp" } as const;
+      class Mixed extends FunctionGroup.make("users").add(CreateUser, OnSignUp) {}
+      const mixed = yield* CallableClient.make(Mixed);
+      expect(Object.keys(mixed)).toEqual(["create"]);
+      const user = yield* mixed.create({ name: "Ada", birthday: new Date("1815-12-10") });
+      expect(user).toMatchObject({ id: "ada", name: "Ada" });
     }).pipe(Effect.provide(FunctionsLive)),
   );
 });

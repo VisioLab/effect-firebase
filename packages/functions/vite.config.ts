@@ -19,9 +19,9 @@ export default defineConfig({
     // API of their own.
     entry: ["src/**/*.ts", "!src/**/internal/**"],
     unbundle: true,
-    // Keep `src/https/index.ts` at `dist/https/index.mjs` and so the `./https`
-    // export, even while it is the only entry: left to itself, the root
-    // narrows to the entries' common directory.
+    // Keep each entry at its path under `src`, so `src/index.ts` is the root
+    // export: left to itself, the root narrows to the entries' common
+    // directory.
     root: "src",
     sourcemap: true,
     dts: {

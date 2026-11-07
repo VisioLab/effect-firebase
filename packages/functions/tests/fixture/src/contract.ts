@@ -7,7 +7,7 @@
 import { Schema } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
-import * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
+import * as FunctionGroup from "@visiolab/effect-firebase/functions/FunctionGroup";
 import * as CallableMiddleware from "@visiolab/effect-firebase/functions/CallableMiddleware";
 import * as Caller from "@visiolab/effect-firebase/functions/Caller";
 
@@ -43,9 +43,9 @@ export const GetUser = Callable.make("get", {
 /** Served in `europe-west1`, through the options of its group's export. */
 export const DeleteUser = Callable.make("delete", { payload: { id: Schema.String } });
 
-export class Users extends CallableGroup.make("users").add(CreateUser, GetUser, DeleteUser) {}
+export class Users extends FunctionGroup.make("users").add(CreateUser, GetUser, DeleteUser) {}
 
-export class Admins extends CallableGroup.make("admins").add(GetUser) {}
+export class Admins extends FunctionGroup.make("admins").add(GetUser) {}
 
 /** Answers with the uid of the Caller that `Authenticated` provides. */
 export const Me = Callable.make("me", { success: Schema.String }).middleware(Caller.Authenticated);
@@ -54,7 +54,7 @@ export const Me = Callable.make("me", { success: Schema.String }).middleware(Cal
  * {@link GetUser} again, behind `Authenticated`, and {@link Me}. A group
  * carries no middleware, so each member attaches its own.
  */
-export class Accounts extends CallableGroup.make("accounts").add(
+export class Accounts extends FunctionGroup.make("accounts").add(
   GetUser.middleware(Caller.Authenticated),
   Me,
 ) {}
@@ -63,7 +63,7 @@ export class Accounts extends CallableGroup.make("accounts").add(
 const BuiltBy = Schema.Struct({ target: Schema.String, builds: Schema.Finite });
 
 /** Two members that share one Layer, to show each worker builds it for itself. */
-export class Workers extends CallableGroup.make("workers").add(
+export class Workers extends FunctionGroup.make("workers").add(
   Callable.make("first", { success: BuiltBy }),
   Callable.make("second", { success: BuiltBy }),
 ) {}
@@ -125,7 +125,7 @@ export const Flaky = Callable.make("flaky", {
 });
 
 /** `Fail` again, as a member of a group, deployed as `failing-fail`. */
-export class Failing extends CallableGroup.make("failing").add(Fail) {}
+export class Failing extends FunctionGroup.make("failing").add(Fail) {}
 
 /** Greets the signed-in Caller by uid, behind `Authenticated`. */
 export const WhoAmI = Callable.make("whoAmI", {
@@ -137,7 +137,7 @@ export const WhoAmI = Callable.make("whoAmI", {
 export const Traced = Callable.make("traced", { payload: { callId: Schema.String } });
 
 /** Serves {@link Traced} as `tracing-traced`, with a Layer whose build opens a span. */
-export class Tracing extends CallableGroup.make("tracing").add(Traced) {}
+export class Tracing extends FunctionGroup.make("tracing").add(Traced) {}
 
 /** Logs twice, with a pause between, annotated with the call's id. */
 export const Logged = Callable.make("logged", { payload: { callId: Schema.String } });

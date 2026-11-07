@@ -3,21 +3,19 @@ import { Context, Effect, Layer, Pipeable, Schema } from "effect";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as CallableError from "../CallableError.ts";
 import type * as CallableRequest from "../CallableRequest.ts";
-import type * as CallableGroup from "./callableGroup.ts";
 import type * as CallableMiddleware from "./callableMiddleware.ts";
 import * as callableRequest from "./callableRequest.ts";
+import * as FirebaseFunction from "./firebaseFunction.ts";
 
 /** @internal */
 export const TypeId = "~@visiolab/effect-firebase/functions/Callable";
 
 /** @internal */
-export const NoGroupTypeId = "~@visiolab/effect-firebase/functions/Callable/NoGroup";
+export const kind = "Callable";
 
 /** @internal */
-export const HandlerTypeId = "~@visiolab/effect-firebase/functions/Callable/Handler";
-
-/** @internal */
-export interface Fields {
+export interface Fields extends FirebaseFunction.Fields {
+  readonly kind: typeof kind;
   readonly name: string;
   readonly payload: Schema.Top;
   readonly success: Schema.Top;
@@ -29,6 +27,7 @@ const Proto = {
   [TypeId]: TypeId,
   middleware(this: Fields, middleware: CallableMiddleware.Key) {
     return make({
+      kind,
       name: this.name,
       payload: this.payload,
       success: this.success,
@@ -63,19 +62,10 @@ export type HandlerInput = HandlerService | Effect.Effect<HandlerService>;
 /**
  * The key of the handler of the Callable `name` in `group`, or in no group.
  *
- * Context keys are compared by their string, so every call with the same group
- * and name reaches the same service. Deployed names can't contain `/`, so the
- * two forms can't collide.
- *
  * @internal
  */
 export const handlerKey = (group: string | undefined, name: string) =>
-  Context.Service<never, HandlerService>(
-    group === undefined
-      ? `@visiolab/effect-firebase/functions/Callable/Handler/${name}`
-      : `@visiolab/effect-firebase/functions/Callable/Handler/${group}/${name}`,
-  );
-
+  FirebaseFunction.handlerKey<HandlerService>(group, name);
 /** @internal */
 export const toLayer = (group: string | undefined, name: string, handler: HandlerInput) =>
   Layer.effect(
@@ -108,8 +98,8 @@ export const getErrorCode = (schema: Schema.Top): CallableError.ErrorCode =>
  *
  * @internal
  */
-export const deployedName = (group: CallableGroup.Fields | undefined, callable: Fields): string =>
-  group === undefined ? callable.name : `${group.identifier}-${callable.name}`;
+export const deployedName: (group: FirebaseFunction.Group | undefined, callable: Fields) => string =
+  FirebaseFunction.deployedName;
 
 /**
  * The attributes of the server's and the client's span of a call to
@@ -118,7 +108,7 @@ export const deployedName = (group: CallableGroup.Fields | undefined, callable: 
  * @internal
  */
 export const spanAttributes = (
-  group: CallableGroup.Fields | undefined,
+  group: FirebaseFunction.Group | undefined,
   callable: Fields,
 ): Readonly<Record<string, string>> => ({
   "rpc.system": "firebase_callable",
@@ -171,7 +161,7 @@ class PayloadDecodeError {
 
 /**
  * The middleware chain of `callable` in `group`, or in no group, around the
- * Payload's decoding and the handler. `serve`, which `CallableFunction` runs,
+ * Payload's decoding and the handler. `serve`, which `Functions` runs,
  * and `handler` both run this one chain.
  *
  * The middleware implementations are read from the context once. The context
@@ -180,7 +170,7 @@ class PayloadDecodeError {
  *
  * @internal
  */
-export const chain = (group: CallableGroup.Fields | undefined, callable: Fields) =>
+export const chain = (group: FirebaseFunction.Group | undefined, callable: Fields) =>
   Effect.gen(function* () {
     const handler = yield* Effect.service(handlerKey(group?.identifier, callable.name));
     const context = yield* Effect.context<never>();
@@ -203,7 +193,7 @@ export const chain = (group: CallableGroup.Fields | undefined, callable: Fields)
   });
 
 /** @internal */
-export const serve = (group: CallableGroup.Fields | undefined, callable: Fields) =>
+export const serve = (group: FirebaseFunction.Group | undefined, callable: Fields) =>
   Effect.map(chain(group, callable), (run) => {
     const encode = Schema.encodeUnknownEffect(codec(callable.success));
     const schemas = errorSchemas(callable);
@@ -249,7 +239,7 @@ const syntheticRequest = (name: string, data: unknown) =>
   );
 
 /** @internal */
-export const handler = (group: CallableGroup.Fields | undefined, callable: Fields) =>
+export const handler = (group: FirebaseFunction.Group | undefined, callable: Fields) =>
   Effect.map(chain(group, callable), (run) => {
     const encode = Schema.encodeUnknownEffect(codec(callable.payload));
     const name = deployedName(group, callable);

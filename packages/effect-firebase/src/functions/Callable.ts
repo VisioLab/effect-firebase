@@ -4,7 +4,7 @@
  *
  * A {@link Callable} is a contract: its name, its Payload and what it succeeds
  * with. The server implements it with {@link toLayer} and serves it with
- * `CallableFunction` from `@visiolab/effect-firebase-functions`. The client
+ * `Functions.make` from `@visiolab/effect-firebase-functions`. The client
  * calls it with `CallableClient` from `@visiolab/effect-firebase-client`. This
  * module imports neither SDK, so the contract can live in code shared with the
  * browser.
@@ -30,12 +30,13 @@
  */
 import { type Context, type Effect, type Layer, type Pipeable, Schema } from "effect";
 import type * as CallableError from "./CallableError.ts";
-import type * as CallableGroup from "./CallableGroup.ts";
 import type * as CallableMiddleware from "./CallableMiddleware.ts";
 import type * as CallableRequest from "./CallableRequest.ts";
+import type * as FirebaseFunction from "./FirebaseFunction.ts";
+import type * as FunctionGroup from "./FunctionGroup.ts";
 import * as internal from "./internal/callable.ts";
-import type * as internalGroup from "./internal/callableGroup.ts";
-import { isCallableGroup } from "./internal/callableGroup.ts";
+import type * as internalGroup from "./internal/functionGroup.ts";
+import { isFunctionGroup } from "./internal/functionGroup.ts";
 import type * as internalMiddleware from "./internal/callableMiddleware.ts";
 
 const TypeId = internal.TypeId;
@@ -47,14 +48,17 @@ const TypeId = internal.TypeId;
 const target = (
   args: ReadonlyArray<unknown>,
 ): readonly [internalGroup.Fields | undefined, internal.Fields] =>
-  isCallableGroup(args[0])
-    ? [args[0], args[0].callables[args[1] as string]!]
+  isFunctionGroup(args[0])
+    ? [args[0], args[0].functions[args[1] as string] as internal.Fields]
     : [undefined, args[0] as internal.Fields];
 
 /**
  * A Callable: a server function's name, its Payload and what it succeeds with.
  *
  * **Details**
+ *
+ * A Callable is the kind of {@link FirebaseFunction.FirebaseFunction} the
+ * client calls by name, and its `kind` is `"Callable"`.
  *
  * The name is the Callable's identity. A Callable in no group is deployed
  * under its name, so it is a literal type that the server's exports and the
@@ -72,7 +76,7 @@ export interface Callable<
   out Middleware = never,
   out MiddlewareServices = never,
 >
-  extends Pipeable.Pipeable {
+  extends FirebaseFunction.FirebaseFunction<"Callable", Name>, Pipeable.Pipeable {
   readonly [TypeId]: typeof TypeId;
   /** The Callable's name, which a Callable in no group is deployed under. */
   readonly name: Name;
@@ -96,12 +100,12 @@ export interface Callable<
    *
    * Returns a new Callable. The middleware runs around every call, before
    * the Payload is decoded. A middleware attached later wraps the ones
-   * attached before it, so it can provide what they require. A Callable
+   * attached before it, so it can provide what they require. A Function
    * Group carries no middleware, so a member of a group runs only its own.
    *
    * Its `provides` are removed from what the handler's Layer requires, and
    * its errors join the Callable's error union. Its implementation is
-   * required where the chain runs: by `CallableFunction` and by
+   * required where the chain runs: by `Functions` and by
    * {@link handler}.
    *
    * The Payload is decoded inside the chain, so a middleware that catches
@@ -129,9 +133,8 @@ export interface Callable<
  * @category models
  * @since 0.3.0
  */
-export interface Any {
+export interface Any extends FirebaseFunction.FirebaseFunction<"Callable", string> {
   readonly [TypeId]: typeof TypeId;
-  readonly name: string;
   readonly payload: Schema.Top;
   readonly success: Schema.Top;
   readonly error: ReadonlySet<Schema.Top>;
@@ -291,7 +294,7 @@ export interface MakeOptions<
  *
  * @see {@link toLayer} for implementing the Callable on the server
  * @see {@link errorCode} for giving an error schema its code
- * @see {@link CallableGroup.make} for collecting Callables under one prefix
+ * @see {@link FunctionGroup.make} for collecting Functions under one prefix
  *
  * @stability unstable
  * @category constructors
@@ -318,6 +321,7 @@ export const make = <
   const payload = options?.payload;
   const error: Schema.Top | ReadonlyArray<Schema.Top> | undefined = options?.error;
   return internal.make({
+    kind: internal.kind,
     error: new Set(error === undefined ? [] : Schema.isSchema(error) ? [error] : error),
     middlewares: new Set(),
     name,
@@ -332,15 +336,14 @@ export const make = <
 };
 
 /**
- * Marks the {@link Handler} of a Callable in no group.
+ * Marks the {@link Handler} of a Callable in no group. The same marker as
+ * {@link FirebaseFunction.NoGroup}, which every kind of Function shares.
  *
  * @stability unstable
  * @category models
  * @since 0.3.0
  */
-export interface NoGroup {
-  readonly [internal.NoGroupTypeId]: typeof internal.NoGroupTypeId;
-}
+export type NoGroup = FirebaseFunction.NoGroup;
 
 /**
  * The service a {@link toLayer} Layer provides: the Callable Handler of the
@@ -350,18 +353,14 @@ export interface NoGroup {
  *
  * A handler is keyed by its group and its name, so the handler of `greet` in
  * no group is `Handler<NoGroup, "greet">`. A Layer that serves a Callable must
- * provide the handler under exactly that key.
+ * provide the handler under exactly that key. It is the
+ * {@link FirebaseFunction.Handler} every kind of Function is served by.
  *
  * @stability unstable
  * @category models
  * @since 0.3.0
  */
-export interface Handler<Group, Name extends string> {
-  readonly [internal.HandlerTypeId]: {
-    readonly group: Group;
-    readonly name: Name;
-  };
-}
+export type Handler<Group, Name extends string> = FirebaseFunction.Handler<Group, Name>;
 
 /**
  * The {@link Handler} of a Callable in no group.
@@ -370,7 +369,7 @@ export interface Handler<Group, Name extends string> {
  * @category type-level
  * @since 0.3.0
  */
-export type HandlerFor<C extends Any> = Handler<NoGroup, C["name"]>;
+export type HandlerFor<C extends Any> = FirebaseFunction.HandlerFor<C>;
 
 /**
  * What implements a Callable: a function from the decoded Payload to an
@@ -429,13 +428,13 @@ export type ChainServices<C extends Any, H> = H | Middleware<C> | MiddlewareServ
  * **When to use**
  *
  * Use to write the server side of a Callable. The Layer is what
- * `CallableFunction.make` or `CallableFunction.group` from
+ * `Functions.make` or `Functions.group` from
  * `@visiolab/effect-firebase-functions` serves.
  *
  * **Details**
  *
  * Pass the Callable for a Callable in no group. Pass its group and its name
- * for a member of a {@link CallableGroup.CallableGroup}: the Layer then
+ * for a Callable member of a {@link FunctionGroup.FunctionGroup}: the Layer then
  * provides `Handler<"users", "create">`, which serves the member in that group
  * only. A Layer from the Callable on its own doesn't serve it in a group, and
  * a Callable in two groups needs a Layer for each.
@@ -486,14 +485,14 @@ export type ChainServices<C extends Any, H> = H | Middleware<C> | MiddlewareServ
  * @example Implementing a member of a group
  * ```ts
  * import { Effect, Schema } from "effect";
- * import { Callable, CallableGroup } from "@visiolab/effect-firebase/functions";
+ * import { Callable, FunctionGroup } from "@visiolab/effect-firebase/functions";
  *
  * const CreateUser = Callable.make("create", {
  *   payload: { name: Schema.String },
  *   success: Schema.String,
  * });
  *
- * class Users extends CallableGroup.make("users").add(CreateUser) {}
+ * class Users extends FunctionGroup.make("users").add(CreateUser) {}
  *
  * const CreateUserLive = Callable.toLayer(Users, "create", ({ name }) => Effect.succeed(name));
  * ```
@@ -511,8 +510,8 @@ export const toLayer: {
     handler: HandlerFunction<C, R> | Effect.Effect<HandlerFunction<C, R>, EB, RB>,
   ): Layer.Layer<HandlerFor<C>, EB, HandlerServices<C, R> | RB>;
   <
-    G extends CallableGroup.Any,
-    const Name extends CallableGroup.Names<G>,
+    G extends FunctionGroup.Any,
+    const Name extends FunctionGroup.Names<G, Any>,
     R = never,
     EB = never,
     RB = never,
@@ -520,12 +519,12 @@ export const toLayer: {
     group: G,
     name: Name,
     handler:
-      | HandlerFunction<CallableGroup.Member<G, Name>, R>
-      | Effect.Effect<HandlerFunction<CallableGroup.Member<G, Name>, R>, EB, RB>,
+      | HandlerFunction<FunctionGroup.Member<G, Name, Any>, R>
+      | Effect.Effect<HandlerFunction<FunctionGroup.Member<G, Name, Any>, R>, EB, RB>,
   ): Layer.Layer<
     Handler<G["identifier"], Name>,
     EB,
-    HandlerServices<CallableGroup.Member<G, Name>, R> | RB
+    HandlerServices<FunctionGroup.Member<G, Name, Any>, R> | RB
   >;
 } = ((...args: ReadonlyArray<unknown>) => {
   const [group, callable] = target(args);
@@ -544,14 +543,14 @@ export const toLayer: {
  *
  * **When to use**
  *
- * Use to serve Callables from a transport of your own. `CallableFunction`
+ * Use to serve Callables from a transport of your own. `Functions`
  * from `@visiolab/effect-firebase-functions` serves them through
  * `firebase-functions`.
  *
  * **Details**
  *
  * Pass the Callable for a Callable in no group, or its group and its name for
- * a member of a {@link CallableGroup.CallableGroup}.
+ * a Callable member of a {@link FunctionGroup.FunctionGroup}.
  *
  * Returns a function of the call's {@link CallableRequest.CallableRequest}. It
  * runs the middleware chain, the same one {@link handler} runs. Inside it, it
@@ -583,7 +582,7 @@ export const toLayer: {
  *
  * @see {@link toLayer} for providing the handler
  * @see {@link handler} for running the handler in process, with typed values
- * @see {@link CallableFunction.make} for serving through `firebase-functions`
+ * @see {@link Functions.make} for serving through `firebase-functions`
  * @see {@link deployment} for the name and span attributes a transport uses
  *
  * @stability unstable
@@ -600,7 +599,7 @@ export const serve: {
     never,
     ChainServices<C, HandlerFor<C>>
   >;
-  <G extends CallableGroup.Any, const Name extends CallableGroup.Names<G>>(
+  <G extends FunctionGroup.Any, const Name extends FunctionGroup.Names<G, Any>>(
     group: G,
     name: Name,
   ): Effect.Effect<
@@ -608,7 +607,7 @@ export const serve: {
       request: CallableRequest.CallableRequest,
     ) => Effect.Effect<unknown, CallableError.CallableError>,
     never,
-    ChainServices<CallableGroup.Member<G, Name>, Handler<G["identifier"], Name>>
+    ChainServices<FunctionGroup.Member<G, Name, Any>, Handler<G["identifier"], Name>>
   >;
 } = ((...args: ReadonlyArray<unknown>) => internal.serve(...target(args))) as never;
 
@@ -624,7 +623,7 @@ export const serve: {
  * **Details**
  *
  * Pass the Callable for a Callable in no group, or its group and its name for
- * a member of a {@link CallableGroup.CallableGroup}.
+ * a Callable member of a {@link FunctionGroup.FunctionGroup}.
  *
  * Requires the handler, every middleware implementation, and what the chain
  * still requires. A middleware whose
@@ -639,7 +638,7 @@ export const serve: {
  * `rawRequest` is the input's, or else a JSON `POST` of the encoded Payload to
  * `http://localhost/<deployed name>` (see
  * {@link CallableRequest.Input.rawRequest}). It runs the chain that
- * `CallableFunction` runs, and fails with the Callable's declared errors and
+ * `Functions` runs, and fails with the Callable's declared errors and
  * those of its middleware. The success value is the handler's, not encoded.
  *
  * @example Running a handler behind Authenticated
@@ -664,7 +663,7 @@ export const serve: {
  *
  * @see {@link serve} for running a call as it arrives on the wire
  * @see {@link toLayer} for providing the handler
- * @see {@link CallableFunction.make} for serving the same chain through `firebase-functions`
+ * @see {@link Functions.make} for serving the same chain through `firebase-functions`
  *
  * @stability unstable
  * @category serving
@@ -674,13 +673,13 @@ export const handler: {
   <C extends Any>(
     callable: C,
   ): Effect.Effect<HandlerCall<C>, never, ChainServices<C, HandlerFor<C>>>;
-  <G extends CallableGroup.Any, const Name extends CallableGroup.Names<G>>(
+  <G extends FunctionGroup.Any, const Name extends FunctionGroup.Names<G, Any>>(
     group: G,
     name: Name,
   ): Effect.Effect<
-    HandlerCall<CallableGroup.Member<G, Name>>,
+    HandlerCall<FunctionGroup.Member<G, Name, Any>>,
     never,
-    ChainServices<CallableGroup.Member<G, Name>, Handler<G["identifier"], Name>>
+    ChainServices<FunctionGroup.Member<G, Name, Any>, Handler<G["identifier"], Name>>
   >;
 } = ((...args: ReadonlyArray<unknown>) => internal.handler(...target(args))) as never;
 
@@ -761,7 +760,7 @@ export const getErrorCode: (schema: Schema.Top) => CallableError.ErrorCode = int
  * **Details**
  *
  * Pass the Callable for a Callable in no group, or its group and its name for
- * a member of a {@link CallableGroup.CallableGroup}.
+ * a Callable member of a {@link FunctionGroup.FunctionGroup}.
  *
  * @see {@link getErrorCode} for the code of each schema
  * @see {@link deployment} for the name a transport calls
@@ -772,7 +771,10 @@ export const getErrorCode: (schema: Schema.Top) => CallableError.ErrorCode = int
  */
 export const errorSchemas: {
   (callable: Any): ReadonlyArray<Schema.Top>;
-  <G extends CallableGroup.Any>(group: G, name: CallableGroup.Names<G>): ReadonlyArray<Schema.Top>;
+  <G extends FunctionGroup.Any>(
+    group: G,
+    name: FunctionGroup.Names<G, Any>,
+  ): ReadonlyArray<Schema.Top>;
 } = ((...args: ReadonlyArray<unknown>) => internal.errorSchemas(target(args)[1])) as never;
 
 /**
@@ -806,21 +808,21 @@ export interface Deployment {
  * **When to use**
  *
  * Use when serving or calling Callables from a transport of your own.
- * `CallableFunction` and `CallableClient` already use it.
+ * `Functions` and `CallableClient` already use it.
  *
  * **Details**
  *
  * Pass the Callable for a Callable in no group, or its group and its name for
- * a member of a {@link CallableGroup.CallableGroup}.
+ * a Callable member of a {@link FunctionGroup.FunctionGroup}.
  *
  * @example Reading the deployed name of a member
  * ```ts
  * import { Schema } from "effect";
- * import { Callable, CallableGroup } from "@visiolab/effect-firebase/functions";
+ * import { Callable, FunctionGroup } from "@visiolab/effect-firebase/functions";
  *
  * const CreateUser = Callable.make("create", { payload: { name: Schema.String } });
  *
- * class Users extends CallableGroup.make("users").add(CreateUser) {}
+ * class Users extends FunctionGroup.make("users").add(CreateUser) {}
  *
  * // "users-create"
  * const { name } = Callable.deployment(Users, "create");
@@ -835,7 +837,7 @@ export interface Deployment {
  */
 export const deployment: {
   (callable: Any): Deployment;
-  <G extends CallableGroup.Any>(group: G, name: CallableGroup.Names<G>): Deployment;
+  <G extends FunctionGroup.Any>(group: G, name: FunctionGroup.Names<G, Any>): Deployment;
 } = ((...args: ReadonlyArray<unknown>) => {
   const [group, callable] = target(args);
   return {

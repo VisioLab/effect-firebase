@@ -1,45 +1,18 @@
-/** @internal */
-import { Cause, Context, Effect, Exit, Layer, Logger, Option, Scope } from "effect";
+/**
+ * The Callable kind's runtime: serves one Callable as an `onCall` export.
+ *
+ * @internal
+ */
+import { Cause, Effect, Exit, type Layer, Option } from "effect";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
-import * as CloudLogging from "../../logger/CloudLogging.ts";
-import type * as Callable from "@visiolab/effect-firebase/functions/Callable";
+import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import type * as CallableRequest from "@visiolab/effect-firebase/functions/CallableRequest";
+import type * as FunctionGroup from "@visiolab/effect-firebase/functions/FunctionGroup";
 import * as Https from "firebase-functions/v2/https";
-import { DeferredTracer, externalParent } from "./serverSpan.ts";
-
-/**
- * The memo map and scope every Layer of this process is built in, so a Layer
- * that several exports share is built once. The scope is never closed:
- * functions-framework exits the process without waiting for finalizers.
- */
-const memoMap = Layer.makeMemoMapUnsafe();
-const scope = Scope.makeUnsafe();
+import * as Runtime from "./runtime.ts";
 
 const internalError = () => new Https.HttpsError("internal", "INTERNAL");
-
-/**
- * Builds `live` on the first call, and hands every later call the same
- * services. Concurrent first calls share one build. The build runs under the
- * span and Tracer of the call that starts it, so it nests under that call.
- *
- * A failed build fails the call and is tried again on the next call. A Layer
- * that fails closes the scope it was built in, which drops its failed entries
- * from the memo map, so the retry builds anew.
- */
-const lazyContext = <R, E>(live: Layer.Layer<R, E>) => {
-  let pending: Promise<Exit.Exit<Context.Context<R>, E>> | undefined;
-  return Effect.flatMap(Effect.context<never>(), (caller) => {
-    pending ??= Effect.runPromiseExit(
-      Layer.buildWithMemoMap(live, memoMap, scope).pipe(Effect.provideContext(caller)),
-    ).then((exit) => {
-      if (Exit.isFailure(exit)) pending = undefined;
-      return exit;
-    });
-    const attempt = pending;
-    return Effect.flatten(Effect.promise(() => attempt));
-  });
-};
 
 /**
  * Firebase's Express request as Effect's `HttpServerRequest`: the same method,
@@ -129,64 +102,56 @@ const toHttpsError = (cause: Cause.Cause<unknown>, aborted: boolean) => {
 };
 
 /**
- * What {@link onCall} serves: `Callable.serve` of one Callable, with its
- * requirements erased, since the public signatures check that `live` meets
- * them.
- *
- * @internal
+ * `Callable.serve` of one Callable, with its requirements erased, since the
+ * public signatures check that `live` meets them.
  */
-export type Serve = Effect.Effect<
+type Serve = Effect.Effect<
   (request: CallableRequest.CallableRequest) => Effect.Effect<unknown, CallableError.CallableError>,
   never,
   unknown
 >;
 
 /**
- * The one Callable Function that runs `serve` under the name and span
- * attributes of `deployment`. Each export builds `live` on its own first call,
- * so a worker that serves one export builds nothing for the others.
+ * What `onCall` returns for a Callable.
  *
  * @internal
  */
-export const onCall = <R, E>(
-  deployment: Callable.Deployment,
-  serve: Serve,
+export type Export = Https.CallableFunction<unknown, Promise<unknown>>;
+
+/**
+ * The Callable Function of `callable` in `group`, or in no group: an `onCall`
+ * export that runs `Callable.serve` under the deployed name and span
+ * attributes of `Callable.deployment`. It builds `live` on its own first call.
+ *
+ * @internal
+ */
+export const deploy = <R, E>(
+  group: FunctionGroup.Any | undefined,
+  callable: Callable.Any,
   live: Layer.Layer<R, E>,
   options: Https.CallableOptions = {},
-) => {
-  const context = lazyContext(live);
-  const spanOptions = { kind: "server", attributes: deployment.attributes } as const;
+): Export => {
+  const deployment =
+    group === undefined
+      ? Callable.deployment(callable)
+      : Callable.deployment(group, callable.name as never);
+  const serve: Serve =
+    group === undefined ? Callable.serve(callable) : Callable.serve(group, callable.name as never);
+  const run = Runtime.make(live, {
+    span: `CallableFunction.${deployment.name}`,
+    attributes: deployment.attributes,
+    onBuildFailure: logUnexpected("The Layer of a Callable failed to build"),
+  });
   return Https.onCall<unknown, Promise<unknown>>(options, async (request, response) => {
-    const parent = externalParent();
-    const deferred = new DeferredTracer();
     const signal = response?.signal;
     const callRequest = toCallableRequest(request);
-    const exit = await Effect.runPromiseExit(
-      Effect.gen(function* () {
-        const services = yield* context.pipe(
-          // With no services to take a Tracer from, the call's spans and held
-          // logs go to the native Tracer, so the failure is logged in one trace.
-          Effect.onError(() => Effect.sync(() => deferred.attach(Context.empty()))),
-          Effect.onError(logUnexpected("The Layer of a Callable failed to build")),
-        );
-        deferred.attach(services as Context.Context<never>);
-        return yield* serve.pipe(
-          Effect.flatMap((run) => run(callRequest)),
-          // Logged with the services of `live`, so a logger it provides is used.
-          Effect.onError(logUnexpected("A Callable failed")),
-          // The public signatures check that `live` provides the handler and
-          // every middleware implementation.
-          Effect.provideContext(services as Context.Context<any>),
-        );
-      }).pipe(
-        Effect.withSpan(`CallableFunction.${deployment.name}`, { ...spanOptions, parent }),
-        // Logs from before `live` is built wait for the spans' real ids.
-        Effect.updateService(Logger.CurrentLoggers, (loggers) => deferred.holdLogs(loggers)),
-        // Beneath `live`: a logger that `live` provides replaces this one.
-        Effect.provide(CloudLogging.layer),
-        Effect.withTracer(deferred.tracer),
+    const exit = await run(
+      serve.pipe(
+        Effect.flatMap((run) => run(callRequest)),
+        // Logged with the services of `live`, so a logger it provides is used.
+        Effect.onError(logUnexpected("A Callable failed")),
       ),
-      signal === undefined ? undefined : { signal },
+      signal,
     );
     if (Exit.isSuccess(exit)) return exit.value;
     throw toHttpsError(exit.cause, signal?.aborted === true);

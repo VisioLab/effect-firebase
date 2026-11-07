@@ -3,7 +3,7 @@ import { Effect, Layer, Option, Schema } from "effect";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as Callable from "../../src/functions/Callable.ts";
 import * as CallableError from "../../src/functions/CallableError.ts";
-import * as CallableGroup from "../../src/functions/CallableGroup.ts";
+import * as FunctionGroup from "../../src/functions/FunctionGroup.ts";
 import * as CallableMiddleware from "../../src/functions/CallableMiddleware.ts";
 import * as CallableRequest from "../../src/functions/CallableRequest.ts";
 import * as Caller from "../../src/functions/Caller.ts";
@@ -111,7 +111,7 @@ describe("Callable.handler", () => {
       const Create = Callable.make("create", { payload: { name: Schema.String } }).middleware(
         Recorder,
       );
-      class Users extends CallableGroup.make("users").add(Create) {}
+      class Users extends FunctionGroup.make("users").add(Create) {}
       const create = yield* Callable.handler(Users, "create").pipe(
         Effect.provide(
           Layer.merge(

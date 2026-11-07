@@ -3,7 +3,7 @@
  * that a Callable Client calls through, for one region.
  *
  * A call that fails with `not-found` usually went to the wrong region, or to a
- * name the server doesn't export: build the client of a Callable Group's
+ * name the server doesn't export: build the client of a Function Group's
  * member from its group, so it calls `<group>-<name>`.
  *
  * @example Pointing the client at a region

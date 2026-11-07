@@ -2,11 +2,11 @@
 // type errors; the language service would flag each of them a second time.
 // @effect-diagnostics missingLayerContext:off
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
-import * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
+import * as FunctionGroup from "@visiolab/effect-firebase/functions/FunctionGroup";
 import * as CallableMiddleware from "@visiolab/effect-firebase/functions/CallableMiddleware";
 import * as CallableRequest from "@visiolab/effect-firebase/functions/CallableRequest";
 import * as Caller from "@visiolab/effect-firebase/functions/Caller";
-import * as CallableFunction from "@visiolab/effect-firebase-functions/https/CallableFunction";
+import * as Functions from "@visiolab/effect-firebase-functions/Functions";
 import { Context, Effect, Layer, Option, Schema } from "effect";
 import { describe, expect, test } from "tstyche";
 
@@ -21,21 +21,21 @@ const PingLive = Callable.toLayer(Ping, () => Effect.void);
 
 class Clock extends Context.Service<Clock, { readonly now: Effect.Effect<Date> }>()("test/Clock") {}
 
-describe("CallableFunction.make", () => {
+describe("Functions.make", () => {
   test("exports one Callable Function under the Callable's name", () => {
-    const exports = CallableFunction.make(Greet, GreetLive);
-    expect(exports).type.toBe<{ readonly greet: CallableFunction.Export }>();
+    const exports = Functions.make(Greet, GreetLive);
+    expect(exports).type.toBe<{ readonly greet: Functions.CallableExport }>();
   });
 
   test("a typo in the destructured export is a type error", () => {
     // @ts-expect-error Property 'gret' does not exist
-    const { gret } = CallableFunction.make(Greet, GreetLive);
+    const { gret } = Functions.make(Greet, GreetLive);
     void gret;
   });
 
   test("a Live without the Callable's handler is a type error", () => {
     // @ts-expect-error not assignable
-    CallableFunction.make(Greet, PingLive);
+    Functions.make(Greet, PingLive);
   });
 
   test("a Live that leaves a requirement is a type error", () => {
@@ -43,12 +43,12 @@ describe("CallableFunction.make", () => {
       Effect.map(Effect.service(Clock), () => name),
     );
     // @ts-expect-error not assignable
-    CallableFunction.make(Greet, NeedsClock);
+    Functions.make(Greet, NeedsClock);
   });
 
   test("a Live that provides more is accepted", () => {
-    expect(CallableFunction.make(Greet, Layer.merge(GreetLive, PingLive))).type.toBe<{
-      readonly greet: CallableFunction.Export;
+    expect(Functions.make(Greet, Layer.merge(GreetLive, PingLive))).type.toBe<{
+      readonly greet: Functions.CallableExport;
     }>();
   });
 });
@@ -59,40 +59,40 @@ const CreateUser = Callable.make("create", {
 });
 const GetUser = Callable.make("get", { payload: { id: Schema.String }, success: Schema.String });
 
-class Users extends CallableGroup.make("users").add(CreateUser, GetUser) {}
-class Orders extends CallableGroup.make("orders").add(GetUser) {}
+class Users extends FunctionGroup.make("users").add(CreateUser, GetUser) {}
+class Orders extends FunctionGroup.make("orders").add(GetUser) {}
 
 const UsersLive = Layer.mergeAll(
   Callable.toLayer(Users, "create", ({ name }) => Effect.succeed(name)),
   Callable.toLayer(Users, "get", ({ id }) => Effect.succeed(id)),
 );
 
-describe("CallableFunction.group", () => {
+describe("Functions.group", () => {
   test("exports the members under the group's name", () => {
-    expect(CallableFunction.group(Users, UsersLive)).type.toBe<{
+    expect(Functions.group(Users, UsersLive)).type.toBe<{
       readonly users: {
-        readonly create: CallableFunction.Export;
-        readonly get: CallableFunction.Export;
+        readonly create: Functions.CallableExport;
+        readonly get: Functions.CallableExport;
       };
     }>();
   });
 
   test("a typo in the destructured export is a type error", () => {
     // @ts-expect-error Property 'user' does not exist
-    const { user } = CallableFunction.group(Users, UsersLive);
+    const { user } = Functions.group(Users, UsersLive);
     void user;
   });
 
   test("takes options per member, by name", () => {
-    CallableFunction.group(Users, UsersLive, { get: { region: "europe-west1" } });
+    Functions.group(Users, UsersLive, { get: { region: "europe-west1" } });
     // @ts-expect-error Object literal may only specify known properties
-    CallableFunction.group(Users, UsersLive, { update: { region: "europe-west1" } });
+    Functions.group(Users, UsersLive, { update: { region: "europe-west1" } });
   });
 
   test("a Live without a member's handler is a type error", () => {
     const GetOnly = Callable.toLayer(Users, "get", ({ id }) => Effect.succeed(id));
     // @ts-expect-error not assignable
-    CallableFunction.group(Users, GetOnly);
+    Functions.group(Users, GetOnly);
   });
 
   test("the handler of the standalone Callable doesn't serve the member", () => {
@@ -101,18 +101,18 @@ describe("CallableFunction.group", () => {
       Callable.toLayer(GetUser, ({ id }) => Effect.succeed(id)),
     );
     // @ts-expect-error not assignable
-    CallableFunction.group(Users, Live);
+    Functions.group(Users, Live);
   });
 
   test("the handler of users.get doesn't serve orders.get", () => {
     // @ts-expect-error not assignable
-    CallableFunction.group(Orders, UsersLive);
+    Functions.group(Orders, UsersLive);
   });
 
   test("a Live with the handlers of each group serves both", () => {
     const OrdersLive = Callable.toLayer(Orders, "get", ({ id }) => Effect.succeed(id));
-    expect(CallableFunction.group(Orders, Layer.merge(UsersLive, OrdersLive))).type.toBe<{
-      readonly orders: { readonly get: CallableFunction.Export };
+    expect(Functions.group(Orders, Layer.merge(UsersLive, OrdersLive))).type.toBe<{
+      readonly orders: { readonly get: Functions.CallableExport };
     }>();
   });
 });
@@ -122,20 +122,20 @@ const WhoAmILive = Callable.toLayer(WhoAmI, () =>
   Effect.map(Effect.service(Caller.Caller), ({ uid }) => uid),
 );
 
-describe("CallableFunction.make with middleware", () => {
+describe("Functions.make with middleware", () => {
   test("a Live with the handler and every middleware implementation is accepted", () => {
-    expect(
-      CallableFunction.make(WhoAmI, Layer.merge(WhoAmILive, Caller.Authenticated.layer)),
-    ).type.toBe<{ readonly whoAmI: CallableFunction.Export }>();
+    expect(Functions.make(WhoAmI, Layer.merge(WhoAmILive, Caller.Authenticated.layer))).type.toBe<{
+      readonly whoAmI: Functions.CallableExport;
+    }>();
   });
 
   test("a Live without a middleware implementation is a type error", () => {
     // @ts-expect-error not assignable
-    CallableFunction.make(WhoAmI, WhoAmILive);
+    Functions.make(WhoAmI, WhoAmILive);
   });
 });
 
-class Signed extends CallableGroup.make("signed").add(
+class Signed extends FunctionGroup.make("signed").add(
   GetUser,
   CreateUser.middleware(Caller.Authenticated),
 ) {}
@@ -147,21 +147,19 @@ const SignedLive = Layer.mergeAll(
   Callable.toLayer(Signed, "get", ({ id }) => Effect.succeed(id)),
 );
 
-describe("CallableFunction.group with a member's middleware", () => {
+describe("Functions.group with a member's middleware", () => {
   test("a Live with the handlers and the member's middleware implementation is accepted", () => {
-    expect(
-      CallableFunction.group(Signed, Layer.merge(SignedLive, Caller.Authenticated.layer)),
-    ).type.toBe<{
+    expect(Functions.group(Signed, Layer.merge(SignedLive, Caller.Authenticated.layer))).type.toBe<{
       readonly signed: {
-        readonly create: CallableFunction.Export;
-        readonly get: CallableFunction.Export;
+        readonly create: Functions.CallableExport;
+        readonly get: Functions.CallableExport;
       };
     }>();
   });
 
   test("a Live without the member's middleware implementation is a type error", () => {
     // @ts-expect-error not assignable
-    CallableFunction.group(Signed, SignedLive);
+    Functions.group(Signed, SignedLive);
   });
 });
 
@@ -186,25 +184,25 @@ const AuditedLive = Callable.toLayer(Audited, () => Effect.void);
 const UserAgent = Callable.make("userAgent", { success: Schema.String });
 const UserAgentLive = Callable.toLayer(UserAgent, () => userAgent);
 
-class Reading extends CallableGroup.make("reading").add(UserAgent.middleware(ReadsRequest)) {}
+class Reading extends FunctionGroup.make("reading").add(UserAgent.middleware(ReadsRequest)) {}
 const ReadingLive = Callable.toLayer(Reading, "userAgent", () => userAgent);
 
 describe("CallableRequest.rawRequest, provided per call", () => {
   test("a middleware that reads it needs no Live to provide it", () => {
-    expect(CallableFunction.make(Audited, Layer.merge(AuditedLive, ReadsRequestLive))).type.toBe<{
-      readonly audited: CallableFunction.Export;
+    expect(Functions.make(Audited, Layer.merge(AuditedLive, ReadsRequestLive))).type.toBe<{
+      readonly audited: Functions.CallableExport;
     }>();
   });
 
   test("a handler that reads it needs no Live to provide it", () => {
-    expect(CallableFunction.make(UserAgent, UserAgentLive)).type.toBe<{
-      readonly userAgent: CallableFunction.Export;
+    expect(Functions.make(UserAgent, UserAgentLive)).type.toBe<{
+      readonly userAgent: Functions.CallableExport;
     }>();
   });
 
   test("a group member's handler and middleware that read it need no Live to provide it", () => {
-    expect(CallableFunction.group(Reading, Layer.merge(ReadingLive, ReadsRequestLive))).type.toBe<{
-      readonly reading: { readonly userAgent: CallableFunction.Export };
+    expect(Functions.group(Reading, Layer.merge(ReadingLive, ReadsRequestLive))).type.toBe<{
+      readonly reading: { readonly userAgent: Functions.CallableExport };
     }>();
   });
 
@@ -213,6 +211,6 @@ describe("CallableRequest.rawRequest, provided per call", () => {
       Effect.andThen(Effect.service(Clock), userAgent),
     );
     // @ts-expect-error not assignable
-    CallableFunction.make(UserAgent, NeedsClock);
+    Functions.make(UserAgent, NeedsClock);
   });
 });

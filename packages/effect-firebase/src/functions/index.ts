@@ -14,14 +14,6 @@ export * as Callable from "./Callable.ts";
  */
 export * as CallableError from "./CallableError.ts";
 /**
- * Callable Groups: named sets of Callables that deploy under the group's name
- * as a prefix.
- *
- * @stability unstable
- * @since 0.3.0
- */
-export * as CallableGroup from "./CallableGroup.ts";
-/**
  * Callable Middleware: what runs around every call to the Callables it is
  * attached to, before the Payload is decoded.
  *
@@ -37,6 +29,21 @@ export * as CallableMiddleware from "./CallableMiddleware.ts";
  * @since 0.3.0
  */
 export * as CallableRequest from "./CallableRequest.ts";
+/**
+ * Functions: what every kind of server function shares, whatever runs it.
+ *
+ * @stability unstable
+ * @since 0.3.0
+ */
+export * as FirebaseFunction from "./FirebaseFunction.ts";
+/**
+ * Function Groups: named sets of Functions of any kind that deploy under the
+ * group's name as a prefix.
+ *
+ * @stability unstable
+ * @since 0.3.0
+ */
+export * as FunctionGroup from "./FunctionGroup.ts";
 /**
  * The Caller, the signed-in user making a call, and the built-in
  * `Authenticated` middleware that provides it.

@@ -1,5 +1,5 @@
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
-import * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
+import * as FunctionGroup from "@visiolab/effect-firebase/functions/FunctionGroup";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import * as Caller from "@visiolab/effect-firebase/functions/Caller";
 import * as CallableClient from "@visiolab/effect-firebase-client/functions/CallableClient";
@@ -68,7 +68,7 @@ const CreateUser = Callable.make("create", {
 });
 const DeleteUser = Callable.make("delete", { payload: { id: Schema.String } });
 
-class Users extends CallableGroup.make("users").add(CreateUser, DeleteUser) {}
+class Users extends FunctionGroup.make("users").add(CreateUser, DeleteUser) {}
 
 describe("CallableClient.make with a group", () => {
   test("needs ClientFunctions and never fails", () => {
@@ -109,7 +109,7 @@ describe("CallableClient.make with middleware", () => {
     const Purge = Callable.make("purge", { error: CallableError.NotFound }).middleware(
       Caller.Authenticated,
     );
-    class Admins extends CallableGroup.make("admins").add(Purge, CreateUser) {}
+    class Admins extends FunctionGroup.make("admins").add(Purge, CreateUser) {}
     expect<ReturnType<CallableClient.Client<typeof Admins>["purge"]>>().type.toBe<
       Effect.Effect<
         void,
@@ -119,5 +119,16 @@ describe("CallableClient.make with middleware", () => {
     expect<ReturnType<CallableClient.Client<typeof Admins>["create"]>>().type.toBe<
       Effect.Effect<string, CallableError.CallableError>
     >();
+  });
+});
+
+// A Function of a kind no client calls, standing in for a Document Trigger.
+const OnSignUp = { kind: "Other", name: "onSignUp" } as const;
+
+class Mixed extends FunctionGroup.make("mixed").add(CreateUser, OnSignUp) {}
+
+describe("CallableClient.make with a group of mixed kinds", () => {
+  test("is keyed by the Callable members only", () => {
+    expect<keyof CallableClient.Client<typeof Mixed>>().type.toBe<"create">();
   });
 });
