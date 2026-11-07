@@ -137,6 +137,16 @@ describe("CallableClient", () => {
     }).pipe(Effect.provide(FunctionsLive)),
   );
 
+  it.effect("fails with a ResponseError of code deadline-exceeded when the server sends it", () =>
+    Effect.gen(function* () {
+      // An answer with that code arrived, so it isn't the SDK's own timeout.
+      const Undeclared = Callable.make("fail", { payload: Fail.payload });
+      const { fail } = yield* CallableClient.make(Undeclared);
+      const reason = yield* reasonOf(fail({ with: "TooSlow" }));
+      expect(reason).toMatchObject({ _tag: "ResponseError", code: "deadline-exceeded" });
+    }).pipe(Effect.provide(FunctionsLive)),
+  );
+
   it.effect("fails with a TransportError when no response arrives", () =>
     Effect.gen(function* () {
       const { greet } = yield* CallableClient.make(Greet);

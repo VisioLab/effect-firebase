@@ -86,6 +86,15 @@ export type Members<T extends Callable.Any | CallableGroup.Any> = T extends Call
     : never
   : T;
 
+/** The ` [<status>]` the SDK appends to the message of an error built from an answer. */
+const statusSuffix = / \[(\d+)\]$/;
+
+/**
+ * The messages of the SDK's errors for an answer it can't read: not a JSON
+ * object, or one without `data` or `error`.
+ */
+const malformedAnswer = /Response is (?:not valid JSON object|missing data field)\.$/;
+
 /**
  * The client function of `callable`, served as `deployment`. `errors` are the
  * schemas of every error it can be answered with, its middleware's included.
@@ -128,8 +137,18 @@ const method = (
    * `CallableError`.
    */
   const decodeFailure = (error: unknown): Effect.Effect<never, unknown> => {
-    // No answer arrived: the SDK reports a network failure as status 0.
-    if (!(error instanceof Sdk.FunctionsError) || error.message.endsWith(" [0]")) {
+    if (!(error instanceof Sdk.FunctionsError)) {
+      return Effect.fail(fail(new CallableError.TransportError({ cause: error })));
+    }
+    // The SDK appends the HTTP status to the message of an error built from
+    // an answer, and status 0 to a network failure. The errors it makes
+    // itself, such as its timeout or a cancellation, carry no status.
+    const status = statusSuffix.exec(error.message)?.[1];
+    if (status === undefined || status === "0") {
+      // An answer arrived, but not one the SDK could read.
+      if (malformedAnswer.test(error.message)) {
+        return Effect.fail(fail(new CallableError.DecodeError({ cause: error })));
+      }
       return Effect.fail(fail(new CallableError.TransportError({ cause: error })));
     }
     const code = error.code.replace(/^functions\//, "") as CallableError.ErrorCode;
@@ -139,7 +158,7 @@ const method = (
         fail(
           new CallableError.ResponseError({
             code,
-            message: error.message.replace(/ \[\d+\]$/, ""),
+            message: error.message.replace(statusSuffix, ""),
             details: error.details,
           }),
         ),
@@ -185,16 +204,21 @@ const method = (
  * {@link CallableError.CallableError}:
  *
  * - `EncodeError` when the Payload doesn't encode. Nothing is sent.
- * - `DecodeError` when the success value doesn't decode, or the `details` of
+ * - `DecodeError` when the success value doesn't decode, the `details` of
  *   an error don't decode against the declared errors with its code, as after
- *   the server and the client drift apart.
+ *   the server and the client drift apart, or the answer isn't one the SDK
+ *   can read: not a JSON object, or one without `data`.
  * - `ResponseError` when the server answers with a code no declared error
  *   carries, or without details, as on a defect. `not-found` usually means a
  *   wrong region, or a name the server doesn't export, such as a group's
- *   member called without its group.
- * - `TransportError` when no answer arrived. The SDK reports a network
- *   failure as an `internal` error with HTTP status 0, and the client tells
- *   it from a server's `internal` by that status alone.
+ *   member called without its group. A `deadline-exceeded` the server sends
+ *   is a `ResponseError` too.
+ * - `TransportError` when no answer arrived: a network failure, the SDK's
+ *   own timeout (`deadline-exceeded`), a cancelled call, or a deleted
+ *   Functions instance. The SDK appends the HTTP status of an answer to its
+ *   error's message as ` [<status>]`, and status 0 to a network failure. The
+ *   client treats an error without that suffix, or with status 0, as no
+ *   answer.
  *
  * Each call runs in a `kind: "client"` span named `CallableClient.<deployed
  * name>`, such as `CallableClient.users-create`, with the attributes
