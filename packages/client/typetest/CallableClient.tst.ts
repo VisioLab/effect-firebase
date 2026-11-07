@@ -1,6 +1,7 @@
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
+import * as CallableMiddleware from "@visiolab/effect-firebase/functions/CallableMiddleware";
 import * as Caller from "@visiolab/effect-firebase/functions/Caller";
 import * as CallableClient from "@visiolab/effect-firebase-client/functions/CallableClient";
 import type * as ClientFunctions from "@visiolab/effect-firebase-client/functions/ClientFunctions";
@@ -102,6 +103,29 @@ describe("CallableClient.make with middleware", () => {
         string,
         CallableError.NotFound | CallableError.Unauthenticated | CallableError.CallableError
       >
+    >();
+  });
+
+  test("fails with the group middleware's errors too, for every member", () => {
+    class Admin extends CallableMiddleware.Service<Admin>()("test/Admin", {
+      error: CallableError.PermissionDenied,
+    }) {}
+    const Purge = Callable.make("purge", { error: CallableError.NotFound }).middleware(Admin);
+    class Admins extends CallableGroup.make("admins")
+      .add(Purge)
+      .middleware(Caller.Authenticated)
+      .add(CreateUser) {}
+    expect<ReturnType<CallableClient.Client<typeof Admins>["purge"]>>().type.toBe<
+      Effect.Effect<
+        void,
+        | CallableError.NotFound
+        | CallableError.PermissionDenied
+        | CallableError.Unauthenticated
+        | CallableError.CallableError
+      >
+    >();
+    expect<ReturnType<CallableClient.Client<typeof Admins>["create"]>>().type.toBe<
+      Effect.Effect<string, CallableError.Unauthenticated | CallableError.CallableError>
     >();
   });
 });

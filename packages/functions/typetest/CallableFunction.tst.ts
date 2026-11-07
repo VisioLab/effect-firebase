@@ -132,3 +132,33 @@ describe("CallableFunction.make with middleware", () => {
     CallableFunction.make(WhoAmI, WhoAmILive);
   });
 });
+
+class Signed extends CallableGroup.make("signed")
+  .add(GetUser)
+  .middleware(Caller.Authenticated)
+  .add(CreateUser) {}
+
+const SignedLive = Layer.mergeAll(
+  Callable.toLayer(Signed, "create", () =>
+    Effect.map(Effect.service(Caller.Caller), ({ uid }) => uid),
+  ),
+  Callable.toLayer(Signed, "get", ({ id }) => Effect.succeed(id)),
+);
+
+describe("CallableFunction.group with group middleware", () => {
+  test("a Live with the handlers and the group middleware's implementation is accepted", () => {
+    expect(
+      CallableFunction.group(Signed, Layer.merge(SignedLive, Caller.Authenticated.layer)),
+    ).type.toBe<{
+      readonly signed: {
+        readonly create: CallableFunction.Export;
+        readonly get: CallableFunction.Export;
+      };
+    }>();
+  });
+
+  test("a Live without the group middleware's implementation is a type error", () => {
+    // @ts-expect-error not assignable
+    CallableFunction.group(Signed, SignedLive);
+  });
+});
