@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Data, Effect, Schema } from "effect";
 import { getApps, initializeApp } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as DocumentTrigger from "@visiolab/effect-firebase/functions/DocumentTrigger";
@@ -219,6 +219,30 @@ describe("DocumentTrigger spans and logs", () => {
             attributes: { "faas.name": "onTaskCreated", "faas.trigger": "datasource" },
           });
         }
+      }),
+    30_000,
+  );
+
+  it.live(
+    "names a group member's span after its deployed name, <group>-<name>",
+    () =>
+      Effect.gen(function* () {
+        const path = `authors/author-${randomUUID()}/posts/post-${randomUUID()}`;
+        yield* create(path, {
+          title: "Hello",
+          publishedAt: Timestamp.fromDate(new Date("2026-11-07T12:00:00.000Z")),
+        });
+        const span = yield* waitForLine<RecordedSpan>(
+          spansLog,
+          (span) =>
+            span.name.startsWith("DocumentTrigger.") && span.attributes["documentPath"] === path,
+        );
+        expect(span).toMatchObject({
+          name: "DocumentTrigger.posts-onCreated",
+          kind: "server",
+          success: true,
+          attributes: { "faas.name": "posts-onCreated", "faas.trigger": "datasource" },
+        });
       }),
     30_000,
   );

@@ -79,7 +79,7 @@ type Serve = Effect.Effect<(event: unknown) => Effect.Effect<void, unknown>, nev
 export type Export = ReturnType<typeof Firestore.onDocumentCreated>;
 
 /**
- * The export of `trigger` in no group: an `onDocumentCreated` export on the
+ * The export of `trigger` in `group`, or in no group: an `onDocumentCreated` export on the
  * `(default)` database, at the path pattern of the trigger's collection, that
  * converts each event and runs it through `DocumentTrigger.serve`. It builds
  * `live` on its own first event. A failed event, or a failed build, is logged
@@ -93,13 +93,15 @@ export const deploy = <R, E>(
   live: Layer.Layer<R, E>,
   options: object = {},
 ): Export => {
-  if (group !== undefined) {
-    throw new Error(
-      `Functions can't deploy the Document Trigger "${trigger.name}" in the group "${group.identifier}" yet`,
-    );
-  }
-  const deployment = DocumentTrigger.deployment(trigger);
-  const serve: Serve = DocumentTrigger.serve(trigger) as never;
+  const deployment =
+    group === undefined
+      ? DocumentTrigger.deployment(trigger)
+      : DocumentTrigger.deployment(group, trigger.name as never);
+  const serve: Serve = (
+    group === undefined
+      ? DocumentTrigger.serve(trigger)
+      : DocumentTrigger.serve(group, trigger.name as never)
+  ) as never;
   const run = Runtime.make(live, {
     span: `DocumentTrigger.${deployment.name}`,
     attributes: { "faas.name": deployment.name, "faas.trigger": "datasource" },

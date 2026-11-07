@@ -40,6 +40,7 @@ import {
   Logged,
   OnPostCreated,
   OnTaskCreated,
+  PostFunctions,
   RequestHeader,
   Traced,
   Tracing,
@@ -373,21 +374,41 @@ export const { sleep } = Functions.make(
  */
 const triggersLog = fileURLToPath(new URL("../../triggers.log", import.meta.url));
 
+/**
+ * Records a `created` event of a post under `trigger`, with the function
+ * target the emulator runs it as, and tags the event's span with the post's
+ * path.
+ */
+const recordPostCreated =
+  (trigger: string) => (event: DocumentTrigger.Event<typeof OnPostCreated>) =>
+    Effect.andThen(
+      Effect.annotateCurrentSpan("documentPath", event.ref.path),
+      Effect.map(event.snapshot.data, (post) => {
+        const line = {
+          trigger,
+          target: process.env["FUNCTION_TARGET"] ?? "",
+          eventId: event.id,
+          time: event.time,
+          path: event.ref.path,
+          ancestors: event.ref.ancestors,
+          id: event.ref.id,
+          data: { title: post.title, publishedAt: DateTime.formatIso(post.publishedAt) },
+        };
+        appendFileSync(triggersLog, `${JSON.stringify(line)}\n`);
+      }),
+    );
+
 export const { onPostCreated } = Functions.make(
   OnPostCreated,
-  DocumentTrigger.toLayer(OnPostCreated, (event) =>
-    Effect.map(event.snapshot.data, (post) => {
-      const line = {
-        trigger: OnPostCreated.name,
-        eventId: event.id,
-        time: event.time,
-        path: event.ref.path,
-        ancestors: event.ref.ancestors,
-        id: event.ref.id,
-        data: { title: post.title, publishedAt: DateTime.formatIso(post.publishedAt) },
-      };
-      appendFileSync(triggersLog, `${JSON.stringify(line)}\n`);
-    }),
+  DocumentTrigger.toLayer(OnPostCreated, recordPostCreated(OnPostCreated.name)),
+);
+
+export const { posts } = Functions.group(
+  PostFunctions,
+  Layer.mergeAll(
+    Callable.toLayer(PostFunctions, "shout", ({ title }) => Effect.succeed(title.toUpperCase())),
+    DocumentTrigger.toLayer(PostFunctions, "onCreated", recordPostCreated("posts-onCreated")),
+    SpanRecorder,
   ),
 );
 

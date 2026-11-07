@@ -5,7 +5,8 @@
  * A {@link DocumentTrigger} is declared from a name and a `Collection`
  * definition, with one constructor per change, such as {@link created}. The
  * server implements it with {@link toLayer} and deploys it with
- * `Functions.make` from `@visiolab/effect-firebase-functions`. This module
+ * `Functions.make` from `@visiolab/effect-firebase-functions`, or as a member
+ * of a Function Group, next to Callables, with `Functions.group`. This module
  * imports no Firebase SDK, so a handler and its tests don't depend on
  * `firebase-functions`.
  *
@@ -42,9 +43,23 @@ import type { Effect, Layer, Pipeable } from "effect";
 import type * as Collection from "../firestore/Collection.ts";
 import type * as DocumentSnapshot from "../firestore/DocumentSnapshot.ts";
 import type * as FirebaseFunction from "./FirebaseFunction.ts";
+import type * as FunctionGroup from "./FunctionGroup.ts";
 import * as internal from "./internal/documentTrigger.ts";
+import type * as internalGroup from "./internal/functionGroup.ts";
+import { isFunctionGroup } from "./internal/functionGroup.ts";
 
 const TypeId = internal.TypeId;
+
+/**
+ * The group and the trigger that the arguments of an overload taking
+ * `(trigger, ...)` or `(group, name, ...)` name.
+ */
+const target = (
+  args: ReadonlyArray<unknown>,
+): readonly [internalGroup.Fields | undefined, internal.Fields] =>
+  isFunctionGroup(args[0])
+    ? [args[0], args[0].functions[args[1] as string] as internal.Fields]
+    : [undefined, args[0] as internal.Fields];
 
 /**
  * The change to a document a {@link DocumentTrigger} runs on: `"created"`.
@@ -304,13 +319,19 @@ export const createdEvent: <C extends Collection.Any>(input: {
  * **When to use**
  *
  * Use to write the server side of a trigger. The Layer is what
- * `Functions.make` from `@visiolab/effect-firebase-functions` serves, and
- * what {@link serve} runs in a test.
+ * `Functions.make` and `Functions.group` from
+ * `@visiolab/effect-firebase-functions` serve, and what {@link serve} runs
+ * in a test.
  *
  * **Details**
  *
  * Takes the handler itself, or an Effect that builds it. The Effect runs
  * once, when the Layer is built, so do per-instance setup there.
+ *
+ * For a trigger in a Function Group, pass the group and the member's name.
+ * Each group implements its members separately, so the Layer of the trigger
+ * on its own doesn't serve it in a group, and the Layer of one group's
+ * member doesn't serve it in another.
  *
  * The Layer requires what the handler needs on each event and what building
  * it needs. Both are provided where the Layer is built, and shared by every
@@ -339,6 +360,25 @@ export const createdEvent: <C extends Collection.Any>(input: {
  * );
  * ```
  *
+ * @example Implementing a trigger in a Function Group
+ * ```ts
+ * import { Effect, Schema } from "effect";
+ * import { Collection, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ * import { Callable, DocumentTrigger, FunctionGroup } from "@visiolab/effect-firebase/functions";
+ *
+ * class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
+ *
+ * const Publish = Callable.make("publish", { payload: { id: Schema.String } });
+ * const OnCreated = DocumentTrigger.created("onCreated", Collection.make("posts", Post));
+ *
+ * class Posts extends FunctionGroup.make("posts").add(Publish, OnCreated) {}
+ *
+ * // Serves `posts-onCreated`.
+ * const OnCreatedLive = DocumentTrigger.toLayer(Posts, "onCreated", (event) =>
+ *   Effect.log(`New post: ${event.ref.id}`),
+ * );
+ * ```
+ *
  * @see {@link created} for declaring the trigger
  * @see {@link serve} for running an event through the handler
  * @see {@link Callable.toLayer} for implementing a Callable
@@ -347,13 +387,34 @@ export const createdEvent: <C extends Collection.Any>(input: {
  * @category constructors
  * @since 0.3.0
  */
-export const toLayer = <T extends Any, R = never, EB = never, RB = never>(
-  trigger: T,
-  handler: HandlerFunction<T, R> | Effect.Effect<HandlerFunction<T, R>, EB, RB>,
-): Layer.Layer<HandlerFor<T>, EB, R | RB> =>
-  // The handler's requirements are checked by the signature, and provided
+export const toLayer: {
+  <T extends Any, R = never, EB = never, RB = never>(
+    trigger: T,
+    handler: HandlerFunction<T, R> | Effect.Effect<HandlerFunction<T, R>, EB, RB>,
+  ): Layer.Layer<HandlerFor<T>, EB, R | RB>;
+  <
+    G extends FunctionGroup.Any,
+    const Name extends FunctionGroup.Names<G, Any>,
+    R = never,
+    EB = never,
+    RB = never,
+  >(
+    group: G,
+    name: Name,
+    handler:
+      | HandlerFunction<FunctionGroup.Member<G, Name, Any>, R>
+      | Effect.Effect<HandlerFunction<FunctionGroup.Member<G, Name, Any>, R>, EB, RB>,
+  ): Layer.Layer<Handler<G["identifier"], Name>, EB, R | RB>;
+} = ((...args: ReadonlyArray<unknown>) => {
+  const [group, trigger] = target(args);
+  // The handler's requirements are checked by the signatures, and provided
   // where the Layer is built.
-  internal.toLayer(undefined, trigger.name, handler as internal.HandlerInput) as never;
+  return internal.toLayer(
+    group?.identifier,
+    trigger.name,
+    args[group === undefined ? 1 : 2] as internal.HandlerInput,
+  );
+}) as never;
 
 /**
  * Runs events of a Document Trigger through its handler.
@@ -369,6 +430,9 @@ export const toLayer = <T extends Any, R = never, EB = never, RB = never>(
  *
  * Requires the trigger's handler, which it reads once. Returns a function of
  * the event, which fails with whatever the handler fails with.
+ *
+ * For a trigger in a Function Group, pass the group and the member's name:
+ * it then requires the handler from `toLayer(group, name, handler)`.
  *
  * @example Running an event in a test
  * ```ts
@@ -408,10 +472,19 @@ export const toLayer = <T extends Any, R = never, EB = never, RB = never>(
  * @category serving
  * @since 0.3.0
  */
-export const serve = <T extends Any>(
-  trigger: T,
-): Effect.Effect<(event: Event<T>) => Effect.Effect<void, unknown>, never, HandlerFor<T>> =>
-  internal.serve(undefined, trigger as unknown as internal.Fields) as never;
+export const serve: {
+  <T extends Any>(
+    trigger: T,
+  ): Effect.Effect<(event: Event<T>) => Effect.Effect<void, unknown>, never, HandlerFor<T>>;
+  <G extends FunctionGroup.Any, const Name extends FunctionGroup.Names<G, Any>>(
+    group: G,
+    name: Name,
+  ): Effect.Effect<
+    (event: Event<FunctionGroup.Member<G, Name, Any>>) => Effect.Effect<void, unknown>,
+    never,
+    Handler<G["identifier"], Name>
+  >;
+} = ((...args: ReadonlyArray<unknown>) => internal.serve(...target(args))) as never;
 
 /**
  * Where a Document Trigger is deployed: the name it is exported under and
@@ -422,7 +495,10 @@ export const serve = <T extends Any>(
  * @since 0.3.0
  */
 export interface Deployment {
-  /** The name the trigger is exported under: its own, in no group. */
+  /**
+   * The name the trigger is deployed under: its own in no group, and
+   * `<group>-<name>` in a group.
+   */
   readonly name: string;
   /**
    * The path pattern of the documents it watches, with a wildcard for each
@@ -442,11 +518,18 @@ export interface Deployment {
  * Use when deploying triggers with a transport of your own. `Functions`
  * already uses it.
  *
+ * **Details**
+ *
+ * Pass the trigger for one in no group, or a Function Group and a trigger
+ * member's name for one in a group, which is deployed as `<group>-<name>`.
+ *
  * @see {@link Callable.deployment} for where a Callable is served
  *
  * @stability unstable
  * @category serving
  * @since 0.3.0
  */
-export const deployment = (trigger: Any): Deployment =>
-  internal.deployment(undefined, trigger as unknown as internal.Fields);
+export const deployment: {
+  (trigger: Any): Deployment;
+  <G extends FunctionGroup.Any>(group: G, name: FunctionGroup.Names<G, Any>): Deployment;
+} = ((...args: ReadonlyArray<unknown>) => internal.deployment(...target(args))) as never;

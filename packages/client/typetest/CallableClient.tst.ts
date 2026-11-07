@@ -1,4 +1,7 @@
+import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
+import * as DocumentTrigger from "@visiolab/effect-firebase/functions/DocumentTrigger";
 import * as FunctionGroup from "@visiolab/effect-firebase/functions/FunctionGroup";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import * as Caller from "@visiolab/effect-firebase/functions/Caller";
@@ -122,13 +125,32 @@ describe("CallableClient.make with middleware", () => {
   });
 });
 
-// A Function of a kind no client calls, standing in for a Document Trigger.
-const OnSignUp = { kind: "Other", name: "onSignUp" } as const;
+class Account extends FirestoreModel.Class<Account>("Account")({ name: Schema.String }) {}
+
+const OnSignUp = DocumentTrigger.created("onSignUp", Collection.make("accounts", Account));
 
 class Mixed extends FunctionGroup.make("mixed").add(CreateUser, OnSignUp) {}
 
-describe("CallableClient.make with a group of mixed kinds", () => {
+describe("CallableClient.make with a group of Callables and Document Triggers", () => {
   test("is keyed by the Callable members only", () => {
     expect<keyof CallableClient.Client<typeof Mixed>>().type.toBe<"create">();
+  });
+
+  test("builds a client without the trigger", () => {
+    expect(CallableClient.make(Mixed)).type.toBe<
+      Effect.Effect<CallableClient.Client<typeof Mixed>, never, ClientFunctions.ClientFunctions>
+    >();
+  });
+
+  test("has no key for the trigger", () => {
+    const client = {} as CallableClient.Client<typeof Mixed>;
+    expect(client).type.not.toHaveProperty("onSignUp");
+    // @ts-expect-error Property 'onSignUp' does not exist
+    void client.onSignUp;
+  });
+
+  test("calls the Callable member by its own contract", () => {
+    const client = {} as CallableClient.Client<typeof Mixed>;
+    expect(client.create).type.toBe<CallableClient.Method<typeof CreateUser>>();
   });
 });

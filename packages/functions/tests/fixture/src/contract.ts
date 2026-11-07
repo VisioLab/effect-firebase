@@ -182,6 +182,18 @@ export const Posts = Authors.subcollection("posts", Post);
 /** Records each post created under any author. */
 export const OnPostCreated = DocumentTrigger.created("onPostCreated", Posts);
 
+/** Answers with a post's title in upper case, deployed as `posts-shout`. */
+export const ShoutTitle = Callable.make("shout", {
+  payload: { title: Schema.String },
+  success: Schema.String,
+});
+
+/** Records each post created under any author, deployed as `posts-onCreated`. */
+export const OnCreated = DocumentTrigger.created("onCreated", Posts);
+
+/** A Callable and a Document Trigger in one group. */
+export class PostFunctions extends FunctionGroup.make("posts").add(ShoutTitle, OnCreated) {}
+
 /** A task, which tells the trigger that handles it how its first attempt ends. */
 export class Task extends FirestoreModel.Class<Task>("Task")({
   firstAttempt: Schema.Literals(["succeed", "fail", "die", "interrupt"]),

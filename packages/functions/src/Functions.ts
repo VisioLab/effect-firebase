@@ -367,8 +367,9 @@ export const make = <F extends FirebaseFunction.Any, E>(
  * required. For a Callable member, that is its handler, from
  * `Callable.toLayer(Users, name, handler)`, and the implementation of each of
  * its middleware. A handler from `Callable.toLayer` of the Callable on its
- * own doesn't serve it in the group. `live` may provide more, such as the
- * handlers of other groups.
+ * own doesn't serve it in the group. For a Document Trigger member, that is
+ * its handler, from `DocumentTrigger.toLayer(Posts, name, handler)`. `live`
+ * may provide more, such as the handlers of other groups.
  *
  * Each member is its own function, with a worker of its own. A worker builds
  * `live` on the first call to its own function, and never for another
@@ -377,8 +378,9 @@ export const make = <F extends FirebaseFunction.Any, E>(
  *
  * `options` holds each member's {@link Options}, keyed by the member's name
  * and typed by its kind. A Callable member's are Firebase's `CallableOptions`,
- * passed to its `onCall` unchanged. The group has no options of its own: set
- * those once with `setGlobalOptions`.
+ * passed to its `onCall` unchanged. A Document Trigger member's are
+ * {@link DocumentTriggerOptions}: the shared options plus `retry`. The group
+ * has no options of its own: set those once with `setGlobalOptions`.
  *
  * Each export is what the member's kind deploys, and fails as one from
  * {@link make} does.
@@ -406,6 +408,31 @@ export const make = <F extends FirebaseFunction.Any, E>(
  * export const { users } = Functions.group(Users, UsersLive, {
  *   delete: { region: "europe-west1" },
  * });
+ * ```
+ *
+ * @example Exporting a group of a Callable and a Document Trigger
+ * ```ts
+ * import { Effect, Layer, Schema } from "effect";
+ * import { Collection, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ * import { Callable, DocumentTrigger, FunctionGroup } from "@visiolab/effect-firebase/functions";
+ * import { Functions } from "@visiolab/effect-firebase-functions";
+ *
+ * class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
+ *
+ * const Publish = Callable.make("publish", { payload: { id: Schema.String } });
+ * const OnCreated = DocumentTrigger.created("onCreated", Collection.make("posts", Post));
+ *
+ * class Posts extends FunctionGroup.make("posts").add(Publish, OnCreated) {}
+ *
+ * // Deploys `posts-publish` and `posts-onCreated`.
+ * export const { posts } = Functions.group(
+ *   Posts,
+ *   Layer.mergeAll(
+ *     Callable.toLayer(Posts, "publish", () => Effect.void),
+ *     DocumentTrigger.toLayer(Posts, "onCreated", (event) => Effect.log(event.ref.id)),
+ *   ),
+ *   { publish: { cors: true }, onCreated: { retry: true } },
+ * );
  * ```
  *
  * @see {@link make} for deploying a Function in no group

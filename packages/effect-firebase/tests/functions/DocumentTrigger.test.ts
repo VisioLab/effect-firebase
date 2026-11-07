@@ -5,7 +5,9 @@ import * as DocumentSnapshot from "../../src/firestore/DocumentSnapshot.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
 import * as FirestoreSchema from "../../src/firestore/FirestoreSchema.ts";
 import * as Timestamp from "../../src/firestore/Timestamp.ts";
+import * as Callable from "../../src/functions/Callable.ts";
 import * as DocumentTrigger from "../../src/functions/DocumentTrigger.ts";
+import * as FunctionGroup from "../../src/functions/FunctionGroup.ts";
 
 class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
 class Post extends FirestoreModel.Class<Post>("Post")({
@@ -138,4 +140,40 @@ describe("DocumentTrigger.serve", () => {
       expect({ builds, events }).toEqual({ builds: 1, events: 2 });
     }),
   );
+});
+
+const EditPost = Callable.make("edit", { payload: { title: Schema.String } });
+
+class Posting extends FunctionGroup.make("posting").add(EditPost, OnPostCreated) {}
+class Moderation extends FunctionGroup.make("moderation").add(OnPostCreated) {}
+
+describe("DocumentTrigger in a Function Group", () => {
+  it.effect("serves a trigger in two groups, each through its own handler", () =>
+    Effect.gen(function* () {
+      const servedBy: Array<string> = [];
+      const live = Layer.mergeAll(
+        DocumentTrigger.toLayer(Posting, "onPostCreated", () =>
+          Effect.sync(() => servedBy.push("posting")),
+        ),
+        DocumentTrigger.toLayer(Moderation, "onPostCreated", () =>
+          Effect.sync(() => servedBy.push("moderation")),
+        ),
+      );
+      const input = event({ title: "Hello", createdAt });
+      yield* Effect.flatMap(DocumentTrigger.serve(Moderation, "onPostCreated"), (run) =>
+        run(input),
+      ).pipe(Effect.provide(live));
+      yield* Effect.flatMap(DocumentTrigger.serve(Posting, "onPostCreated"), (run) =>
+        run(input),
+      ).pipe(Effect.provide(live));
+      expect(servedBy).toEqual(["moderation", "posting"]);
+    }),
+  );
+
+  it("deploys a member as <group>-<name>, at its collection's path pattern", () => {
+    const inGroup = DocumentTrigger.deployment(Posting, "onPostCreated");
+    expect(inGroup.name).toBe("posting-onPostCreated");
+    expect(inGroup.document).toBe(DocumentTrigger.deployment(OnPostCreated).document);
+    expect(DocumentTrigger.deployment(OnPostCreated).name).toBe("onPostCreated");
+  });
 });

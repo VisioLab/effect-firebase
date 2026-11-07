@@ -72,6 +72,7 @@ export const { onPostCreated } = Functions.make(
 - Any failure fails the event: a typed error, a defect, an interrupt, or a Layer that fails to build. Its Cause is logged at Error in the event's span, and the function throws. Firebase then delivers the event again when `retry` is set, and drops it otherwise. The library adds no retry of its own. Events are delivered at least once: key idempotent work on `event.id`.
 - A Layer that fails to build is built again on the next event.
 - The Functions emulator never delivers a failed event again, even with `retry`, and replaces the worker whose function threw.
+- Add a trigger to a Function Group next to Callables to deploy it as `<group>-<name>` (see [Function Groups](#function-groups)).
 - Test a handler in process with `DocumentTrigger.serve`, and an event built with `DocumentTrigger.createdEvent` and `DocumentSnapshot.existing`.
 - The package takes `@visiolab/effect-firebase-admin` and `firebase-admin` as peer dependencies, to read event data as the Admin SDK reads do.
 
@@ -103,11 +104,39 @@ export const { users } = Functions.group(Users, UsersLive, {
 });
 ```
 
-- Implement a member with `Callable.toLayer(Users, "create", handler)`. A Layer from the Callable on its own doesn't serve it in the group.
-- The options are a sparse map keyed by member name, each typed by the member's kind: `CallableOptions` for a Callable. The group has none of its own.
+A group can hold Callables and Document Triggers together, so you can group by domain rather than by kind:
+
+```ts
+import { Effect, Layer, Schema } from "effect";
+import { Collection, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+import { Callable, DocumentTrigger, FunctionGroup } from "@visiolab/effect-firebase/functions";
+import { Functions } from "@visiolab/effect-firebase-functions";
+
+class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
+
+const PostsCollection = Collection.make("posts", Post);
+
+const Publish = Callable.make("publish", { payload: { id: Schema.String } });
+const OnCreated = DocumentTrigger.created("onCreated", PostsCollection);
+
+class Posts extends FunctionGroup.make("posts").add(Publish, OnCreated) {}
+
+// Deploys `posts-publish` and `posts-onCreated`.
+export const { posts } = Functions.group(
+  Posts,
+  Layer.mergeAll(
+    Callable.toLayer(Posts, "publish", () => Effect.void),
+    DocumentTrigger.toLayer(Posts, "onCreated", (event) => Effect.log(event.ref.id)),
+  ),
+  { publish: { cors: true }, onCreated: { retry: true } },
+);
+```
+
+- Implement a member with `Callable.toLayer(Users, "create", handler)` or `DocumentTrigger.toLayer(Posts, "onCreated", handler)`. A Layer from the Function on its own doesn't serve it in the group.
+- The options are a sparse map keyed by member name, each typed by the member's kind: `CallableOptions` for a Callable, and the shared options plus `retry` for a Document Trigger. The group has none of its own.
 - A Function can be in more than one group. Each group serves and implements it separately.
 - Names must be unique within a group. `.add` throws when a name is taken, so the clash fails when the module loads. The types don't catch it.
-- Build the client from the group, `CallableClient.make(Users)`. It has a function for each of the group's Callables. A client built from the member on its own calls the unprefixed name and gets `not-found`.
+- Build the client from the group, `CallableClient.make(Users)`. It has a function for each of the group's Callables, and none for its Document Triggers. A client built from the member on its own calls the unprefixed name and gets `not-found`.
 
 ## Middleware and the Caller
 
