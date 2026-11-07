@@ -28,11 +28,16 @@ const internalError = () => new Https.HttpsError("internal", "INTERNAL");
  * that fails closes the scope it was built in, which drops its failed entries
  * from the memo map, so the retry builds anew.
  */
-const lazyContext = <R, E>(live: Layer.Layer<R, E>) => {
+const lazyContext = <R, E>(
+  live: Layer.Layer<R, E, FunctionsCallableRequest.FunctionsCallableRequest>,
+) => {
+  // The request is provided to each call, and the handler Layers that list it
+  // read it only then, so the build itself needs nothing.
+  const build = live as Layer.Layer<R, E>;
   let pending: Promise<Exit.Exit<Context.Context<R>, E>> | undefined;
   return Effect.flatMap(Effect.context<never>(), (caller) => {
     pending ??= Effect.runPromiseExit(
-      Layer.buildWithMemoMap(live, memoMap, scope).pipe(Effect.provideContext(caller)),
+      Layer.buildWithMemoMap(build, memoMap, scope).pipe(Effect.provideContext(caller)),
     ).then((exit) => {
       if (Exit.isFailure(exit)) pending = undefined;
       return exit;
@@ -89,7 +94,7 @@ const toHttpsError = (cause: Cause.Cause<unknown>, aborted: boolean) => {
 export const onCall = <R, E>(
   group: CallableGroup.Any | undefined,
   callable: Callable.Any,
-  live: Layer.Layer<R, E>,
+  live: Layer.Layer<R, E, FunctionsCallableRequest.FunctionsCallableRequest>,
   options: Https.CallableOptions = {},
 ) => {
   const context = lazyContext(live);

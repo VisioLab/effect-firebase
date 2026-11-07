@@ -114,6 +114,28 @@ export type GroupOptions<G extends CallableGroup.Any> = {
 };
 
 /**
+ * The Layer {@link make} and {@link group} serve: it provides `Services`
+ * except the {@link FunctionsCallableRequest.FunctionsCallableRequest}, and may
+ * leave that one required.
+ *
+ * **Details**
+ *
+ * Every call provides the `FunctionsCallableRequest`, as it does the portable
+ * `CallableRequest`, so a handler or middleware may require it and `Live`
+ * needn't provide it. It is provided to calls only, not while the Layer is
+ * built: an Effect that builds a handler can't read it.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.1.0
+ */
+export type Live<Services, E> = Layer.Layer<
+  Exclude<Services, FunctionsCallableRequest.FunctionsCallableRequest>,
+  E,
+  FunctionsCallableRequest.FunctionsCallableRequest
+>;
+
+/**
  * Serves a Callable in no group as a Callable Function.
  *
  * **When to use**
@@ -125,8 +147,9 @@ export type GroupOptions<G extends CallableGroup.Any> = {
  *
  * `live` must provide the Callable's handler, from `Callable.toLayer`, and
  * the implementation of each of its middleware, such as
- * `Caller.Authenticated.layer`, and leave nothing required. It may provide
- * more. `CallableFunction` provides no middleware itself. Give each export a
+ * `Caller.Authenticated.layer`, and leave nothing required but the
+ * {@link FunctionsCallableRequest.FunctionsCallableRequest}, which every call
+ * provides (see {@link Live}). It may provide more. `CallableFunction` provides no middleware itself. Give each export a
  * Layer of its own where you can: a cold instance then builds only what its
  * own function needs.
  *
@@ -177,7 +200,7 @@ export type GroupOptions<G extends CallableGroup.Any> = {
  */
 export const make = <C extends Callable.Any, E>(
   callable: C,
-  live: Layer.Layer<Callable.ChainServices<C, Callable.HandlerFor<C>>, E>,
+  live: Live<Callable.ChainServices<C, Callable.HandlerFor<C>>, E>,
   options?: Https.CallableOptions,
 ): Exports<C> =>
   ({
@@ -198,7 +221,8 @@ export const make = <C extends Callable.Any, E>(
  *
  * `live` must provide the handler of every member, each from
  * `Callable.toLayer(Users, name, handler)`, and the implementation of every
- * member's middleware, and leave nothing required. A
+ * member's middleware, and leave nothing required but the
+ * `FunctionsCallableRequest` (see {@link Live}). A
  * handler from `Callable.toLayer` of the Callable on its own doesn't serve it
  * in the group. `live` may provide more, such as the handlers of other groups.
  *
@@ -247,7 +271,7 @@ export const make = <C extends Callable.Any, E>(
  */
 export const group = <G extends CallableGroup.Any, E>(
   group: G,
-  live: Layer.Layer<CallableGroup.ChainServices<G>, E>,
+  live: Live<CallableGroup.ChainServices<G>, E>,
   options?: GroupOptions<G>,
 ): GroupExports<G> => {
   const exports: Record<string, Export> = {};

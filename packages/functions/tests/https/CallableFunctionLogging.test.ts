@@ -126,8 +126,8 @@ describe("CallableFunction logging", () => {
           ["Audit", "INFO"],
           ["Rejected", "WARNING"],
         ]);
-        // Firebase's request reaches the middleware, inside the call's span.
-        expect(entries[0]?.["hasRawRequest"]).toBe(true);
+        // This call's own Firebase request reaches the middleware, inside the call's span.
+        expect(entries[0]?.["traceHeader"]).toBe(`${traceId}/1;o=1`);
         for (const entry of entries) {
           expect(entry).toMatchObject({
             "logging.googleapis.com/trace": traceField(traceId),

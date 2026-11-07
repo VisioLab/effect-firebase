@@ -27,6 +27,7 @@ import {
   Greet,
   LayerBuilds,
   Logged,
+  RequestHeader,
   Traced,
   Tracing,
   NameTaken,
@@ -305,17 +306,17 @@ export const { brokenBuild } = CallableFunction.make(
 
 /**
  * Tags the call's span and logs with the call's id from the raw data, logs
- * whether Firebase's request reached it, and logs "Rejected" when the call it
+ * the trace header of Firebase's request, and logs "Rejected" when the call it
  * wraps fails.
  */
 const AuditLive = Layer.succeed(Audit, (effect) =>
   Effect.gen(function* () {
     const { data } = yield* CallableRequest.CallableRequest;
     const callId = String((data as { readonly callId?: unknown } | null)?.callId);
-    const firebase = yield* Effect.serviceOption(FunctionsCallableRequest.FunctionsCallableRequest);
+    const { rawRequest } = yield* FunctionsCallableRequest.FunctionsCallableRequest;
     yield* Effect.annotateCurrentSpan("callId", callId);
     yield* Effect.log("Audit").pipe(
-      Effect.annotateLogs({ callId, hasRawRequest: Option.isSome(firebase) }),
+      Effect.annotateLogs({ callId, traceHeader: rawRequest.header("x-cloud-trace-context") }),
     );
     return yield* effect.pipe(
       Effect.tapCause(() => Effect.logWarning("Rejected").pipe(Effect.annotateLogs({ callId }))),
@@ -330,5 +331,15 @@ export const { audited } = CallableFunction.make(
     Caller.Authenticated.layer,
     AuditLive,
     SpanRecorder,
+  ),
+);
+
+export const { requestHeader } = CallableFunction.make(
+  RequestHeader,
+  Callable.toLayer(RequestHeader, () =>
+    Effect.map(
+      Effect.service(FunctionsCallableRequest.FunctionsCallableRequest),
+      ({ rawRequest }) => rawRequest.header("x-test-tag") ?? null,
+    ),
   ),
 );

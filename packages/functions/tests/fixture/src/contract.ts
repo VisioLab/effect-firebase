@@ -1,7 +1,8 @@
 /**
  * The Callables the fixture serves, shared with the tests that call them.
  *
- * Imports only the portable core, as an app's shared contract would.
+ * Imports only the portable core, as an app's shared contract would, except
+ * for the type of the request `Audit` requires.
  */
 import { Schema } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
@@ -9,6 +10,7 @@ import * as CallableError from "@visiolab/effect-firebase/functions/CallableErro
 import * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
 import * as CallableMiddleware from "@visiolab/effect-firebase/functions/CallableMiddleware";
 import * as Caller from "@visiolab/effect-firebase/functions/Caller";
+import type * as FunctionsCallableRequest from "../../../src/https/FunctionsCallableRequest.ts";
 
 /** A Callable in no group, with a `Date` each way. */
 export const Greet = Callable.make("greet", {
@@ -132,10 +134,21 @@ export const Logged = Callable.make("logged", { payload: { callId: Schema.String
 /** Its Layer always fails to build. */
 export const BrokenBuild = Callable.make("brokenBuild");
 
-/** Logs each call it wraps, and logs again when that call fails. */
-export class Audit extends CallableMiddleware.Service<Audit>()("Audit") {}
+/**
+ * Logs each call it wraps, with a header of Firebase's request, and logs again
+ * when that call fails.
+ */
+export class Audit extends CallableMiddleware.Service<
+  Audit,
+  { requires: FunctionsCallableRequest.FunctionsCallableRequest }
+>()("Audit") {}
 
 /** `Audit` outside `Authenticated`, so `Audit` logs the rejection of a signed-out call. */
 export const Audited = Callable.make("audited", { payload: { callId: Schema.String } })
   .middleware(Caller.Authenticated)
   .middleware(Audit);
+
+/** Answers with the `X-Test-Tag` header of Firebase's request, read by its handler. */
+export const RequestHeader = Callable.make("requestHeader", {
+  success: Schema.NullOr(Schema.String),
+});

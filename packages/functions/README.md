@@ -96,7 +96,7 @@ export const { whoAmI } = CallableFunction.make(
 );
 ```
 
-- Declare a middleware of your own with `CallableMiddleware.Service`. Its implementation wraps the call and reads the portable `CallableRequest`. `FunctionsCallableRequest` has the rest of Firebase's request, such as `rawRequest`.
+- Declare a middleware of your own with `CallableMiddleware.Service`. Its implementation wraps the call and reads the portable `CallableRequest`. `FunctionsCallableRequest` has the rest of Firebase's request, such as `rawRequest`. Every call provides both, so the Layer you serve needn't, even when a handler or middleware requires them.
 - A middleware attached later wraps the ones attached before it.
 - `CallableFunction` provides no middleware itself, so a `Live` without an implementation is a type error.
 - Run a handler in process, with its chain and without the emulator, through `Callable.handler(WhoAmI)`.

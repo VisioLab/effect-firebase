@@ -144,4 +144,27 @@ describe("CallableFunction", () => {
     expect(ping.__endpoint.callableTrigger).toBeDefined();
     expect(builds).toBe(0);
   });
+
+  it.effect("hands each call's handler its own FunctionsCallableRequest", () =>
+    Effect.gen(function* () {
+      const tags = Array.from({ length: 3 }, () => crypto.randomUUID());
+      const answers = yield* Effect.forEach(
+        tags,
+        (tag) =>
+          Effect.promise(async () => {
+            const response = await fetch(
+              `http://${host}:${port}/demo-effect-firebase/us-central1/requestHeader`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "X-Test-Tag": tag },
+                body: JSON.stringify({ data: null }),
+              },
+            );
+            return (await response.json()) as unknown;
+          }),
+        { concurrency: "unbounded" },
+      );
+      expect(answers).toEqual(tags.map((tag) => ({ result: tag })));
+    }),
+  );
 });

@@ -63,10 +63,12 @@ export interface FunctionsCallableRequest extends CallableRequest.Base {
  *
  * **Details**
  *
- * Every call of a Callable Function provides it, but Callable Middleware that
- * reads it must list it in `requires`, since `Callable.handler` doesn't
- * provide it. Portable middleware reads `CallableRequest.CallableRequest`
- * instead.
+ * Every call of a Callable Function provides it, so the Layer that
+ * `CallableFunction` serves needn't provide it, even when a handler or a
+ * middleware requires it. Callable Middleware that reads it lists it in
+ * `requires`. `Callable.handler` doesn't provide it, so a test of such a
+ * handler provides a stub. Portable middleware reads
+ * `CallableRequest.CallableRequest` instead.
  *
  * @stability unstable
  * @category services
