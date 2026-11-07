@@ -3,7 +3,8 @@
  * `firebase deploy` deploys. {@link make} deploys a Function in no group under
  * its name, and {@link group} deploys each member of a Function Group as
  * `<group>-<name>`. Each dispatches on the Function's kind: a Callable is
- * served with `onCall`, and a Document Trigger with `onDocumentCreated`.
+ * served with `onCall`, and a Document Trigger with the `onDocument*`
+ * provider of its change, such as `onDocumentCreated`.
  *
  * Each export is built at once and synchronously, and builds nothing: the
  * Layer that implements it is built on the first call or event, so discovery
@@ -98,8 +99,15 @@ import * as kinds from "./internal/kinds.ts";
 export type CallableExport = Https.CallableFunction<unknown, Promise<unknown>>;
 
 /**
- * The value `onDocumentCreated` returns for a Document Trigger, by the change
- * it runs on: what firebase-tools discovers and deploys.
+ * The value an `onDocument*` provider returns for a Document Trigger, by the
+ * change it runs on: what firebase-tools discovers and deploys.
+ *
+ * **Details**
+ *
+ * A `created` trigger is exported with `onDocumentCreated`, a `deleted` one
+ * with `onDocumentDeleted`, an `updated` one with `onDocumentUpdated` and a
+ * `written` one with `onDocumentWritten`. The type is the `CloudFunction` of
+ * the event that provider hands over.
  *
  * @see {@link Export} for the export of a Function of any kind
  *
@@ -107,9 +115,20 @@ export type CallableExport = Https.CallableFunction<unknown, Promise<unknown>>;
  * @category type-level
  * @since 0.3.0
  */
-export type DocumentTriggerExport<T extends DocumentTrigger.Any> = T["event"] extends "created"
-  ? CloudFunction<Firestore.FirestoreEvent<Firestore.QueryDocumentSnapshot | undefined>>
-  : never;
+export type DocumentTriggerExport<T extends DocumentTrigger.Any> = CloudFunction<
+  Firestore.FirestoreEvent<DocumentTriggerEventData[T["event"]]>
+>;
+
+/**
+ * The data of the event each `onDocument*` provider hands over, by the change
+ * it runs on.
+ */
+interface DocumentTriggerEventData {
+  readonly created: Firestore.QueryDocumentSnapshot | undefined;
+  readonly deleted: Firestore.QueryDocumentSnapshot | undefined;
+  readonly updated: Firestore.Change<Firestore.QueryDocumentSnapshot> | undefined;
+  readonly written: Firestore.Change<Firestore.DocumentSnapshot> | undefined;
+}
 
 /**
  * The deploy options of a Document Trigger: Firebase's `DocumentOptions`
@@ -264,10 +283,12 @@ export type GroupOptions<G extends FunctionGroup.Any> = {
  *
  * For a Document Trigger, `live` provides its handler, from
  * `DocumentTrigger.toLayer`. `options` are {@link DocumentTriggerOptions}:
- * the shared options plus `retry`. The export is what `onDocumentCreated`
- * returns for the `(default)` database and the path pattern of the trigger's
- * collection. Each event is converted into the trigger's event, its data read
- * into Firestore Values as a read does, and run through
+ * the shared options plus `retry`. The export is what the provider of the
+ * trigger's change (`onDocumentCreated`, `onDocumentUpdated`,
+ * `onDocumentDeleted` or `onDocumentWritten`) returns for the `(default)`
+ * database and the path pattern of the trigger's collection. Each event is
+ * converted into the trigger's event, its data read into Firestore Values as
+ * a read does, a side that doesn't exist as a `Missing` snapshot, and run through
  * `DocumentTrigger.serve`. A failure of the handler, or of the Layer's build,
  * is logged at Error and makes the function throw, so Firebase delivers the
  * event again when `retry` is set.

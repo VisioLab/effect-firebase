@@ -1,5 +1,5 @@
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
-import type * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
+import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as DocumentTrigger from "@visiolab/effect-firebase/functions/DocumentTrigger";
@@ -56,12 +56,126 @@ describe("DocumentTrigger.created", () => {
   });
 });
 
+const OnPostDeleted = DocumentTrigger.deleted("onPostDeleted", Posts);
+const OnPostUpdated = DocumentTrigger.updated("onPostUpdated", Posts);
+const OnPostWritten = DocumentTrigger.written("onPostWritten", Posts);
+
+describe("DocumentTrigger.deleted", () => {
+  test("keeps the name, the collection and the change", () => {
+    expect(OnPostDeleted).type.toBe<
+      DocumentTrigger.DocumentTrigger<"onPostDeleted", typeof Posts, "deleted">
+    >();
+  });
+
+  test("hands its handler the document as it was, its typed reference, and the CloudEvent's id and time", () => {
+    type Event = DocumentTrigger.Event<typeof OnPostDeleted>;
+    expect<Event>().type.toBe<DocumentTrigger.Deleted<typeof Posts>>();
+    expect<Event["snapshot"]>().type.toBe<DocumentSnapshot.Existing<typeof Posts>>();
+    expect<Event["ref"]>().type.toBe<Collection.DocumentReference<typeof Posts>>();
+    expect<Event["id"]>().type.toBe<string>();
+    expect<Event["time"]>().type.toBe<string>();
+  });
+});
+
+describe("DocumentTrigger.updated", () => {
+  test("keeps the name, the collection and the change", () => {
+    expect(OnPostUpdated).type.toBe<
+      DocumentTrigger.DocumentTrigger<"onPostUpdated", typeof Posts, "updated">
+    >();
+  });
+
+  test("hands its handler both sides as existing, its typed reference, and the CloudEvent's id and time", () => {
+    type Event = DocumentTrigger.Event<typeof OnPostUpdated>;
+    expect<Event>().type.toBe<DocumentTrigger.Updated<typeof Posts>>();
+    expect<Event["before"]>().type.toBe<DocumentSnapshot.Existing<typeof Posts>>();
+    expect<Event["after"]>().type.toBe<DocumentSnapshot.Existing<typeof Posts>>();
+    expect<Event["ref"]>().type.toBe<Collection.DocumentReference<typeof Posts>>();
+    expect<Event["id"]>().type.toBe<string>();
+    expect<Event["time"]>().type.toBe<string>();
+    expect<Event>().type.not.toHaveProperty("snapshot");
+  });
+});
+
+describe("DocumentTrigger.written", () => {
+  test("keeps the name, the collection and the change", () => {
+    expect(OnPostWritten).type.toBe<
+      DocumentTrigger.DocumentTrigger<"onPostWritten", typeof Posts, "written">
+    >();
+  });
+
+  test("hands its handler each side as a Document Snapshot, which may be missing", () => {
+    type Event = DocumentTrigger.Event<typeof OnPostWritten>;
+    expect<Event>().type.toBe<DocumentTrigger.Written<typeof Posts>>();
+    expect<Event["before"]>().type.toBe<DocumentSnapshot.DocumentSnapshot<typeof Posts>>();
+    expect<Event["after"]>().type.toBe<DocumentSnapshot.DocumentSnapshot<typeof Posts>>();
+    expect<Event["ref"]>().type.toBe<Collection.DocumentReference<typeof Posts>>();
+    expect<Event["id"]>().type.toBe<string>();
+    expect<Event["time"]>().type.toBe<string>();
+  });
+
+  test("reads a side's data only once it is narrowed to existing", () => {
+    DocumentTrigger.toLayer(OnPostWritten, (event) => {
+      // @ts-expect-error Property 'data' does not exist
+      void event.after.data;
+      if (DocumentSnapshot.isExisting(event.after)) {
+        expect(event.after).type.toBe<DocumentSnapshot.Existing<typeof Posts>>();
+        expect(event.after.data).type.toBe<Effect.Effect<Post, Schema.SchemaError, never>>();
+      }
+      if (DocumentSnapshot.isMissing(event.before)) {
+        expect(event.before).type.toBe<DocumentSnapshot.Missing<typeof Posts>>();
+      }
+      return Effect.void;
+    });
+  });
+});
+
 describe("DocumentTrigger.createdEvent", () => {
   test("builds the event of the snapshot's collection", () => {
     const snapshot = {} as DocumentSnapshot.Existing<typeof Posts>;
     expect(DocumentTrigger.createdEvent({ id: "1", time: "t", snapshot })).type.toBe<
       DocumentTrigger.Created<typeof Posts>
     >();
+  });
+});
+
+describe("DocumentTrigger.deletedEvent", () => {
+  test("builds the event of the snapshot's collection", () => {
+    const snapshot = {} as DocumentSnapshot.Existing<typeof Posts>;
+    expect(DocumentTrigger.deletedEvent({ id: "1", time: "t", snapshot })).type.toBe<
+      DocumentTrigger.Deleted<typeof Posts>
+    >();
+  });
+
+  test("takes only an existing snapshot", () => {
+    const snapshot = {} as DocumentSnapshot.Missing<typeof Posts>;
+    // @ts-expect-error is missing the following properties
+    DocumentTrigger.deletedEvent({ id: "1", time: "t", snapshot });
+  });
+});
+
+describe("DocumentTrigger.updatedEvent", () => {
+  test("builds the event of the snapshots' collection", () => {
+    const snapshot = {} as DocumentSnapshot.Existing<typeof Posts>;
+    expect(
+      DocumentTrigger.updatedEvent({ id: "1", time: "t", before: snapshot, after: snapshot }),
+    ).type.toBe<DocumentTrigger.Updated<typeof Posts>>();
+  });
+
+  test("takes only existing snapshots", () => {
+    const existing = {} as DocumentSnapshot.Existing<typeof Posts>;
+    const missing = {} as DocumentSnapshot.Missing<typeof Posts>;
+    // @ts-expect-error is missing the following properties
+    DocumentTrigger.updatedEvent({ id: "1", time: "t", before: missing, after: existing });
+  });
+});
+
+describe("DocumentTrigger.writtenEvent", () => {
+  test("builds the event of the snapshots' collection, with a missing side", () => {
+    const existing = {} as DocumentSnapshot.Existing<typeof Posts>;
+    const missing = {} as DocumentSnapshot.Missing<typeof Posts>;
+    expect(
+      DocumentTrigger.writtenEvent({ id: "1", time: "t", before: missing, after: existing }),
+    ).type.toBe<DocumentTrigger.Written<typeof Posts>>();
   });
 });
 

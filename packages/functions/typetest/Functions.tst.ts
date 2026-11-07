@@ -11,6 +11,8 @@ import * as CallableRequest from "@visiolab/effect-firebase/functions/CallableRe
 import * as Caller from "@visiolab/effect-firebase/functions/Caller";
 import * as Functions from "@visiolab/effect-firebase-functions/Functions";
 import { Context, Effect, Layer, Option, Schema } from "effect";
+import type { CloudFunction } from "firebase-functions/v2";
+import type * as Firestore from "firebase-functions/v2/firestore";
 import { describe, expect, test } from "tstyche";
 
 const Greet = Callable.make("greet", {
@@ -263,6 +265,51 @@ describe("Functions.make with a Document Trigger", () => {
     Functions.make(OnPostCreated, OnPostCreatedLive, { namespace: "other" });
     // @ts-expect-error Object literal may only specify known properties
     Functions.make(OnPostCreated, OnPostCreatedLive, { cors: true });
+  });
+
+  test("exports each change with the CloudFunction of its onDocument* provider", () => {
+    const OnPostDeleted = DocumentTrigger.deleted("onPostDeleted", Posts);
+    const OnPostUpdated = DocumentTrigger.updated("onPostUpdated", Posts);
+    const OnPostWritten = DocumentTrigger.written("onPostWritten", Posts);
+    expect(
+      Functions.make(
+        OnPostDeleted,
+        DocumentTrigger.toLayer(OnPostDeleted, () => Effect.void),
+      ),
+    ).type.toBe<{
+      readonly onPostDeleted: CloudFunction<
+        Firestore.FirestoreEvent<Firestore.QueryDocumentSnapshot | undefined>
+      >;
+    }>();
+    expect(
+      Functions.make(
+        OnPostUpdated,
+        DocumentTrigger.toLayer(OnPostUpdated, () => Effect.void),
+      ),
+    ).type.toBe<{
+      readonly onPostUpdated: CloudFunction<
+        Firestore.FirestoreEvent<Firestore.Change<Firestore.QueryDocumentSnapshot> | undefined>
+      >;
+    }>();
+    expect(
+      Functions.make(
+        OnPostWritten,
+        DocumentTrigger.toLayer(OnPostWritten, () => Effect.void),
+        {
+          retry: true,
+        },
+      ),
+    ).type.toBe<{
+      readonly onPostWritten: CloudFunction<
+        Firestore.FirestoreEvent<Firestore.Change<Firestore.DocumentSnapshot> | undefined>
+      >;
+    }>();
+  });
+
+  test("a Live of another change's trigger is a type error", () => {
+    const OnPostDeleted = DocumentTrigger.deleted("onPostDeleted", Posts);
+    // @ts-expect-error not assignable
+    Functions.make(OnPostDeleted, OnPostCreatedLive);
   });
 
   test("a Callable doesn't take retry", () => {

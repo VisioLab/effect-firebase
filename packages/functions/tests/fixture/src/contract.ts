@@ -193,3 +193,12 @@ export const OnCreated = DocumentTrigger.created("onCreated", Posts);
 
 /** A Callable and a Document Trigger in one group. */
 export class PostFunctions extends FunctionGroup.make("posts").add(ShoutTitle, OnCreated) {}
+
+/** Records each post deleted under any author, with its last data. */
+export const OnPostDeleted = DocumentTrigger.deleted("onPostDeleted", Posts);
+
+/** Records each update to a post, with its data before and after. */
+export const OnPostUpdated = DocumentTrigger.updated("onPostUpdated", Posts);
+
+/** Records each create, update and delete of a post, with either side possibly missing. */
+export const OnPostWritten = DocumentTrigger.written("onPostWritten", Posts);

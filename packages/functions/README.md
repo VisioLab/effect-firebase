@@ -66,11 +66,12 @@ export const { onPostCreated } = Functions.make(
 );
 ```
 
+- There is one constructor per change: `created` and `deleted` hand over `event.snapshot` (on `deleted`, the document as it was just before), `updated` hands over `event.before` and `event.after`, both existing, and `written` runs on all three, with `before` missing on a create and `after` missing on a delete. Narrow a `written` side with `DocumentSnapshot.isExisting` or `isMissing`.
 - The trigger listens to the `(default)` database, at a path pattern derived from the collection: one wildcard per parent document and one for the document. The ids are on `event.ref`, typed.
-- `event.snapshot.data` decodes through the collection's model when it runs; `event.snapshot.raw` holds the stored Firestore Values.
+- `event.snapshot.data` decodes through the collection's model when it runs; `event.snapshot.raw` holds the stored Firestore Values. The same holds for each existing side of a change.
 - The options are the shared `firebase-functions` options plus `retry`. A failing handler is logged and makes the function throw, so Firebase delivers the event again when `retry` is set. Events are delivered at least once: key idempotent work on `event.id`.
 - Add a trigger to a Function Group next to Callables to deploy it as `<group>-<name>` (see [Function Groups](#function-groups)).
-- Test a handler in process with `DocumentTrigger.serve`, and an event built with `DocumentTrigger.createdEvent` and `DocumentSnapshot.existing`.
+- Test a handler in process with `DocumentTrigger.serve`, and an event built with `DocumentTrigger.createdEvent`, `updatedEvent`, `deletedEvent` or `writtenEvent` from `DocumentSnapshot.existing` and `DocumentSnapshot.missing`.
 - The package takes `@visiolab/effect-firebase-admin` and `firebase-admin` as peer dependencies, to read event data as the Admin SDK reads do.
 
 ## Function Groups

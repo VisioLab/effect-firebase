@@ -23,6 +23,7 @@ import * as CallableError from "@visiolab/effect-firebase/functions/CallableErro
 import * as Caller from "@visiolab/effect-firebase/functions/Caller";
 import * as CallableRequest from "@visiolab/effect-firebase/functions/CallableRequest";
 import * as DocumentTrigger from "@visiolab/effect-firebase/functions/DocumentTrigger";
+import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import * as Functions from "../../../src/Functions.ts";
 import { onCall } from "firebase-functions/v2/https";
 import {
@@ -40,6 +41,11 @@ import {
   Logged,
   OnPostCreated,
   PostFunctions,
+  OnPostDeleted,
+  OnPostUpdated,
+  OnPostWritten,
+  Post,
+  Posts,
   RequestHeader,
   Traced,
   Tracing,
@@ -373,25 +379,47 @@ export const { sleep } = Functions.make(
  */
 const triggersLog = fileURLToPath(new URL("../../triggers.log", import.meta.url));
 
+/** A decoded post as the triggers record it, with `publishedAt` as ISO. */
+const recordedPost = (post: Post) => ({
+  title: post.title,
+  publishedAt: DateTime.formatIso(post.publishedAt),
+});
+
+/** One side of a change as recorded: the decoded post, or `null` when missing. */
+const recordedSide = (snapshot: DocumentSnapshot.DocumentSnapshot<typeof Posts>) =>
+  DocumentSnapshot.isExisting(snapshot)
+    ? Effect.map(snapshot.data, recordedPost)
+    : Effect.succeed(null);
+
 /**
- * Records a `created` event of a post under `trigger`, with the function
- * target the emulator runs it as.
+ * Appends what every trigger records of an event under `trigger`, with the
+ * function target the emulator runs it as, and `fields`, to the triggers log.
  */
+const recordEvent = (
+  trigger: string,
+  event: DocumentTrigger.BaseEvent<typeof Posts>,
+  fields: object,
+) =>
+  Effect.sync(() => {
+    const line = {
+      trigger,
+      target: process.env["FUNCTION_TARGET"] ?? "",
+      eventId: event.id,
+      time: event.time,
+      path: event.ref.path,
+      ancestors: event.ref.ancestors,
+      id: event.ref.id,
+      ...fields,
+    };
+    appendFileSync(triggersLog, `${JSON.stringify(line)}\n`);
+  });
+
+/** Records a `created` event of a post under `trigger`. */
 const recordPostCreated =
   (trigger: string) => (event: DocumentTrigger.Event<typeof OnPostCreated>) =>
-    Effect.map(event.snapshot.data, (post) => {
-      const line = {
-        trigger,
-        target: process.env["FUNCTION_TARGET"] ?? "",
-        eventId: event.id,
-        time: event.time,
-        path: event.ref.path,
-        ancestors: event.ref.ancestors,
-        id: event.ref.id,
-        data: { title: post.title, publishedAt: DateTime.formatIso(post.publishedAt) },
-      };
-      appendFileSync(triggersLog, `${JSON.stringify(line)}\n`);
-    });
+    Effect.flatMap(event.snapshot.data, (post) =>
+      recordEvent(trigger, event, { data: recordedPost(post) }),
+    );
 
 export const { onPostCreated } = Functions.make(
   OnPostCreated,
@@ -403,5 +431,36 @@ export const { posts } = Functions.group(
   Layer.mergeAll(
     Callable.toLayer(PostFunctions, "shout", ({ title }) => Effect.succeed(title.toUpperCase())),
     DocumentTrigger.toLayer(PostFunctions, "onCreated", recordPostCreated("posts-onCreated")),
+  ),
+);
+
+export const { onPostDeleted } = Functions.make(
+  OnPostDeleted,
+  DocumentTrigger.toLayer(OnPostDeleted, (event) =>
+    Effect.flatMap(event.snapshot.data, (post) =>
+      recordEvent(OnPostDeleted.name, event, { data: recordedPost(post) }),
+    ),
+  ),
+);
+
+export const { onPostUpdated } = Functions.make(
+  OnPostUpdated,
+  DocumentTrigger.toLayer(OnPostUpdated, (event) =>
+    Effect.gen(function* () {
+      const before = recordedPost(yield* event.before.data);
+      const after = recordedPost(yield* event.after.data);
+      yield* recordEvent(OnPostUpdated.name, event, { before, after });
+    }),
+  ),
+);
+
+export const { onPostWritten } = Functions.make(
+  OnPostWritten,
+  DocumentTrigger.toLayer(OnPostWritten, (event) =>
+    Effect.gen(function* () {
+      const before = yield* recordedSide(event.before);
+      const after = yield* recordedSide(event.after);
+      yield* recordEvent(OnPostWritten.name, event, { before, after });
+    }),
   ),
 );
