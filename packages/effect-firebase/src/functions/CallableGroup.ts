@@ -281,7 +281,34 @@ export const isCallableGroup: (u: unknown) => u is Any = internal.isCallableGrou
  * ```
  *
  * @see {@link Callable.make} for declaring the members
+ * @example Requiring sign-in for every member
+ * ```ts
+ * import { Effect, Layer, Schema } from "effect";
+ * import { Callable, CallableGroup, Caller } from "@visiolab/effect-firebase/functions";
+ *
+ * const Me = Callable.make("me", { success: Schema.String });
+ *
+ * // Covers `me`, though it is added after the middleware.
+ * class Accounts extends CallableGroup.make("accounts").middleware(Caller.Authenticated).add(Me) {}
+ *
+ * const program = Effect.gen(function* () {
+ *   const me = yield* Callable.handler(Accounts, "me");
+ *   // "ada"
+ *   return yield* me(undefined, { auth: { uid: "ada", token: {} } });
+ * }).pipe(
+ *   Effect.provide(
+ *     Layer.merge(
+ *       Callable.toLayer(Accounts, "me", () =>
+ *         Effect.map(Effect.service(Caller.Caller), ({ uid }) => uid),
+ *       ),
+ *       Caller.Authenticated.layer,
+ *     ),
+ *   ),
+ * );
+ * ```
+ *
  * @see {@link Callable.toLayer} for implementing a member
+ * @see {@link Callable.handler} for running a member behind the group's middleware
  *
  * @stability unstable
  * @category constructors

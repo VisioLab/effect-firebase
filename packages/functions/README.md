@@ -101,6 +101,34 @@ export const { whoAmI } = CallableFunction.make(
 - `CallableFunction` provides no middleware itself, so a `Live` without an implementation is a type error.
 - Run a handler in process, with its chain and without the emulator, through `Callable.handler(WhoAmI)`.
 
+### Group middleware
+
+`.middleware(M)` on a Callable Group attaches the middleware to every member, including members added after it:
+
+```ts
+import { Effect, Layer, Schema } from "effect";
+import { Callable, CallableGroup, Caller } from "@visiolab/effect-firebase/functions";
+import { CallableFunction } from "@visiolab/effect-firebase-functions/https";
+
+const Me = Callable.make("me", { success: Schema.String });
+
+class Accounts extends CallableGroup.make("accounts").middleware(Caller.Authenticated).add(Me) {}
+
+export const { accounts } = CallableFunction.group(
+  Accounts,
+  Layer.merge(
+    Callable.toLayer(Accounts, "me", () =>
+      Effect.map(Effect.service(Caller.Caller), ({ uid }) => uid),
+    ),
+    Caller.Authenticated.layer,
+  ),
+);
+```
+
+- Group middleware runs outside each member's own middleware, so a member's middleware may require what the group's provides.
+- It is stored on the group, not copied onto the members. The same Callable in another group, or on its own, is served without it.
+- Its errors join each member's errors in `CallableClient.make(Accounts)`, and `Live` must provide its implementation.
+
 ## Tracing
 
 Every call runs in a `kind: "server"` span named `CallableFunction.<deployed name>`, such as `CallableFunction.users-create`, with the attributes `rpc.system: "firebase_callable"`, `rpc.method`, `rpc.service` (the group, for a member) and `faas.name`. Spans are exported only when the Layer you export provides a `Tracer`, for example from `@effect/opentelemetry`:

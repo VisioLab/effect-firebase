@@ -11,3 +11,5 @@ A declared failure is sent as an `HttpsError` with the encoded error in `details
 Each call runs the Callable's middleware chain, whose implementations `Live` must provide. Add `FunctionsCallableRequest`, Firebase's request as a service that extends the portable `CallableRequest`.
 
 Every call of a Callable Function runs in a `kind: "server"` span named `CallableFunction.<deployed name>`, parented on the trace context Firebase reads from the request. Spans are exported when the Layer provides a `Tracer`.
+
+`CallableFunction.group` runs the group's middleware around each member's own, so `Live` must provide its implementation too.

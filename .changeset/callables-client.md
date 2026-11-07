@@ -11,3 +11,5 @@ A declared error comes back as its own class, so `Effect.catchTag` recovers from
 The errors of a Callable's middleware, such as `Unauthenticated` from `Caller.Authenticated`, come back as their own classes too.
 
 Every `CallableClient` call runs in a `kind: "client"` span named `CallableClient.<deployed name>`.
+
+The errors of a Callable Group's middleware join the errors of every member's client function.

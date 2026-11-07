@@ -83,7 +83,8 @@ export interface Callable<
    *
    * Returns a new Callable. The middleware runs around every call, before
    * the Payload is decoded. A middleware attached later wraps the ones
-   * attached before it, so it can provide what they require.
+   * attached before it, so it can provide what they require. The middleware
+   * of a group the Callable is served in wraps all of them.
    *
    * Its `provides` are removed from what the handler's Layer requires, and
    * its errors join the Callable's error union. Its implementation is
@@ -604,9 +605,11 @@ export const serve: {
  * a member of a {@link CallableGroup.CallableGroup}.
  *
  * Requires the handler, every middleware implementation, and what the chain
- * still requires. A middleware whose `requires` no middleware outside it
- * provides leaves that requirement here, so a chain in the wrong order is a
- * type error where the Layers are provided.
+ * still requires. For a member of a group, that includes the group's
+ * middleware, which runs outside the Callable's own. A middleware whose
+ * `requires` no middleware outside it provides leaves that requirement here,
+ * so a chain in the wrong order is a type error where the Layers are
+ * provided.
  *
  * Yields a function of the Payload and a {@link CallableRequest.Input}: `{}`
  * for a signed-out call, `{ auth: { uid, token } }` for a signed-in one. It
