@@ -215,14 +215,19 @@ export class Unavailable extends Schema.TaggedError<
 ) {}
 
 /**
- * No response arrived: the request never reached the server, or the
- * connection broke before it answered.
+ * No response arrived: the request never reached the server, the connection
+ * broke before it answered, or the client gave up waiting.
  *
  * **Details**
  *
- * The client SDK reports a network failure as an `internal` error with HTTP
- * status 0. `CallableClient` tells it from a server's `internal` by that
- * status alone.
+ * The client SDK appends the HTTP status of an answer to its error's message
+ * as ` [<status>]`, and reports a network failure as status 0. The errors the
+ * SDK makes itself carry no status: its timeout (`deadline-exceeded`), a
+ * cancelled call, and a deleted Functions instance. `CallableClient` treats
+ * an error without a status, or with status 0, as a `TransportError`, except
+ * for an answer the SDK can't read, which is a {@link DecodeError}.
+ *
+ * @see {@link ResponseError} for an error the server answered with
  *
  * @stability unstable
  * @category errors
@@ -244,6 +249,12 @@ export class TransportError extends Schema.TaggedError<
  * `code` is Firebase's error code without its `functions/` prefix, such as
  * `not-found`. `not-found` usually means the client calls the wrong region or
  * a name the server doesn't export.
+ *
+ * Only an error the server answered with, with a non-zero HTTP status, is a
+ * `ResponseError`. A `deadline-exceeded` the server sends is one; the client
+ * SDK's own timeout, which has the same code, is a {@link TransportError}.
+ *
+ * @see {@link TransportError} for a call no answer arrived for
  *
  * @stability unstable
  * @category errors
