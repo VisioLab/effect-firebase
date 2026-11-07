@@ -87,6 +87,13 @@ export class Unexplained extends Schema.TaggedError<
   { readonly brand: unique symbol }
 >()("Unexplained", {}) {}
 
+/** A declared error the server sends as `deadline-exceeded`. */
+export class TooSlow extends Schema.TaggedError<TooSlow, { readonly brand: unique symbol }>()(
+  "TooSlow",
+  {},
+  { callableErrorCode: "deadline-exceeded" },
+) {}
+
 /** Fails the way its Payload asks: with a declared error, a defect or an interrupt. */
 export const Fail = Callable.make("fail", {
   payload: {
@@ -95,6 +102,7 @@ export const Fail = Callable.make("fail", {
       "Banned",
       "Unexplained",
       "NotFound",
+      "TooSlow",
       "defect",
       "interrupt",
     ]),
@@ -104,8 +112,12 @@ export const Fail = Callable.make("fail", {
     Banned.pipe(Callable.errorCode("permission-denied")),
     Unexplained,
     CallableError.NotFound,
+    TooSlow,
   ],
 });
+
+/** Sleeps for as long as its Payload asks, then answers. */
+export const Sleep = Callable.make("sleep", { payload: { millis: Schema.Finite } });
 
 /** Its Layer fails to build the first time, and answers with how often it was built. */
 export const Flaky = Callable.make("flaky", {

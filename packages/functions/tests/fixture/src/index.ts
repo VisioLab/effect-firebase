@@ -30,6 +30,8 @@ import {
   Traced,
   Tracing,
   NameTaken,
+  Sleep,
+  TooSlow,
   Unexplained,
   Users,
   WhoAmI,
@@ -196,6 +198,8 @@ const failWith = ({ with: failure }: Callable.Payload<typeof Fail>) => {
       return Effect.fail(new Unexplained());
     case "NotFound":
       return Effect.fail(new CallableError.NotFound({ message: "No such user" }));
+    case "TooSlow":
+      return Effect.fail(new TooSlow());
     case "defect":
       return Effect.die(new Error("Boom: the handler broke"));
     case "interrupt":
@@ -344,4 +348,9 @@ export const { requestHeader } = CallableFunction.make(
       ({ rawRequest }) => rawRequest.headers["x-test-tag"] ?? null,
     ),
   ),
+);
+
+export const { sleep } = CallableFunction.make(
+  Sleep,
+  Callable.toLayer(Sleep, ({ millis }) => Effect.sleep(millis)),
 );
