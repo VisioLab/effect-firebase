@@ -560,7 +560,8 @@ export const toLayer: {
  * decodes the raw `data` with the Payload's `Schema.toCodecJson` and runs the
  * handler. It then encodes the success value with the success schema's
  * `Schema.toCodecJson`, so its result is plain JSON. The request is provided
- * to the chain; provide an SDK's request service around the call yourself.
+ * to the chain. Give it a `rawRequest` built from your transport's HTTP
+ * request, with `HttpServerRequest.fromWeb` from `effect/http/HttpServerRequest`.
  *
  * Requires the handler, every middleware implementation, and what the chain
  * still requires. They are read once, so a call needs nothing else.
@@ -637,7 +638,10 @@ export const serve: {
  * Yields a function of the Payload and a {@link CallableRequest.Input}: `{}`
  * for a signed-out call, `{ auth: { uid, token } }` for a signed-in one. It
  * encodes the Payload with `Schema.toCodecJson` as the request's raw `data`,
- * so middleware sees what it would see on the wire. It runs the chain that
+ * so middleware sees what it would see on the wire. The request's
+ * `rawRequest` is the input's, or else a JSON `POST` of the encoded Payload to
+ * `http://localhost/<deployed name>`, built on first read (see
+ * {@link CallableRequest.Input.rawRequest}). It runs the chain that
  * `CallableFunction` runs, and fails with the Callable's declared errors and
  * those of its middleware. The success value is the handler's, not encoded.
  *
