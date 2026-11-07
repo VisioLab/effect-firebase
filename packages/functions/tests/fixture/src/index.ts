@@ -40,6 +40,7 @@ import {
   LayerBuilds,
   Logged,
   OnPostCreated,
+  OnTaskCreated,
   PostFunctions,
   OnPostDeleted,
   OnPostUpdated,
@@ -393,26 +394,30 @@ const recordedSide = (snapshot: DocumentSnapshot.DocumentSnapshot<typeof Posts>)
 
 /**
  * Appends what every trigger records of an event under `trigger`, with the
- * function target the emulator runs it as, and `fields`, to the triggers log.
+ * function target the emulator runs it as, and `fields`, to the triggers log,
+ * and tags the event's span with the post's path.
  */
 const recordEvent = (
   trigger: string,
   event: DocumentTrigger.BaseEvent<typeof Posts>,
   fields: object,
 ) =>
-  Effect.sync(() => {
-    const line = {
-      trigger,
-      target: process.env["FUNCTION_TARGET"] ?? "",
-      eventId: event.id,
-      time: event.time,
-      path: event.ref.path,
-      ancestors: event.ref.ancestors,
-      id: event.ref.id,
-      ...fields,
-    };
-    appendFileSync(triggersLog, `${JSON.stringify(line)}\n`);
-  });
+  Effect.andThen(
+    Effect.annotateCurrentSpan("documentPath", event.ref.path),
+    Effect.sync(() => {
+      const line = {
+        trigger,
+        target: process.env["FUNCTION_TARGET"] ?? "",
+        eventId: event.id,
+        time: event.time,
+        path: event.ref.path,
+        ancestors: event.ref.ancestors,
+        id: event.ref.id,
+        ...fields,
+      };
+      appendFileSync(triggersLog, `${JSON.stringify(line)}\n`);
+    }),
+  );
 
 /** Records a `created` event of a post under `trigger`. */
 const recordPostCreated =
@@ -431,6 +436,7 @@ export const { posts } = Functions.group(
   Layer.mergeAll(
     Callable.toLayer(PostFunctions, "shout", ({ title }) => Effect.succeed(title.toUpperCase())),
     DocumentTrigger.toLayer(PostFunctions, "onCreated", recordPostCreated("posts-onCreated")),
+    SpanRecorder,
   ),
 );
 
@@ -463,4 +469,44 @@ export const { onPostWritten } = Functions.make(
       yield* recordEvent(OnPostWritten.name, event, { before, after });
     }),
   ),
+);
+
+class TaskFailed extends Data.TaggedError("TaskFailed")<{ readonly message: string }> {}
+
+/** How often `onTaskCreated` received the event of each task in this process, by task id. */
+const taskAttempts = new Map<string, number>();
+
+/**
+ * Records each attempt at a task, tags the event's span and logs with the
+ * task's id, and ends the first attempt the way the task asks.
+ */
+export const { onTaskCreated } = Functions.make(
+  OnTaskCreated,
+  Layer.mergeAll(
+    DocumentTrigger.toLayer(OnTaskCreated, (event) =>
+      Effect.gen(function* () {
+        const taskId = event.ref.id;
+        const attempt = (taskAttempts.get(taskId) ?? 0) + 1;
+        taskAttempts.set(taskId, attempt);
+        yield* Effect.annotateCurrentSpan("taskId", taskId);
+        yield* Effect.log("Handling task");
+        const line = { trigger: OnTaskCreated.name, id: taskId, eventId: event.id, attempt };
+        appendFileSync(triggersLog, `${JSON.stringify(line)}\n`);
+        if (attempt > 1) return;
+        const { firstAttempt } = yield* event.snapshot.data;
+        switch (firstAttempt) {
+          case "succeed":
+            return;
+          case "fail":
+            return yield* new TaskFailed({ message: `Task ${taskId} failed` });
+          case "die":
+            return yield* Effect.die(new Error(`Boom: task ${taskId} broke`));
+          case "interrupt":
+            return yield* Effect.interrupt;
+        }
+      }).pipe(Effect.annotateLogs({ taskId: event.ref.id })),
+    ),
+    SpanRecorder,
+  ),
+  { retry: true },
 );
