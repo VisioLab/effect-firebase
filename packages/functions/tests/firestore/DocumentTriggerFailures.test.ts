@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
 import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { Data, Effect, Schema } from "effect";
@@ -158,8 +159,12 @@ describe("DocumentTrigger failures", () => {
     30_000,
   );
 
-  it.live("builds a Layer that failed to build on an event again on the next one", () =>
+  it.live("logs a Layer that failed to build, and builds it again on the next event", () =>
     Effect.gen(function* () {
+      const errors = yield* Effect.acquireRelease(
+        Effect.sync(() => vi.spyOn(console, "error").mockImplementation(() => {})),
+        (spy) => Effect.sync(() => spy.mockRestore()),
+      );
       // In process: the Functions emulator replaces a worker whose function
       // threw, so every event after a failure meets a Layer not built yet.
       let builds = 0;
@@ -186,10 +191,30 @@ describe("DocumentTrigger failures", () => {
         ),
       );
       expect(failed).toMatchObject({ _tag: "LayerBroke" });
+      const logged = errors.mock.calls.map(([line]) => JSON.parse(String(line)) as unknown);
+      expect(logged).toContainEqual(
+        expect.objectContaining({
+          severity: "ERROR",
+          message: expect.stringMatching(
+            /^The Layer of a Document Trigger failed to build\n[^]*LayerBroke: The first build fails/,
+          ),
+        }),
+      );
       yield* Effect.promise(() => onThingCreated.run(thingCreated("second")));
       expect(handled).toEqual([{ id: "second", builds: 2 }]);
-    }),
+    }).pipe(Effect.scoped),
   );
+
+  it("deploys on the (default) database at its collection's path pattern, whatever options an untyped caller passes", () => {
+    const live = DocumentTrigger.toLayer(OnThingCreated, () => Effect.void);
+    const options = { database: "other", namespace: "tenant", document: "elsewhere/{id}" };
+    const { onThingCreated } = Functions.make(OnThingCreated, live, options as never);
+    // What firebase-tools reads from the export to deploy it.
+    expect(onThingCreated.__endpoint.eventTrigger).toMatchObject({
+      eventFilters: { database: "(default)", namespace: "(default)" },
+      eventFilterPathPatterns: { document: "things/{id0}" },
+    });
+  });
 
   it("deploys with Firebase's retry only when `retry` is set", () => {
     const live = DocumentTrigger.toLayer(OnThingCreated, () => Effect.void);

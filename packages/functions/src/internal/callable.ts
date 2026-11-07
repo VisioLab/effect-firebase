@@ -10,6 +10,7 @@ import * as CallableError from "@visiolab/effect-firebase/functions/CallableErro
 import type * as CallableRequest from "@visiolab/effect-firebase/functions/CallableRequest";
 import type * as FunctionGroup from "@visiolab/effect-firebase/functions/FunctionGroup";
 import * as Https from "firebase-functions/v2/https";
+import * as Member from "./member.ts";
 import * as Runtime from "./runtime.ts";
 
 const internalError = () => new Https.HttpsError("internal", "INTERNAL");
@@ -131,12 +132,8 @@ export const deploy = <R, E>(
   live: Layer.Layer<R, E>,
   options: Https.CallableOptions = {},
 ): Export => {
-  const deployment =
-    group === undefined
-      ? Callable.deployment(callable)
-      : Callable.deployment(group, callable.name as never);
-  const serve: Serve =
-    group === undefined ? Callable.serve(callable) : Callable.serve(group, callable.name as never);
+  const deployment = Member.call(group, callable, Callable.deployment);
+  const serve = Member.call<Serve>(group, callable, Callable.serve);
   const run = Runtime.make(live, {
     span: `CallableFunction.${deployment.name}`,
     attributes: deployment.attributes,

@@ -11,6 +11,7 @@ import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentS
 import * as DocumentTrigger from "@visiolab/effect-firebase/functions/DocumentTrigger";
 import type * as FunctionGroup from "@visiolab/effect-firebase/functions/FunctionGroup";
 import * as Firestore from "firebase-functions/v2/firestore";
+import * as Member from "./member.ts";
 import * as Runtime from "./runtime.ts";
 
 /**
@@ -46,59 +47,13 @@ const existingOf = (
       );
 
 /**
- * The core event of a `created` trigger, from what `onDocumentCreated` hands
- * over.
+ * The document of an event that hands over one, as an existing Document
+ * Snapshot: the created one, or the deleted one as it was just before.
  */
-const createdEvent = (
-  trigger: DocumentTrigger.Any,
-  event: Firestore.FirestoreEvent<Firestore.QueryDocumentSnapshot | undefined>,
-) =>
-  Effect.flatMap(refOf(trigger, event.document), (ref) =>
-    Effect.map(existingOf(ref, event.data), (snapshot) =>
-      DocumentTrigger.createdEvent({ id: event.id, time: event.time, snapshot }),
-    ),
-  );
-
-/**
- * The core event of a `deleted` trigger, from what `onDocumentDeleted` hands
- * over: the document as it was just before it was deleted.
- */
-const deletedEvent = (
-  trigger: DocumentTrigger.Any,
-  event: Firestore.FirestoreEvent<Firestore.QueryDocumentSnapshot | undefined>,
-) =>
-  Effect.flatMap(refOf(trigger, event.document), (ref) =>
-    Effect.map(existingOf(ref, event.data), (snapshot) =>
-      DocumentTrigger.deletedEvent({ id: event.id, time: event.time, snapshot }),
-    ),
-  );
-
-/**
- * Both sides of a change, each read with `side`. An event without its change
- * is a defect.
- */
-const changeOf = <S, A>(
+const snapshotOf = (
   ref: Collection.DocumentReference<Collection.Any>,
-  change: Firestore.Change<S> | undefined,
-  side: (ref: Collection.DocumentReference<Collection.Any>, snapshot: S) => Effect.Effect<A>,
-) =>
-  change === undefined
-    ? Effect.die(new Error(`The event of "${ref.path}" carries no change`))
-    : Effect.all({ before: side(ref, change.before), after: side(ref, change.after) });
-
-/**
- * The core event of an `updated` trigger, from what `onDocumentUpdated` hands
- * over: the document before and after the update, both existing.
- */
-const updatedEvent = (
-  trigger: DocumentTrigger.Any,
-  event: Firestore.FirestoreEvent<Firestore.Change<Firestore.QueryDocumentSnapshot> | undefined>,
-) =>
-  Effect.flatMap(refOf(trigger, event.document), (ref) =>
-    Effect.map(changeOf(ref, event.data, existingOf), ({ before, after }) =>
-      DocumentTrigger.updatedEvent({ id: event.id, time: event.time, before, after }),
-    ),
-  );
+  snapshot: Firestore.QueryDocumentSnapshot | undefined,
+) => Effect.map(existingOf(ref, snapshot), (snapshot) => ({ snapshot }));
 
 /**
  * A Document Snapshot at `ref` of a side of a write: `Missing` for the side
@@ -111,18 +66,40 @@ const sideOf = (
   snapshot.exists ? existingOf(ref, snapshot) : Effect.succeed(DocumentSnapshot.missing(ref));
 
 /**
- * The core event of a `written` trigger, from what `onDocumentWritten` hands
- * over: `before` is missing on a create, and `after` on a delete.
+ * Both sides of a change, each read with `side`: both existing for an update,
+ * and either one missing for a write. An event without its change is a defect.
  */
-const writtenEvent = (
-  trigger: DocumentTrigger.Any,
-  event: Firestore.FirestoreEvent<Firestore.Change<Firestore.DocumentSnapshot> | undefined>,
-) =>
-  Effect.flatMap(refOf(trigger, event.document), (ref) =>
-    Effect.map(changeOf(ref, event.data, sideOf), ({ before, after }) =>
-      DocumentTrigger.writtenEvent({ id: event.id, time: event.time, before, after }),
-    ),
-  );
+const changeOf =
+  <S, A>(
+    side: (ref: Collection.DocumentReference<Collection.Any>, snapshot: S) => Effect.Effect<A>,
+  ) =>
+  (ref: Collection.DocumentReference<Collection.Any>, change: Firestore.Change<S> | undefined) =>
+    change === undefined
+      ? Effect.die(new Error(`The event of "${ref.path}" carries no change`))
+      : Effect.all({ before: side(ref, change.before), after: side(ref, change.after) });
+
+/**
+ * The conversion of what an `onDocument*` provider hands over into the core
+ * event of a trigger: `read` reads the event's data at the document's typed
+ * reference, and `make` builds the core event from that and the CloudEvent's
+ * `id` and `time`.
+ */
+const conversion =
+  <Data, Fields>(
+    read: (ref: Collection.DocumentReference<Collection.Any>, data: Data) => Effect.Effect<Fields>,
+    make: (input: Fields & { readonly id: string; readonly time: string }) => unknown,
+  ) =>
+  (trigger: DocumentTrigger.Any, event: Firestore.FirestoreEvent<Data>) =>
+    Effect.flatMap(refOf(trigger, event.document), (ref) =>
+      Effect.map(read(ref, event.data), (fields) =>
+        make({ ...fields, id: event.id, time: event.time }),
+      ),
+    );
+
+const createdEvent = conversion(snapshotOf, DocumentTrigger.createdEvent);
+const deletedEvent = conversion(snapshotOf, DocumentTrigger.deletedEvent);
+const updatedEvent = conversion(changeOf(existingOf), DocumentTrigger.updatedEvent);
+const writtenEvent = conversion(changeOf(sideOf), DocumentTrigger.writtenEvent);
 
 /**
  * Logs the Cause of a failed event or Layer build in the event's span.
@@ -163,15 +140,8 @@ export const deploy = <R, E>(
   live: Layer.Layer<R, E>,
   options: object = {},
 ): Export => {
-  const deployment =
-    group === undefined
-      ? DocumentTrigger.deployment(trigger)
-      : DocumentTrigger.deployment(group, trigger.name as never);
-  const serve: Serve = (
-    group === undefined
-      ? DocumentTrigger.serve(trigger)
-      : DocumentTrigger.serve(group, trigger.name as never)
-  ) as never;
+  const deployment = Member.call(group, trigger, DocumentTrigger.deployment);
+  const serve = Member.call<Serve>(group, trigger, DocumentTrigger.serve);
   const run = Runtime.make(live, {
     span: `DocumentTrigger.${deployment.name}`,
     attributes: { "faas.name": deployment.name, "faas.trigger": "datasource" },
@@ -197,15 +167,22 @@ export const deploy = <R, E>(
       );
       if (Exit.isFailure(exit)) throw Cause.squash(exit.cause);
     };
-  const opts = { ...options, document: deployment.document };
+  // After `options`, so a caller that passes event filters past the public
+  // types can't move the trigger to another path, database or namespace.
+  const providerOptions = {
+    ...options,
+    document: deployment.document,
+    database: "(default)",
+    namespace: "(default)",
+  };
   switch (trigger.event) {
     case "created":
-      return Firestore.onDocumentCreated(opts, handler(createdEvent));
+      return Firestore.onDocumentCreated(providerOptions, handler(createdEvent));
     case "deleted":
-      return Firestore.onDocumentDeleted(opts, handler(deletedEvent));
+      return Firestore.onDocumentDeleted(providerOptions, handler(deletedEvent));
     case "updated":
-      return Firestore.onDocumentUpdated(opts, handler(updatedEvent));
+      return Firestore.onDocumentUpdated(providerOptions, handler(updatedEvent));
     case "written":
-      return Firestore.onDocumentWritten(opts, handler(writtenEvent));
+      return Firestore.onDocumentWritten(providerOptions, handler(writtenEvent));
   }
 };
