@@ -68,7 +68,10 @@ export const { onPostCreated } = Functions.make(
 
 - The trigger listens to the `(default)` database, at a path pattern derived from the collection: one wildcard per parent document and one for the document. The ids are on `event.ref`, typed.
 - `event.snapshot.data` decodes through the collection's model when it runs; `event.snapshot.raw` holds the stored Firestore Values.
-- The options are the shared `firebase-functions` options plus `retry`. A failing handler is logged and makes the function throw, so Firebase delivers the event again when `retry` is set. Events are delivered at least once: key idempotent work on `event.id`.
+- The options are the shared `firebase-functions` options plus `retry`.
+- Any failure fails the event: a typed error, a defect, an interrupt, or a Layer that fails to build. Its Cause is logged at Error in the event's span, and the function throws. Firebase then delivers the event again when `retry` is set, and drops it otherwise. The library adds no retry of its own. Events are delivered at least once: key idempotent work on `event.id`.
+- A Layer that fails to build is built again on the next event.
+- The Functions emulator never delivers a failed event again, even with `retry`, and replaces the worker whose function threw.
 - Test a handler in process with `DocumentTrigger.serve`, and an event built with `DocumentTrigger.createdEvent` and `DocumentSnapshot.existing`.
 - The package takes `@visiolab/effect-firebase-admin` and `firebase-admin` as peer dependencies, to read event data as the Admin SDK reads do.
 
@@ -171,12 +174,13 @@ export const { users } = Functions.group(Users, Layer.mergeAll(UsersLive, Tracin
 - Its parent is the trace context Firebase reads from the request (`X-Cloud-Trace-Context`, else `traceparent`), so it joins the platform's trace. In the emulator it is a root span.
 - `CallableClient` opens a `kind: "client"` span per call. It isn't linked to the server span: the two land in separate traces.
 - Neither span carries a uid. Add one where you want it with `Effect.annotateCurrentSpan("enduser.id", uid)`.
+- Every event of a Document Trigger runs in a `kind: "server"` span named `DocumentTrigger.<deployed name>`, such as `DocumentTrigger.onPostCreated`, with the attributes `faas.name` and `faas.trigger: "datasource"`. It covers converting the event, the handler and, on the event that builds the Layer, the build. Its parent is the trace context Firebase reads from the event's `traceparent`.
 
 ## Logging
 
-Every call logs through `CloudLogging.layer`, which writes each Effect log as one Cloud Logging JSON line, in the format of Firebase's own `logger`:
+Every call and every Document Trigger event logs through `CloudLogging.layer`, which writes each Effect log as one Cloud Logging JSON line, in the format of Firebase's own `logger`:
 
-- The trace, span id and sampled flag come from the current span, so concurrent calls on one instance each log under their own trace.
+- The trace, span id and sampled flag come from the current span, so concurrent calls and events on one instance each log under their own trace.
 - Trace and Debug are `DEBUG`, Info `INFO`, Warn `WARNING`, Error `ERROR` and Fatal `CRITICAL`. Error and Fatal go to `console.error`, the rest to `console.log`.
 - Log annotations become fields of the entry, other logged values go under `args` and log spans under `spans`.
 - A Cause is appended to `message` with its stacks, so defects and failed Layer builds reach Error Reporting.

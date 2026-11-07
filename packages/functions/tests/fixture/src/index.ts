@@ -39,6 +39,7 @@ import {
   LayerBuilds,
   Logged,
   OnPostCreated,
+  OnTaskCreated,
   RequestHeader,
   Traced,
   Tracing,
@@ -388,4 +389,44 @@ export const { onPostCreated } = Functions.make(
       appendFileSync(triggersLog, `${JSON.stringify(line)}\n`);
     }),
   ),
+);
+
+class TaskFailed extends Data.TaggedError("TaskFailed")<{ readonly message: string }> {}
+
+/** How often `onTaskCreated` received the event of each task in this process, by task id. */
+const taskAttempts = new Map<string, number>();
+
+/**
+ * Records each attempt at a task, tags the event's span and logs with the
+ * task's id, and ends the first attempt the way the task asks.
+ */
+export const { onTaskCreated } = Functions.make(
+  OnTaskCreated,
+  Layer.mergeAll(
+    DocumentTrigger.toLayer(OnTaskCreated, (event) =>
+      Effect.gen(function* () {
+        const taskId = event.ref.id;
+        const attempt = (taskAttempts.get(taskId) ?? 0) + 1;
+        taskAttempts.set(taskId, attempt);
+        yield* Effect.annotateCurrentSpan("taskId", taskId);
+        yield* Effect.log("Handling task");
+        const line = { trigger: OnTaskCreated.name, id: taskId, eventId: event.id, attempt };
+        appendFileSync(triggersLog, `${JSON.stringify(line)}\n`);
+        if (attempt > 1) return;
+        const { firstAttempt } = yield* event.snapshot.data;
+        switch (firstAttempt) {
+          case "succeed":
+            return;
+          case "fail":
+            return yield* new TaskFailed({ message: `Task ${taskId} failed` });
+          case "die":
+            return yield* Effect.die(new Error(`Boom: task ${taskId} broke`));
+          case "interrupt":
+            return yield* Effect.interrupt;
+        }
+      }).pipe(Effect.annotateLogs({ taskId: event.ref.id })),
+    ),
+    SpanRecorder,
+  ),
+  { retry: true },
 );

@@ -181,3 +181,17 @@ export const Posts = Authors.subcollection("posts", Post);
 
 /** Records each post created under any author. */
 export const OnPostCreated = DocumentTrigger.created("onPostCreated", Posts);
+
+/** A task, which tells the trigger that handles it how its first attempt ends. */
+export class Task extends FirestoreModel.Class<Task>("Task")({
+  firstAttempt: Schema.Literals(["succeed", "fail", "die", "interrupt"]),
+}) {}
+
+export const Tasks = Collection.make("tasks", Task);
+
+/**
+ * Ends its first attempt at each task the way the task asks, and succeeds on
+ * any later one. Deployed with `retry`, so Firebase delivers a failed event
+ * again.
+ */
+export const OnTaskCreated = DocumentTrigger.created("onTaskCreated", Tasks);

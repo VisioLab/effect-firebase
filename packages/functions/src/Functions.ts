@@ -268,9 +268,13 @@ export type GroupOptions<G extends FunctionGroup.Any> = {
  * returns for the `(default)` database and the path pattern of the trigger's
  * collection. Each event is converted into the trigger's event, its data read
  * into Firestore Values as a read does, and run through
- * `DocumentTrigger.serve`. A failure of the handler, or of the Layer's build,
- * is logged at Error and makes the function throw, so Firebase delivers the
- * event again when `retry` is set.
+ * `DocumentTrigger.serve`, in a `kind: "server"` span named
+ * `DocumentTrigger.<deployed name>` with `faas.name` and
+ * `faas.trigger: "datasource"`, logging through `CloudLogging.layer`. Any
+ * failure, whether a typed error, a defect, an interrupt or a Layer that
+ * fails to build, is logged at Error in that span and makes the function
+ * throw, so Firebase delivers the event again when `retry` is set. A Layer
+ * that failed to build is built again on the next event.
  *
  * Each call runs the Callable's middleware chain, the one `Callable.handler`
  * runs, with Firebase's request provided as the portable `CallableRequest`.
