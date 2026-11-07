@@ -216,12 +216,16 @@ describe("CloudLogging", () => {
     }),
   );
 
-  it.effect("replaces Effect's default logger and keeps the others", () =>
+  it.effect("replaces the loggers with itself and the span-event logger", () =>
     Effect.gen(function* () {
+      const outer = Logger.make(() => {});
       const loggers = yield* Effect.withFiber((fiber) =>
         Effect.succeed(fiber.getRef(Logger.CurrentLoggers)),
-      ).pipe(Effect.provide(CloudLogging.layer));
-      expect(loggers).toEqual(new Set([Logger.tracerLogger, CloudLogging.logger]));
+      ).pipe(
+        Effect.provide(CloudLogging.layer),
+        Effect.provideService(Logger.CurrentLoggers, new Set([outer])),
+      );
+      expect(loggers).toEqual(new Set([CloudLogging.logger, Logger.tracerLogger]));
     }),
   );
 });

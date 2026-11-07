@@ -9,7 +9,7 @@
  * @stability unstable
  * @since 0.1.0
  */
-import { Cause, Console, Effect, Formatter, Inspectable, Layer, Logger, References } from "effect";
+import { Cause, Console, Formatter, Inspectable, type Layer, Logger, References } from "effect";
 import type * as LogLevel from "effect/LogLevel";
 
 const severities: Record<LogLevel.LogLevel, string> = {
@@ -118,9 +118,8 @@ export const logger: Logger.Logger<unknown, void> = Logger.make(
 );
 
 /**
- * Replaces Effect's default logger with the Cloud Logging {@link logger},
- * and keeps every other logger, such as the one that records logs as span
- * events.
+ * Replaces the current loggers with the Cloud Logging {@link logger} and
+ * Effect's `Logger.tracerLogger`, which records logs as span events.
  *
  * **When to use**
  *
@@ -150,12 +149,4 @@ export const logger: Logger.Logger<unknown, void> = Logger.make(
  * @category layers
  * @since 0.1.0
  */
-export const layer: Layer.Layer<never> = Layer.effect(
-  Logger.CurrentLoggers,
-  Effect.withFiber((fiber) => {
-    const loggers = new Set(fiber.getRef(Logger.CurrentLoggers));
-    loggers.delete(Logger.defaultLogger);
-    loggers.add(logger);
-    return Effect.succeed(loggers);
-  }),
-);
+export const layer: Layer.Layer<never> = Logger.layer([logger, Logger.tracerLogger]);
