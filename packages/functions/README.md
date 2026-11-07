@@ -41,6 +41,37 @@ export const { greet } = Functions.make(Greet, GreetLive, { region: "europe-west
 - Give each export a Layer of its own where you can, so a cold instance builds only what its function needs.
 - Call `setGlobalOptions` before any function is defined, as Firebase requires.
 
+## Document Triggers
+
+A Document Trigger runs when a document of a collection changes. Declare it from a name and a `Collection` definition, implement it with `DocumentTrigger.toLayer`, and deploy it with `Functions.make`:
+
+```ts
+import { Effect } from "effect";
+import { DocumentTrigger } from "@visiolab/effect-firebase/functions";
+import { Functions } from "@visiolab/effect-firebase-functions";
+import { Posts } from "./collections.ts";
+
+const OnPostCreated = DocumentTrigger.created("onPostCreated", Posts);
+
+export const { onPostCreated } = Functions.make(
+  OnPostCreated,
+  DocumentTrigger.toLayer(OnPostCreated, (event) =>
+    Effect.gen(function* () {
+      const [authorId] = event.ref.ancestors;
+      const post = yield* event.snapshot.data;
+      yield* Effect.log(`${authorId} published ${post.title}`);
+    }),
+  ),
+  { retry: true },
+);
+```
+
+- The trigger listens to the `(default)` database, at a path pattern derived from the collection: one wildcard per parent document and one for the document. The ids are on `event.ref`, typed.
+- `event.snapshot.data` decodes through the collection's model when it runs; `event.snapshot.raw` holds the stored Firestore Values.
+- The options are the shared `firebase-functions` options plus `retry`. A failing handler is logged and makes the function throw, so Firebase delivers the event again when `retry` is set. Events are delivered at least once: key idempotent work on `event.id`.
+- Test a handler in process with `DocumentTrigger.serve`, and an event built with `DocumentTrigger.createdEvent` and `DocumentSnapshot.existing`.
+- The package takes `@visiolab/effect-firebase-admin` and `firebase-admin` as peer dependencies, to read event data as the Admin SDK reads do.
+
 ## Function Groups
 
 Collect related Functions, of any kind, into a Function Group. Each member deploys under the group's name as a prefix:

@@ -3,7 +3,7 @@
  * `firebase deploy` deploys. {@link make} deploys a Function in no group under
  * its name, and {@link group} deploys each member of a Function Group as
  * `<group>-<name>`. Each dispatches on the Function's kind: a Callable is
- * served with `onCall`.
+ * served with `onCall`, and a Document Trigger with `onDocumentCreated`.
  *
  * Each export is built at once and synchronously, and builds nothing: the
  * Layer that implements it is built on the first call or event, so discovery
@@ -49,6 +49,13 @@
  * the same call is not linked to it, so the two land in separate traces. The
  * span carries no uid; add one in the handler with `Effect.annotateCurrentSpan`.
  *
+ * **Document Triggers**
+ *
+ * A Document Trigger listens to the `(default)` database, at the path
+ * pattern of its collection. Each event runs in a `kind: "server"` span named
+ * `DocumentTrigger.<deployed name>`. Firebase delivers each event at least
+ * once, so make the handler idempotent, keyed on the event's `id`.
+ *
  * @example Deploying a Callable
  * ```ts
  * import { Effect, Schema } from "effect";
@@ -70,8 +77,11 @@
  */
 import type { Layer } from "effect";
 import type * as Callable from "@visiolab/effect-firebase/functions/Callable";
+import type * as DocumentTrigger from "@visiolab/effect-firebase/functions/DocumentTrigger";
 import type * as FirebaseFunction from "@visiolab/effect-firebase/functions/FirebaseFunction";
 import type * as FunctionGroup from "@visiolab/effect-firebase/functions/FunctionGroup";
+import type { CloudFunction } from "firebase-functions/v2";
+import type * as Firestore from "firebase-functions/v2/firestore";
 import type * as Https from "firebase-functions/v2/https";
 import * as kinds from "./internal/kinds.ts";
 
@@ -88,8 +98,54 @@ import * as kinds from "./internal/kinds.ts";
 export type CallableExport = Https.CallableFunction<unknown, Promise<unknown>>;
 
 /**
+ * The value `onDocumentCreated` returns for a Document Trigger, by the change
+ * it runs on: what firebase-tools discovers and deploys.
+ *
+ * @see {@link Export} for the export of a Function of any kind
+ *
+ * @stability unstable
+ * @category type-level
+ * @since 0.3.0
+ */
+export type DocumentTriggerExport<T extends DocumentTrigger.Any> = T["event"] extends "created"
+  ? CloudFunction<Firestore.FirestoreEvent<Firestore.QueryDocumentSnapshot | undefined>>
+  : never;
+
+/**
+ * The deploy options of a Document Trigger: Firebase's `DocumentOptions`
+ * without what the library derives from the trigger. That leaves the options
+ * every Function shares, such as `region`, `memory` and `timeoutSeconds`,
+ * plus `retry`.
+ *
+ * **Details**
+ *
+ * The `document` path pattern comes from the trigger's collection, and the
+ * database is always `(default)`, the one `Firestore` reads and writes, so
+ * `document`, `database` and `namespace` are left out, as are the event
+ * filter options.
+ *
+ * With `retry: true`, Firebase delivers a failed event again until it
+ * succeeds or its retry window ends. Without it, a failed event is dropped.
+ * The library adds no retry of its own.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export type DocumentTriggerOptions = Omit<
+  Firestore.DocumentOptions,
+  | "document"
+  | "database"
+  | "namespace"
+  | "eventType"
+  | "eventFilters"
+  | "eventFilterPathPatterns"
+  | "channel"
+>;
+
+/**
  * The export of a Function, by its kind: a {@link CallableExport} for a
- * Callable.
+ * Callable, a {@link DocumentTriggerExport} for a Document Trigger.
  *
  * @stability unstable
  * @category type-level
@@ -97,11 +153,14 @@ export type CallableExport = Https.CallableFunction<unknown, Promise<unknown>>;
  */
 export type Export<F extends FirebaseFunction.Any> = F extends Callable.Any
   ? CallableExport
-  : never;
+  : F extends DocumentTrigger.Any
+    ? DocumentTriggerExport<F>
+    : never;
 
 /**
  * The deploy options of a Function, by its kind: Firebase's `CallableOptions`
- * for a Callable, passed to `onCall` unchanged.
+ * for a Callable, passed to `onCall` unchanged, and
+ * {@link DocumentTriggerOptions} for a Document Trigger.
  *
  * @stability unstable
  * @category type-level
@@ -109,12 +168,15 @@ export type Export<F extends FirebaseFunction.Any> = F extends Callable.Any
  */
 export type Options<F extends FirebaseFunction.Any> = F extends Callable.Any
   ? Https.CallableOptions
-  : never;
+  : F extends DocumentTrigger.Any
+    ? DocumentTriggerOptions
+    : never;
 
 /**
  * What serving a Function under the handler key `H` requires, by its kind.
  * For a Callable: its handler, the implementation of each of its middleware,
- * and what its middleware chain still requires.
+ * and what its middleware chain still requires. For a Document Trigger: its
+ * handler.
  *
  * @stability unstable
  * @category type-level
@@ -122,7 +184,9 @@ export type Options<F extends FirebaseFunction.Any> = F extends Callable.Any
  */
 export type Services<F extends FirebaseFunction.Any, H> = F extends Callable.Any
   ? Callable.ChainServices<F, H>
-  : never;
+  : F extends DocumentTrigger.Any
+    ? H
+    : never;
 
 /**
  * What serving every member of a {@link FunctionGroup.FunctionGroup}
@@ -198,6 +262,16 @@ export type GroupOptions<G extends FunctionGroup.Any> = {
  * `onCall` returns, so its `__endpoint` and `run` work as for any `onCall`
  * function.
  *
+ * For a Document Trigger, `live` provides its handler, from
+ * `DocumentTrigger.toLayer`. `options` are {@link DocumentTriggerOptions}:
+ * the shared options plus `retry`. The export is what `onDocumentCreated`
+ * returns for the `(default)` database and the path pattern of the trigger's
+ * collection. Each event is converted into the trigger's event, its data read
+ * into Firestore Values as a read does, and run through
+ * `DocumentTrigger.serve`. A failure of the handler, or of the Layer's build,
+ * is logged at Error and makes the function throw, so Firebase delivers the
+ * event again when `retry` is set.
+ *
  * Each call runs the Callable's middleware chain, the one `Callable.handler`
  * runs, with Firebase's request provided as the portable `CallableRequest`.
  * Its `rawRequest` is Firebase's Express request as Effect's
@@ -234,9 +308,30 @@ export type GroupOptions<G extends FunctionGroup.Any> = {
  * export const { ping } = Functions.make(Ping, Callable.toLayer(Ping, () => Effect.void));
  * ```
  *
+ * @example Exporting a Document Trigger
+ * ```ts
+ * import { Effect, Schema } from "effect";
+ * import { Collection, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ * import { DocumentTrigger } from "@visiolab/effect-firebase/functions";
+ * import { Functions } from "@visiolab/effect-firebase-functions";
+ *
+ * class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
+ *
+ * const OnPostCreated = DocumentTrigger.created("onPostCreated", Collection.make("posts", Post));
+ *
+ * export const { onPostCreated } = Functions.make(
+ *   OnPostCreated,
+ *   DocumentTrigger.toLayer(OnPostCreated, (event) =>
+ *     Effect.flatMap(event.snapshot.data, (post) => Effect.log(`New post: ${post.title}`)),
+ *   ),
+ *   { retry: true },
+ * );
+ * ```
+ *
  * @see {@link group} for deploying the members of a Function Group
  * @see {@link Callable.serve} for serving a Callable from a transport of your own
  * @see {@link Callable.handler} for running a Callable's handler in process
+ * @see {@link DocumentTrigger.serve} for running a Document Trigger's event in process
  * @see {@link CallableClient.make} for calling a Callable from the client
  *
  * @stability unstable

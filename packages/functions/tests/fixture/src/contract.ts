@@ -1,12 +1,16 @@
 /**
- * The Callables the fixture serves, shared with the tests that call them.
+ * The Callables and Document Triggers the fixture serves, shared with the
+ * tests that call them or write the documents they watch.
  *
  * Imports only the portable core, as an app's shared contract would, except
  * for the type of the request `Audit` requires.
  */
 import { Schema } from "effect";
+import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
+import * as DocumentTrigger from "@visiolab/effect-firebase/functions/DocumentTrigger";
 import * as FunctionGroup from "@visiolab/effect-firebase/functions/FunctionGroup";
 import * as CallableMiddleware from "@visiolab/effect-firebase/functions/CallableMiddleware";
 import * as Caller from "@visiolab/effect-firebase/functions/Caller";
@@ -160,3 +164,20 @@ export const Audited = Callable.make("audited", { payload: { callId: Schema.Stri
 export const RequestHeader = Callable.make("requestHeader", {
   success: Schema.NullOr(Schema.String),
 });
+
+/** An author, the parent document of {@link Posts}. */
+export class Author extends FirestoreModel.Class<Author>("Author")({ name: Schema.String }) {}
+
+/** A post, with a Timestamp the model decodes into a `DateTime.Utc`. */
+export class Post extends FirestoreModel.Class<Post>("Post")({
+  title: Schema.String,
+  publishedAt: FirestoreModel.Timestamp(Schema.DateTimeUtc),
+}) {}
+
+export const Authors = Collection.make("authors", Author);
+
+/** The posts under each author. */
+export const Posts = Authors.subcollection("posts", Post);
+
+/** Records each post created under any author. */
+export const OnPostCreated = DocumentTrigger.created("onPostCreated", Posts);

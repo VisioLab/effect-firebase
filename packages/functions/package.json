@@ -55,8 +55,10 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@visiolab/effect-firebase": "workspace:^",
+    "@visiolab/effect-firebase-admin": "workspace:^",
     "effect": "catalog:",
     "firebase": "catalog:",
+    "firebase-admin": "catalog:",
     "firebase-functions": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
@@ -65,7 +67,9 @@
   },
   "peerDependencies": {
     "@visiolab/effect-firebase": "workspace:^",
+    "@visiolab/effect-firebase-admin": "workspace:^",
     "effect": "catalog:peers",
+    "firebase-admin": "catalog:peers",
     "firebase-functions": "catalog:peers"
   }
 }

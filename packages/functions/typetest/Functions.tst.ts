@@ -1,7 +1,10 @@
 // The tests pass Layers with requirements left on purpose, to check they are
 // type errors; the language service would flag each of them a second time.
 // @effect-diagnostics missingLayerContext:off
+import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
+import * as DocumentTrigger from "@visiolab/effect-firebase/functions/DocumentTrigger";
 import * as FunctionGroup from "@visiolab/effect-firebase/functions/FunctionGroup";
 import * as CallableMiddleware from "@visiolab/effect-firebase/functions/CallableMiddleware";
 import * as CallableRequest from "@visiolab/effect-firebase/functions/CallableRequest";
@@ -212,5 +215,58 @@ describe("CallableRequest.rawRequest, provided per call", () => {
     );
     // @ts-expect-error not assignable
     Functions.make(UserAgent, NeedsClock);
+  });
+});
+
+class Author extends FirestoreModel.Class<Author>("Author")({ name: Schema.String }) {}
+class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
+
+const Posts = Collection.make("authors", Author).subcollection("posts", Post);
+const OnPostCreated = DocumentTrigger.created("onPostCreated", Posts);
+const OnPostCreatedLive = DocumentTrigger.toLayer(OnPostCreated, () => Effect.void);
+
+describe("Functions.make with a Document Trigger", () => {
+  test("exports the trigger under its name", () => {
+    expect(Functions.make(OnPostCreated, OnPostCreatedLive)).type.toBe<{
+      readonly onPostCreated: Functions.DocumentTriggerExport<typeof OnPostCreated>;
+    }>();
+  });
+
+  test("a Live without the trigger's handler is a type error", () => {
+    // @ts-expect-error not assignable
+    Functions.make(OnPostCreated, GreetLive);
+  });
+
+  test("a Live that leaves a requirement of the handler is a type error", () => {
+    const NeedsClock = DocumentTrigger.toLayer(OnPostCreated, () =>
+      Effect.asVoid(Effect.service(Clock)),
+    );
+    // @ts-expect-error not assignable
+    Functions.make(OnPostCreated, NeedsClock);
+  });
+
+  test("takes the shared options and retry", () => {
+    Functions.make(OnPostCreated, OnPostCreatedLive, {
+      region: "europe-west1",
+      memory: "512MiB",
+      timeoutSeconds: 60,
+      retry: true,
+    });
+  });
+
+  test("doesn't take the document, database or Callable options", () => {
+    // @ts-expect-error Object literal may only specify known properties
+    Functions.make(OnPostCreated, OnPostCreatedLive, { document: "posts/{id}" });
+    // @ts-expect-error Object literal may only specify known properties
+    Functions.make(OnPostCreated, OnPostCreatedLive, { database: "other" });
+    // @ts-expect-error Object literal may only specify known properties
+    Functions.make(OnPostCreated, OnPostCreatedLive, { namespace: "other" });
+    // @ts-expect-error Object literal may only specify known properties
+    Functions.make(OnPostCreated, OnPostCreatedLive, { cors: true });
+  });
+
+  test("a Callable doesn't take retry", () => {
+    // @ts-expect-error Object literal may only specify known properties
+    Functions.make(Greet, GreetLive, { retry: true });
   });
 });

@@ -6,11 +6,23 @@
  */
 import { appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { Cause, Context, Data, Effect, Exit, Layer, Logger, Option, Tracer } from "effect";
+import {
+  Cause,
+  Context,
+  Data,
+  DateTime,
+  Effect,
+  Exit,
+  Layer,
+  Logger,
+  Option,
+  Tracer,
+} from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import * as Caller from "@visiolab/effect-firebase/functions/Caller";
 import * as CallableRequest from "@visiolab/effect-firebase/functions/CallableRequest";
+import * as DocumentTrigger from "@visiolab/effect-firebase/functions/DocumentTrigger";
 import * as Functions from "../../../src/Functions.ts";
 import { onCall } from "firebase-functions/v2/https";
 import {
@@ -26,6 +38,7 @@ import {
   Greet,
   LayerBuilds,
   Logged,
+  OnPostCreated,
   RequestHeader,
   Traced,
   Tracing,
@@ -350,4 +363,29 @@ export const { requestHeader } = Functions.make(
 export const { sleep } = Functions.make(
   Sleep,
   Callable.toLayer(Sleep, ({ millis }) => Effect.sleep(millis)),
+);
+
+/**
+ * Where the fixture's triggers record each event they receive, one JSON line
+ * each: `packages/functions/tests/triggers.log`, next to the tests, which wait
+ * for their own document's line.
+ */
+const triggersLog = fileURLToPath(new URL("../../triggers.log", import.meta.url));
+
+export const { onPostCreated } = Functions.make(
+  OnPostCreated,
+  DocumentTrigger.toLayer(OnPostCreated, (event) =>
+    Effect.map(event.snapshot.data, (post) => {
+      const line = {
+        trigger: OnPostCreated.name,
+        eventId: event.id,
+        time: event.time,
+        path: event.ref.path,
+        ancestors: event.ref.ancestors,
+        id: event.ref.id,
+        data: { title: post.title, publishedAt: DateTime.formatIso(post.publishedAt) },
+      };
+      appendFileSync(triggersLog, `${JSON.stringify(line)}\n`);
+    }),
+  ),
 );

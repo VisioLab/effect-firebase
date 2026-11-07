@@ -30,6 +30,14 @@ export * as CallableMiddleware from "./CallableMiddleware.ts";
  */
 export * as CallableRequest from "./CallableRequest.ts";
 /**
+ * Document Triggers: server functions that run when a document of a
+ * collection changes.
+ *
+ * @stability unstable
+ * @since 0.3.0
+ */
+export * as DocumentTrigger from "./DocumentTrigger.ts";
+/**
  * Functions: what every kind of server function shares, whatever runs it.
  *
  * @stability unstable

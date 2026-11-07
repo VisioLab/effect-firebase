@@ -6,6 +6,8 @@ export default defineConfig({
       // Read by the tests to point the client SDK at the emulator, which it
       // takes per Functions instance rather than from the environment.
       FUNCTIONS_EMULATOR_HOST: process.env["FUNCTIONS_EMULATOR_HOST"] ?? "127.0.0.1:5001",
+      // Read by the Admin SDK, which the Document Trigger tests write through.
+      FIRESTORE_EMULATOR_HOST: process.env["FIRESTORE_EMULATOR_HOST"] ?? "127.0.0.1:8080",
       // The project the Cloud Logging logger names in its trace field, as
       // Cloud Functions sets it.
       GCLOUD_PROJECT: "demo-effect-firebase",

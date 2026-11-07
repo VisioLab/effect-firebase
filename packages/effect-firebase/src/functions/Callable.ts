@@ -64,6 +64,8 @@ const target = (
  * under its name, so it is a literal type that the server's exports and the
  * client's functions are keyed on.
  *
+ * @see {@link DocumentTrigger.DocumentTrigger} for a Function a change to a document runs
+ *
  * @stability unstable
  * @category models
  * @since 0.3.0
@@ -295,6 +297,7 @@ export interface MakeOptions<
  * @see {@link toLayer} for implementing the Callable on the server
  * @see {@link errorCode} for giving an error schema its code
  * @see {@link FunctionGroup.make} for collecting Functions under one prefix
+ * @see {@link DocumentTrigger.created} for declaring a Function a change to a document runs
  *
  * @stability unstable
  * @category constructors
@@ -499,6 +502,7 @@ export type ChainServices<C extends Any, H> = H | Middleware<C> | MiddlewareServ
  *
  * @see {@link make} for declaring the Callable
  * @see {@link serve} for running a call against the handler
+ * @see {@link DocumentTrigger.toLayer} for implementing a Document Trigger
  *
  * @stability unstable
  * @category constructors
@@ -584,6 +588,7 @@ export const toLayer: {
  * @see {@link handler} for running the handler in process, with typed values
  * @see {@link Functions.make} for serving through `firebase-functions`
  * @see {@link deployment} for the name and span attributes a transport uses
+ * @see {@link DocumentTrigger.serve} for running an event of a Document Trigger
  *
  * @stability unstable
  * @category serving
@@ -830,6 +835,7 @@ export interface Deployment {
  *
  * @see {@link serve} for running a call on the server
  * @see {@link errorSchemas} for the errors a call can be answered with
+ * @see {@link DocumentTrigger.deployment} for where a Document Trigger is deployed
  *
  * @stability unstable
  * @category serving

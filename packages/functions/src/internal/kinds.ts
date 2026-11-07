@@ -7,9 +7,11 @@
  */
 import type { Layer } from "effect";
 import type * as Callable from "@visiolab/effect-firebase/functions/Callable";
+import type * as DocumentTrigger from "@visiolab/effect-firebase/functions/DocumentTrigger";
 import type * as FirebaseFunction from "@visiolab/effect-firebase/functions/FirebaseFunction";
 import type * as FunctionGroup from "@visiolab/effect-firebase/functions/FunctionGroup";
 import * as callable from "./callable.ts";
+import * as documentTrigger from "./documentTrigger.ts";
 
 /**
  * The export of `fn` in `group`, or in no group, from its kind's runtime.
@@ -26,6 +28,8 @@ export const deploy = <R, E>(
   switch (fn.kind) {
     case "Callable":
       return callable.deploy(group, fn as Callable.Any, live, options);
+    case "DocumentTrigger":
+      return documentTrigger.deploy(group, fn as DocumentTrigger.Any, live, options);
     default:
       throw new Error(`Functions can't deploy "${fn.name}": its kind "${fn.kind}" is unknown`);
   }
