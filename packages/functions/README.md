@@ -141,3 +141,23 @@ export const { users } = CallableFunction.group(Users, Layer.mergeAll(UsersLive,
 - Its parent is the trace context Firebase reads from the request (`X-Cloud-Trace-Context`, else `traceparent`), so it joins the platform's trace. In the emulator it is a root span.
 - `CallableClient` opens a `kind: "client"` span per call. It isn't linked to the server span: the two land in separate traces.
 - Neither span carries a uid. Add one where you want it with `Effect.annotateCurrentSpan("enduser.id", uid)`.
+
+## Logging
+
+Every call logs through `CloudLogging.layer`, which writes each Effect log as one Cloud Logging JSON line, in the format of Firebase's own `logger`:
+
+- The trace, span id and sampled flag come from the current span, so concurrent calls on one instance each log under their own trace.
+- Trace and Debug are `DEBUG`, Info `INFO`, Warn `WARNING`, Error `ERROR` and Fatal `CRITICAL`. Error and Fatal go to `console.error`, the rest to `console.log`.
+- Log annotations become fields of the entry, other logged values go under `args` and log spans under `spans`.
+- A Cause is appended to `message` with its stacks, so defects and failed Layer builds reach Error Reporting.
+- Entries carry no uid. Add one where you want it with `Effect.annotateLogs({ uid })`.
+- Provide a `Logger.layer` in the Layer you export to log differently.
+
+To log the same way outside a Callable Function, provide the layer yourself:
+
+```ts
+import { Effect } from "effect";
+import { CloudLogging } from "@visiolab/effect-firebase-functions/logger";
+
+const job = Effect.log("Cleaning up").pipe(Effect.provide(CloudLogging.layer));
+```

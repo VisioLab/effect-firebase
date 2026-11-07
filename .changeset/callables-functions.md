@@ -13,3 +13,5 @@ Each call runs the Callable's middleware chain, whose implementations `Live` mus
 Every call of a Callable Function runs in a `kind: "server"` span named `CallableFunction.<deployed name>`, parented on the trace context Firebase reads from the request. Spans are exported when the Layer provides a `Tracer`.
 
 `CallableFunction.group` runs the group's middleware around each member's own, so `Live` must provide its implementation too.
+
+Add the `CloudLogging` logger and `layer` (`@visiolab/effect-firebase-functions/logger`), which write Effect logs as Cloud Logging entries tied to the trace of the current span. Every Callable Function call logs through it, unless its Layer provides a logger of its own.

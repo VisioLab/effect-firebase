@@ -36,6 +36,14 @@
  * linked to it, so the two land in separate traces. The span carries no uid;
  * add one in the handler with `Effect.annotateCurrentSpan`.
  *
+ * Every call logs through `CloudLogging.layer`, provided beneath the Layer you
+ * serve: Effect logs land in Cloud Logging as structured entries tied to the
+ * current span, so concurrent calls on one instance each log under their own
+ * trace. A `Logger.layer` in the Layer replaces it. Logs of a first call's
+ * Layer build are written once the build is done, when the spans they were
+ * logged under have their final ids. Entries carry no uid; add one in the
+ * handler with `Effect.annotateLogs`.
+ *
  * @example Serving a Callable
  * ```ts
  * import { Effect, Schema } from "effect";

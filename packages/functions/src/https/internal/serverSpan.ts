@@ -1,5 +1,5 @@
 /** @internal */
-import { Context, Option, Tracer, type Exit } from "effect";
+import { Context, Logger, Option, Tracer, type Exit, type Fiber } from "effect";
 import { traceContext } from "firebase-functions/v2";
 
 /**
@@ -134,7 +134,33 @@ class DeferredSpan implements Tracer.Span {
  */
 export class DeferredTracer {
   private readonly deferred: Array<DeferredSpan> = [];
+  private readonly held: Array<() => void> = [];
   private real: Tracer.Tracer | undefined;
+
+  /**
+   * Wraps each of `loggers` so that an entry logged before {@link attach}
+   * is held, and logged on `attach`, once the spans it was logged under have
+   * their real ids. A logger reads the trace of the current span, and a
+   * deferred span's ids before `attach` are ones no exporter sees.
+   *
+   * The tracer logger isn't held: it writes onto the span itself, which a
+   * deferred span already replays.
+   */
+  holdLogs(
+    loggers: ReadonlySet<Logger.Logger<unknown, any>>,
+  ): ReadonlySet<Logger.Logger<unknown, any>> {
+    return new Set(
+      Array.from(loggers, (logger) =>
+        logger === Logger.tracerLogger
+          ? logger
+          : Logger.make<unknown, unknown>((options) => {
+              if (this.real !== undefined) return logger.log(options);
+              const held = { ...options, fiber: snapshot(options.fiber) };
+              this.held.push(() => logger.log(held));
+            }),
+      ),
+    );
+  }
 
   readonly tracer: Tracer.Tracer = Tracer.make({
     span: (options) => {
@@ -148,12 +174,30 @@ export class DeferredTracer {
   /**
    * Hands every span opened so far to the Tracer that `services` provide, the
    * native one when they provide none, in the order they were opened, so that
-   * each parent exists before its children.
+   * each parent exists before its children. Then logs the entries
+   * {@link holdLogs} held, in the order they were logged.
+   *
+   * Attach with no services when `Live` failed to build, so the spans and
+   * logs of the failed call still get ids of one trace.
    */
   attach(services: Context.Context<never>) {
     if (this.real !== undefined) return;
     this.real = Context.get(services, Tracer.Tracer);
     for (const span of this.deferred) span.attach(this.real);
     this.deferred.length = 0;
+    for (const log of this.held) log();
+    this.held.length = 0;
   }
 }
+
+/**
+ * `fiber` as it is now: what a logger reads from it later, such as the log
+ * annotations and the current span, stays what it was when the entry was
+ * logged. Both are derived from the fiber's context, which never changes in
+ * place, only gets replaced.
+ */
+const snapshot = <A, E>(fiber: Fiber.Fiber<A, E>): Fiber.Fiber<A, E> =>
+  Object.create(fiber, {
+    context: { value: fiber.context },
+    cache: { value: fiber.cache },
+  }) as Fiber.Fiber<A, E>;
