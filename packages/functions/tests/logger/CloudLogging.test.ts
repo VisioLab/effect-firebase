@@ -18,6 +18,27 @@ const captured = <A, E>(effect: Effect.Effect<A, E>) =>
     };
   }).pipe(Effect.provide(Layer.merge(CloudLogging.layer, TestConsole.layer)));
 
+/** Runs an Effect with the environment variables `vars` set, or unset when `undefined`. */
+const withEnv =
+  (vars: Readonly<Record<string, string | undefined>>) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    Effect.acquireUseRelease(
+      Effect.sync(() => {
+        const saved = Object.fromEntries(Object.keys(vars).map((key) => [key, process.env[key]]));
+        setEnv(vars);
+        return saved;
+      }),
+      () => effect,
+      (saved) => Effect.sync(() => setEnv(saved)),
+    );
+
+const setEnv = (vars: Readonly<Record<string, string | undefined>>) => {
+  for (const [key, value] of Object.entries(vars)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
+};
+
 describe("CloudLogging", () => {
   it.effect("writes the trace of the current span", () =>
     Effect.gen(function* () {
@@ -50,6 +71,28 @@ describe("CloudLogging", () => {
       const { log } = yield* captured(Effect.log("hello"));
       expect(log).toEqual([{ severity: "INFO", message: "hello" }]);
     }),
+  );
+
+  it.effect("takes the project from GOOGLE_CLOUD_PROJECT when GCLOUD_PROJECT is unset", () =>
+    Effect.gen(function* () {
+      const { value: span, log } = yield* captured(
+        Effect.log("hello").pipe(
+          Effect.andThen(Effect.currentSpan),
+          Effect.withSpan("root"),
+          Effect.orDie,
+        ),
+      );
+      expect(log[0]?.["logging.googleapis.com/trace"]).toBe(
+        `projects/other-project/traces/${span.traceId}`,
+      );
+    }).pipe(withEnv({ GCLOUD_PROJECT: undefined, GOOGLE_CLOUD_PROJECT: "other-project" })),
+  );
+
+  it.effect("leaves the trace out when no project is set", () =>
+    Effect.gen(function* () {
+      const { log } = yield* captured(Effect.log("hello").pipe(Effect.withSpan("root")));
+      expect(log).toEqual([{ severity: "INFO", message: "hello" }]);
+    }).pipe(withEnv({ GCLOUD_PROJECT: undefined, GOOGLE_CLOUD_PROJECT: undefined })),
   );
 
   it.effect("sets the trace of a root span", () =>

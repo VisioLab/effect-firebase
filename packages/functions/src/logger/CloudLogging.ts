@@ -46,8 +46,10 @@ const severities: Record<LogLevel.LogLevel, string> = {
  * - `spans`: the log spans, as `{ label: milliseconds }`, if any.
  * - `logging.googleapis.com/trace`, `logging.googleapis.com/spanId` and
  *   `logging.googleapis.com/trace_sampled`: the trace of the fiber's current
- *   span, with the project from `GCLOUD_PROJECT`. Left out when there is no
- *   span.
+ *   span, with the project from `GCLOUD_PROJECT`, else `GOOGLE_CLOUD_PROJECT`.
+ *   Left out when there is no span, and when neither variable is set, since a
+ *   span id means nothing to Cloud Logging without its trace. Cloud Functions
+ *   sets `GCLOUD_PROJECT`.
  * - Every log annotation, as a field of its own. `severity`, `message` and the
  *   `logging.googleapis.com/` fields win over an annotation of the same name.
  *
@@ -101,9 +103,9 @@ export const logger: Logger.Logger<unknown, void> = Logger.make(
     entry["severity"] = severities[logLevel];
     entry["message"] = text;
     const span = fiber.cache.span;
-    if (span !== undefined) {
-      entry["logging.googleapis.com/trace"] =
-        `projects/${process.env["GCLOUD_PROJECT"]}/traces/${span.traceId}`;
+    const project = process.env["GCLOUD_PROJECT"] ?? process.env["GOOGLE_CLOUD_PROJECT"];
+    if (span !== undefined && project !== undefined && project !== "") {
+      entry["logging.googleapis.com/trace"] = `projects/${project}/traces/${span.traceId}`;
       entry["logging.googleapis.com/spanId"] = span.spanId;
       entry["logging.googleapis.com/trace_sampled"] = span.sampled;
     }
