@@ -17,7 +17,7 @@ export * as ClientFirestore from "./ClientFirestore.ts";
  * Maps between Firestore Values and the values the client SDK reads and writes.
  *
  * @stability unstable
- * @since 0.2.0
+ * @since 0.3.0
  */
 export * as ClientFirestoreValue from "./ClientFirestoreValue.ts";
 /**

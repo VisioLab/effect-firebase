@@ -2,7 +2,7 @@
   "$schema": "https://unpkg.com/@changesets/config@4.0.1/schema.json",
   "changelog": ["@changesets/changelog-github", { "repo": "VisioLab/effect-firebase" }],
   "commit": false,
-  "fixed": [],
+  "fixed": [["@visiolab/effect-firebase", "@visiolab/effect-firebase-*"]],
   "linked": [],
   "baseBranch": "main",
   "updateInternalDependencies": "patch",

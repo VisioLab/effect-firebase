@@ -7,7 +7,7 @@
  * how a Callable Function logs.
  *
  * @stability unstable
- * @since 0.1.0
+ * @since 0.3.0
  */
 import { Cause, Console, Formatter, Inspectable, type Layer, Logger, References } from "effect";
 import type * as LogLevel from "effect/LogLevel";
@@ -73,7 +73,7 @@ const severities: Record<LogLevel.LogLevel, string> = {
  *
  * @stability unstable
  * @category loggers
- * @since 0.1.0
+ * @since 0.3.0
  */
 export const logger: Logger.Logger<unknown, void> = Logger.make(
   ({ cause, date, fiber, logLevel, message }) => {
@@ -147,6 +147,6 @@ export const logger: Logger.Logger<unknown, void> = Logger.make(
  *
  * @stability unstable
  * @category layers
- * @since 0.1.0
+ * @since 0.3.0
  */
 export const layer: Layer.Layer<never> = Logger.layer([logger, Logger.tracerLogger]);

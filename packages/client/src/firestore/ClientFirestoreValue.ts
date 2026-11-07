@@ -30,7 +30,7 @@
  * @see {@link AdminFirestoreValue} for the Admin SDK's mapping
  *
  * @stability unstable
- * @since 0.2.0
+ * @since 0.3.0
  */
 import type { Result } from "effect";
 import type { FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
@@ -61,7 +61,7 @@ import * as internal from "./internal/firestoreValue.ts";
  *
  * @stability unstable
  * @category conversions
- * @since 0.2.0
+ * @since 0.3.0
  */
 export const toClient: (value: FirestoreValue, firestore: Firestore) => unknown = internal.toClient;
 
@@ -88,7 +88,7 @@ export const toClient: (value: FirestoreValue, firestore: Firestore) => unknown 
  *
  * @stability unstable
  * @category conversions
- * @since 0.2.0
+ * @since 0.3.0
  */
 export const fromClient: (value: unknown) => Result.Result<FirestoreValue, FirestoreError> =
   internal.fromClient;

@@ -18,7 +18,7 @@
  * ```
  *
  * @stability unstable
- * @since 0.2.0
+ * @since 0.3.0
  */
 import { Context, Effect, Layer } from "effect";
 import * as Client from "firebase/functions";
@@ -32,7 +32,7 @@ import type * as CallableClient from "./CallableClient.ts";
  *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.3.0
  */
 export interface ClientFunctions {
   /** The SDK's own `Functions` instance, for what this package doesn't wrap. */
@@ -53,7 +53,7 @@ export interface ClientFunctions {
  *
  * @stability unstable
  * @category services
- * @since 0.2.0
+ * @since 0.3.0
  */
 export const ClientFunctions = Context.Service<ClientFunctions>(
   "@visiolab/effect-firebase-client/functions/ClientFunctions",
@@ -64,7 +64,7 @@ export const ClientFunctions = Context.Service<ClientFunctions>(
  *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.3.0
  */
 export interface Emulator {
   readonly host: string;
@@ -76,7 +76,7 @@ export interface Emulator {
  *
  * @stability unstable
  * @category models
- * @since 0.2.0
+ * @since 0.3.0
  */
 export interface Options {
   /**
@@ -107,7 +107,7 @@ export interface Options {
  *
  * @stability unstable
  * @category constructors
- * @since 0.2.0
+ * @since 0.3.0
  */
 export const make: (options?: Options) => Effect.Effect<ClientFunctions, never, App.App> =
   Effect.fn("ClientFunctions.make")(function* (options?: Options) {
@@ -143,7 +143,7 @@ export const make: (options?: Options) => Effect.Effect<ClientFunctions, never, 
  *
  * @stability unstable
  * @category layers
- * @since 0.2.0
+ * @since 0.3.0
  */
 export const layer = (options?: Options): Layer.Layer<ClientFunctions, never, App.App> =>
   Layer.effect(ClientFunctions, make(options));

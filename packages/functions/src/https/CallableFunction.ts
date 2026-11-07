@@ -62,7 +62,7 @@
  * ```
  *
  * @stability unstable
- * @since 0.1.0
+ * @since 0.3.0
  */
 import type { Layer } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
@@ -76,7 +76,7 @@ import * as internal from "./internal/callableFunction.ts";
  *
  * @stability unstable
  * @category models
- * @since 0.1.0
+ * @since 0.3.0
  */
 export type Export = Https.CallableFunction<unknown, Promise<unknown>>;
 
@@ -85,7 +85,7 @@ export type Export = Https.CallableFunction<unknown, Promise<unknown>>;
  *
  * @stability unstable
  * @category models
- * @since 0.1.0
+ * @since 0.3.0
  */
 export type Exports<C extends Callable.Any> = { readonly [K in C["name"]]: Export };
 
@@ -95,7 +95,7 @@ export type Exports<C extends Callable.Any> = { readonly [K in C["name"]]: Expor
  *
  * @stability unstable
  * @category models
- * @since 0.1.0
+ * @since 0.3.0
  */
 export type GroupExports<G extends CallableGroup.Any> = {
   readonly [K in G["identifier"]]: { readonly [N in CallableGroup.Names<G>]: Export };
@@ -107,7 +107,7 @@ export type GroupExports<G extends CallableGroup.Any> = {
  *
  * @stability unstable
  * @category models
- * @since 0.1.0
+ * @since 0.3.0
  */
 export type GroupOptions<G extends CallableGroup.Any> = {
   readonly [N in CallableGroup.Names<G>]?: Https.CallableOptions;
@@ -178,7 +178,7 @@ export type GroupOptions<G extends CallableGroup.Any> = {
  *
  * @stability unstable
  * @category constructors
- * @since 0.1.0
+ * @since 0.3.0
  */
 export const make = <C extends Callable.Any, E>(
   callable: C,
@@ -253,7 +253,7 @@ export const make = <C extends Callable.Any, E>(
  *
  * @stability unstable
  * @category constructors
- * @since 0.1.0
+ * @since 0.3.0
  */
 export const group = <G extends CallableGroup.Any, E>(
   group: G,
