@@ -102,14 +102,18 @@ export const getErrorCode = (schema: Schema.Top): CallableError.ErrorCode =>
 
 /**
  * The middleware of `callable` in `group`, or in no group, in the order the
- * chain applies it: innermost first.
+ * chain applies it: innermost first. The group's middleware wraps the
+ * Callable's own.
  *
  * @internal
  */
 export const middlewares = (
-  _group: CallableGroup.Fields | undefined,
+  group: CallableGroup.Fields | undefined,
   callable: Fields,
-): ReadonlyArray<CallableMiddleware.Key> => [...callable.middlewares];
+): ReadonlyArray<CallableMiddleware.Key> => [
+  ...callable.middlewares,
+  ...(group === undefined ? [] : group.middlewares),
+];
 
 /**
  * The schemas of every error a call to `callable` can be answered with: its

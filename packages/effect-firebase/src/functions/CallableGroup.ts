@@ -25,8 +25,9 @@
  * @stability unstable
  * @since 0.3.0
  */
-import type { Pipeable } from "effect";
+import type { Context, Pipeable } from "effect";
 import type * as Callable from "./Callable.ts";
+import type * as CallableMiddleware from "./CallableMiddleware.ts";
 import * as internal from "./internal/callableGroup.ts";
 
 const TypeId = internal.TypeId;
@@ -51,6 +52,8 @@ const TypeId = internal.TypeId;
 export interface CallableGroup<
   out Identifier extends string,
   in out Callables extends Callable.Any = never,
+  out Middleware = never,
+  out MiddlewareServices = never,
 >
   extends Pipeable.Pipeable {
   new (_: never): {};
@@ -59,18 +62,52 @@ export interface CallableGroup<
   readonly identifier: Identifier;
   /** The group's members, keyed by their names. */
   readonly callables: { readonly [C in Callables as C["name"]]: C };
+  /** The group's own middleware, in the order it was attached. */
+  readonly middlewares: ReadonlySet<CallableMiddleware.AnyKey>;
+  /** The middleware attached to the group, as a union. Types only. */
+  readonly "~Middleware": Middleware;
+  /** What the group's middleware chain still requires. Types only. */
+  readonly "~MiddlewareServices": MiddlewareServices;
 
   /**
    * Adds Callables to the group.
    *
    * **Details**
    *
-   * Returns a new group. Throws when a Callable's name is already taken in the
-   * group, so a clash fails when the module loads, before anything deploys.
+   * Returns a new group that keeps the group's middleware. Throws when a
+   * Callable's name is already taken in the group, so a clash fails when the
+   * module loads, before anything deploys.
    */
   add<const A extends ReadonlyArray<Callable.Any>>(
     ...callables: A
-  ): CallableGroup<Identifier, Callables | A[number]>;
+  ): CallableGroup<Identifier, Callables | A[number], Middleware, MiddlewareServices>;
+
+  /**
+   * Attaches a Callable Middleware to every member of the group.
+   *
+   * **Details**
+   *
+   * Returns a new group. The middleware is stored on the group, not copied
+   * onto its members, so it also covers members added after it. The same
+   * Callable in another group, or on its own, is served without it.
+   *
+   * Group middleware runs outside each member's own middleware, so a
+   * member's middleware may require what the group's provides. A group
+   * middleware attached later wraps the ones attached before it.
+   *
+   * Its `provides` are removed from what each member's handler Layer
+   * requires, and its errors join each member's error union, on the server
+   * and in the client. Its implementation is required where the chain runs:
+   * by `CallableFunction.group` and by {@link Callable.handler}.
+   */
+  middleware<I extends CallableMiddleware.AnyId, S>(
+    middleware: Context.Key<I, S>,
+  ): CallableGroup<
+    Identifier,
+    Callables,
+    Middleware | I,
+    CallableMiddleware.ApplyServices<I, MiddlewareServices>
+  >;
 }
 
 /**
@@ -84,6 +121,7 @@ export interface Any {
   readonly [TypeId]: typeof TypeId;
   readonly identifier: string;
   readonly callables: { readonly [name: string]: Callable.Any };
+  readonly middlewares: ReadonlySet<CallableMiddleware.AnyKey>;
 }
 
 /**
@@ -107,13 +145,68 @@ export type Callables<G> = G extends { readonly callables: infer Record }
 export type Names<G> = Callables<G>["name"];
 
 /**
- * The member of a {@link CallableGroup} named `Name`.
+ * The middleware attached to a {@link CallableGroup}, as a union of the
+ * middleware service types.
  *
  * @stability unstable
  * @category type-level
  * @since 0.3.0
  */
-export type Member<G, Name extends string> = Extract<Callables<G>, { readonly name: Name }>;
+export type Middleware<G> = G extends { readonly "~Middleware": infer M } ? M : never;
+
+/**
+ * What the middleware of a {@link CallableGroup} still requires: the
+ * `requires` of each group middleware that no group middleware outside it
+ * provides.
+ *
+ * @stability unstable
+ * @category type-level
+ * @since 0.3.0
+ */
+export type MiddlewareServices<G> = G extends { readonly "~MiddlewareServices": infer R }
+  ? R
+  : never;
+
+/**
+ * The member of a {@link CallableGroup} named `Name`, as the group serves it:
+ * with the group's middleware outside its own.
+ *
+ * **Details**
+ *
+ * The group's middleware joins the member's {@link Callable.Middleware}, and
+ * its errors join {@link Callable.Error}. What the group's middleware
+ * provides is removed from what the member's own middleware still requires,
+ * and what the group's middleware requires is added.
+ *
+ * @stability unstable
+ * @category type-level
+ * @since 0.3.0
+ */
+export type Member<G, Name extends string> = WithMiddleware<
+  Extract<Callables<G>, { readonly name: Name }>,
+  Middleware<G>,
+  MiddlewareServices<G>
+>;
+
+/** A Callable with a group's middleware wrapped around its own. */
+type WithMiddleware<C, GroupMiddleware, GroupServices> =
+  C extends Callable.Callable<
+    infer Name,
+    infer Payload,
+    infer Success,
+    infer Error,
+    infer Middleware,
+    infer Services
+  >
+    ? Callable.Callable<
+        Name,
+        Payload,
+        Success,
+        Error,
+        Middleware | GroupMiddleware,
+        Exclude<Services, CallableMiddleware.Provides<GroupMiddleware>> | GroupServices
+      >
+    : never;
 
 /**
  * The {@link Callable.Handler}s that serving a {@link CallableGroup} needs: one
@@ -196,4 +289,5 @@ export const isCallableGroup: (u: unknown) => u is Any = internal.isCallableGrou
  */
 export const make = <const Identifier extends string>(
   identifier: Identifier,
-): CallableGroup<Identifier> => internal.make({ identifier, callables: {} }) as never;
+): CallableGroup<Identifier> =>
+  internal.make({ identifier, callables: {}, middlewares: new Set() }) as never;

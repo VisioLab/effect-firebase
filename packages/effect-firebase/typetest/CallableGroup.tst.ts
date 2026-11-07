@@ -1,5 +1,8 @@
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
+import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
+import * as CallableMiddleware from "@visiolab/effect-firebase/functions/CallableMiddleware";
+import * as Caller from "@visiolab/effect-firebase/functions/Caller";
 import { Effect, type Layer, Schema } from "effect";
 import { describe, expect, test } from "tstyche";
 
@@ -60,5 +63,75 @@ describe("Callable.toLayer with a group", () => {
   test("the handler is typed by the member", () => {
     // @ts-expect-error Property 'id' does not exist
     Callable.toLayer(Users, "create", ({ id }) => Effect.succeed(id));
+  });
+});
+
+/** Requires the Caller from a middleware outside it. */
+class Admin extends CallableMiddleware.Service<Admin, { requires: Caller.Caller }>()("test/Admin", {
+  error: CallableError.PermissionDenied,
+}) {}
+
+class Signed extends CallableGroup.make("signed")
+  .add(GetUser)
+  .middleware(Caller.Authenticated)
+  .add(CreateUser) {}
+
+describe("CallableGroup.middleware", () => {
+  test("adds the group middleware's errors to each member's, added before or after", () => {
+    expect<
+      Callable.Error<CallableGroup.Member<typeof Signed, "get">>
+    >().type.toBe<CallableError.Unauthenticated>();
+    expect<
+      Callable.Error<CallableGroup.Member<typeof Signed, "create">>
+    >().type.toBe<CallableError.Unauthenticated>();
+  });
+
+  test("leaves the same Callable alone outside the group", () => {
+    expect<Callable.Error<typeof GetUser>>().type.toBe<never>();
+    expect<Callable.Error<CallableGroup.Member<typeof Orders, "get">>>().type.toBe<never>();
+  });
+
+  test("removes what the group middleware provides from a member's handler Layer", () => {
+    expect(
+      Callable.toLayer(Signed, "create", () =>
+        Effect.map(Effect.service(Caller.Caller), ({ uid }) => uid),
+      ),
+    ).type.toBe<Layer.Layer<Callable.Handler<"signed", "create">>>();
+  });
+
+  test("lets a member's middleware require what the group middleware provides", () => {
+    const Purge = Callable.make("purge").middleware(Admin);
+    class Admins extends CallableGroup.make("admins").add(Purge).middleware(Caller.Authenticated) {}
+    expect<
+      Callable.MiddlewareServices<CallableGroup.Member<typeof Admins, "purge">>
+    >().type.toBe<never>();
+    expect(Callable.handler(Admins, "purge")).type.toBe<
+      Effect.Effect<
+        Callable.HandlerCall<CallableGroup.Member<typeof Admins, "purge">>,
+        never,
+        Callable.Handler<"admins", "purge"> | Admin | Caller.Authenticated
+      >
+    >();
+  });
+
+  test("leaves a requirement no outer group middleware provides for the chain", () => {
+    class Admins extends CallableGroup.make("admins")
+      .add(Callable.make("purge"))
+      .middleware(Caller.Authenticated)
+      .middleware(Admin) {}
+    expect<
+      Callable.MiddlewareServices<CallableGroup.Member<typeof Admins, "purge">>
+    >().type.toBe<Caller.Caller>();
+  });
+
+  test("Callable.handler requires the group middleware's implementation", () => {
+    const Live = Callable.toLayer(Signed, "get", ({ id }) => Effect.succeed(id));
+    expect(Effect.provide(Callable.handler(Signed, "get"), Live)).type.toBe<
+      Effect.Effect<
+        Callable.HandlerCall<CallableGroup.Member<typeof Signed, "get">>,
+        never,
+        Caller.Authenticated
+      >
+    >();
   });
 });

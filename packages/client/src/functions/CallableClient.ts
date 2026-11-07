@@ -66,15 +66,24 @@ export type Client<T extends Callable.Any | CallableGroup.Any> = {
 };
 
 /**
- * The Callables a client of `T` calls: the members of a Callable Group, or the
- * Callable itself.
+ * The Callables a client of `T` calls: the members of a Callable Group, as
+ * the group serves them, or the Callable itself.
+ *
+ * **Details**
+ *
+ * A member carries the group's middleware, so its errors are in the member's
+ * {@link Method}.
  *
  * @stability unstable
  * @category type-level
  * @since 0.2.0
  */
 export type Members<T extends Callable.Any | CallableGroup.Any> = T extends CallableGroup.Any
-  ? CallableGroup.Callables<T>
+  ? CallableGroup.Names<T> extends infer Name
+    ? Name extends string
+      ? CallableGroup.Member<T, Name>
+      : never
+    : never
   : T;
 
 /**
