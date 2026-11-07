@@ -29,6 +29,7 @@ import type { Context, Pipeable } from "effect";
 import type * as Callable from "./Callable.ts";
 import type * as CallableMiddleware from "./CallableMiddleware.ts";
 import * as internal from "./internal/callableGroup.ts";
+import type * as internalMiddleware from "./internal/callableMiddleware.ts";
 
 const TypeId = internal.TypeId;
 
@@ -152,7 +153,7 @@ export type Names<G> = Callables<G>["name"];
  * @category type-level
  * @since 0.3.0
  */
-export type Middleware<G> = G extends { readonly "~Middleware": infer M } ? M : never;
+export type Middleware<G> = internalMiddleware.Attached<G>;
 
 /**
  * What the middleware of a {@link CallableGroup} still requires: the
@@ -163,9 +164,7 @@ export type Middleware<G> = G extends { readonly "~Middleware": infer M } ? M : 
  * @category type-level
  * @since 0.3.0
  */
-export type MiddlewareServices<G> = G extends { readonly "~MiddlewareServices": infer R }
-  ? R
-  : never;
+export type MiddlewareServices<G> = internalMiddleware.AttachedServices<G>;
 
 /**
  * The member of a {@link CallableGroup} named `Name`, as the group serves it:

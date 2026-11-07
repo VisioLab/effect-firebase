@@ -64,7 +64,7 @@
  * @since 0.1.0
  */
 import type { Layer } from "effect";
-import type * as Callable from "@visiolab/effect-firebase/functions/Callable";
+import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import type * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
 import type * as Https from "firebase-functions/v2/https";
 import type * as FunctionsCallableRequest from "./FunctionsCallableRequest.ts";
@@ -204,7 +204,12 @@ export const make = <C extends Callable.Any, E>(
   options?: Https.CallableOptions,
 ): Exports<C> =>
   ({
-    [callable.name]: internal.onCall(undefined, callable, live, options),
+    [callable.name]: internal.onCall(
+      Callable.deployment(callable),
+      Callable.serve(callable),
+      live,
+      options,
+    ),
   }) as Exports<C>;
 
 /**
@@ -275,10 +280,10 @@ export const group = <G extends CallableGroup.Any, E>(
   options?: GroupOptions<G>,
 ): GroupExports<G> => {
   const exports: Record<string, Export> = {};
-  for (const [name, callable] of Object.entries(group.callables)) {
+  for (const name of Object.keys(group.callables)) {
     exports[name] = internal.onCall(
-      group,
-      callable,
+      Callable.deployment(group, name),
+      Callable.serve(group, name),
       live,
       (options as Record<string, Https.CallableOptions | undefined> | undefined)?.[name],
     );

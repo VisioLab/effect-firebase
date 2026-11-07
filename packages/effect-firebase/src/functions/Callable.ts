@@ -34,9 +34,22 @@ import type * as CallableGroup from "./CallableGroup.ts";
 import type * as CallableMiddleware from "./CallableMiddleware.ts";
 import type * as CallableRequest from "./CallableRequest.ts";
 import * as internal from "./internal/callable.ts";
+import type * as internalGroup from "./internal/callableGroup.ts";
 import { isCallableGroup } from "./internal/callableGroup.ts";
+import type * as internalMiddleware from "./internal/callableMiddleware.ts";
 
 const TypeId = internal.TypeId;
+
+/**
+ * The group and the Callable that the arguments of an overload taking
+ * `(callable, ...)` or `(group, name, ...)` name.
+ */
+const target = (
+  args: ReadonlyArray<unknown>,
+): readonly [internalGroup.Fields | undefined, internal.Fields] =>
+  isCallableGroup(args[0])
+    ? [args[0], args[0].callables[args[1] as string]!]
+    : [undefined, args[0] as internal.Fields];
 
 /**
  * A Callable: a server function's name, its Payload and what it succeeds with.
@@ -127,7 +140,7 @@ export interface Any {
  * @category type-level
  * @since 0.3.0
  */
-export type Middleware<C> = C extends { readonly "~Middleware": infer M } ? M : never;
+export type Middleware<C> = internalMiddleware.Attached<C>;
 
 /**
  * What the middleware chain of a {@link Callable} still requires: the
@@ -137,9 +150,10 @@ export type Middleware<C> = C extends { readonly "~Middleware": infer M } ? M : 
  * @category type-level
  * @since 0.3.0
  */
-export type MiddlewareServices<C> = C extends { readonly "~MiddlewareServices": infer R }
-  ? Exclude<R, CallableRequest.CallableRequest>
-  : never;
+export type MiddlewareServices<C> = Exclude<
+  internalMiddleware.AttachedServices<C>,
+  CallableRequest.CallableRequest
+>;
 
 /**
  * What the middleware of a {@link Callable} provides to its handler.
@@ -506,16 +520,16 @@ export const toLayer: {
     EB,
     HandlerServices<CallableGroup.Member<G, Name>, R> | RB
   >;
-} = ((...args: ReadonlyArray<unknown>) =>
+} = ((...args: ReadonlyArray<unknown>) => {
+  const [group, callable] = target(args);
   // The handler's requirements are checked by the signatures, and provided
   // where the Layer is built.
-  isCallableGroup(args[0])
-    ? internal.toLayer(args[0].identifier, args[1] as string, args[2] as internal.HandlerInput)
-    : internal.toLayer(
-        undefined,
-        (args[0] as Any).name,
-        args[1] as internal.HandlerInput,
-      )) as never;
+  return internal.toLayer(
+    group?.identifier,
+    callable.name,
+    args[group === undefined ? 1 : 2] as internal.HandlerInput,
+  );
+}) as never;
 
 /**
  * Runs one call to a Callable, as it arrives on the wire.
@@ -585,10 +599,7 @@ export const serve: {
     never,
     ChainServices<CallableGroup.Member<G, Name>, Handler<G["identifier"], Name>>
   >;
-} = ((...args: ReadonlyArray<unknown>) =>
-  isCallableGroup(args[0])
-    ? internal.serve(args[0], args[0].callables[args[1] as string]!)
-    : internal.serve(undefined, args[0] as internal.Fields)) as never;
+} = ((...args: ReadonlyArray<unknown>) => internal.serve(...target(args))) as never;
 
 /**
  * Runs a Callable's handler in process, behind its middleware chain.
@@ -657,10 +668,7 @@ export const handler: {
     never,
     ChainServices<CallableGroup.Member<G, Name>, Handler<G["identifier"], Name>>
   >;
-} = ((...args: ReadonlyArray<unknown>) =>
-  isCallableGroup(args[0])
-    ? internal.handler(args[0], args[0].callables[args[1] as string]!)
-    : internal.handler(undefined, args[0] as internal.Fields)) as never;
+} = ((...args: ReadonlyArray<unknown>) => internal.handler(...target(args))) as never;
 
 /**
  * Sets the Firebase error code a Callable answers with when it fails with
@@ -747,7 +755,73 @@ export const getErrorCode: (schema: Schema.Top) => CallableError.ErrorCode = int
 export const errorSchemas: {
   (callable: Any): ReadonlyArray<Schema.Top>;
   <G extends CallableGroup.Any>(group: G, name: CallableGroup.Names<G>): ReadonlyArray<Schema.Top>;
-} = ((...args: ReadonlyArray<unknown>) =>
-  isCallableGroup(args[0])
-    ? internal.errorSchemas(args[0], args[0].callables[args[1] as string]!)
-    : internal.errorSchemas(undefined, args[0] as internal.Fields)) as never;
+} = ((...args: ReadonlyArray<unknown>) => internal.errorSchemas(...target(args))) as never;
+
+/**
+ * Where a Callable is served: the name it is deployed under and the
+ * attributes of each call's spans.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export interface Deployment {
+  /**
+   * The name the Callable Function is exported under and the client calls:
+   * the Callable's name, or `<group>-<name>` for a member of a group.
+   */
+  readonly name: string;
+  /**
+   * The attributes of the server's and the client's span of a call:
+   * `rpc.system: "firebase_callable"`, `rpc.method` (the Callable's name),
+   * `rpc.service` (the group, for a member) and `faas.name` (the deployed
+   * name).
+   */
+  readonly attributes: Readonly<Record<string, string>>;
+}
+
+/**
+ * Returns the {@link Deployment} of a Callable: its deployed name and its span
+ * attributes. A building block of the functions and client packages, which
+ * agree on both through it. Most apps don't need it.
+ *
+ * **When to use**
+ *
+ * Use when serving or calling Callables from a transport of your own.
+ * `CallableFunction` and `CallableClient` already use it.
+ *
+ * **Details**
+ *
+ * Pass the Callable for a Callable in no group, or its group and its name for
+ * a member of a {@link CallableGroup.CallableGroup}.
+ *
+ * @example Reading the deployed name of a member
+ * ```ts
+ * import { Schema } from "effect";
+ * import { Callable, CallableGroup } from "@visiolab/effect-firebase/functions";
+ *
+ * const CreateUser = Callable.make("create", { payload: { name: Schema.String } });
+ *
+ * class Users extends CallableGroup.make("users").add(CreateUser) {}
+ *
+ * // "users-create"
+ * const { name } = Callable.deployment(Users, "create");
+ * ```
+ *
+ * @see {@link serve} for running a call on the server
+ * @see {@link errorSchemas} for the errors a call can be answered with
+ *
+ * @stability unstable
+ * @category serving
+ * @since 0.3.0
+ */
+export const deployment: {
+  (callable: Any): Deployment;
+  <G extends CallableGroup.Any>(group: G, name: CallableGroup.Names<G>): Deployment;
+} = ((...args: ReadonlyArray<unknown>) => {
+  const [group, callable] = target(args);
+  return {
+    name: internal.deployedName(group, callable),
+    attributes: internal.spanAttributes(group, callable),
+  };
+}) as never;

@@ -12,6 +12,7 @@ import {
   NameTaken,
   Unexplained,
 } from "../../../functions/tests/fixture/src/contract.ts";
+import { FunctionsError } from "firebase/functions";
 import { emulator } from "./emulator.ts";
 
 // The project the emulator serves the fixture under. A named app keeps this
@@ -141,6 +142,15 @@ describe("CallableClient", () => {
       const { greet } = yield* CallableClient.make(Greet);
       const reason = yield* reasonOf(greet({ name: "Ada", at: new Date() }));
       expect(reason).toBeInstanceOf(CallableError.TransportError);
+      // The client tells a network failure from a server's `internal` only by
+      // the HTTP status 0 the SDK appends to the message. This pins that, so a
+      // change in the SDK fails here.
+      const { cause } = reason as CallableError.TransportError;
+      expect(cause).toBeInstanceOf(FunctionsError);
+      expect(cause).toMatchObject({
+        code: "functions/internal",
+        message: expect.stringMatching(/ \[0\]$/),
+      });
     }).pipe(
       // Nothing listens on port 1.
       Effect.provide(

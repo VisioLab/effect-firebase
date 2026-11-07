@@ -87,26 +87,17 @@ export type Members<T extends Callable.Any | CallableGroup.Any> = T extends Call
   : T;
 
 /**
- * The client function of `callable`, in `group` or in no group, deployed as
- * `deployedName`. `errors` are the schemas of every error it can be answered
- * with, its middleware's included.
+ * The client function of `callable`, served as `deployment`. `errors` are the
+ * schemas of every error it can be answered with, its middleware's included.
  */
 const method = (
   functions: Sdk.Functions,
   callable: Callable.Any,
-  group: string | undefined,
-  deployedName: string,
+  deployment: Callable.Deployment,
   errors: ReadonlyArray<Schema.Top>,
 ) => {
-  const span = {
-    kind: "client",
-    attributes: {
-      "rpc.system": "firebase_callable",
-      "rpc.method": callable.name,
-      ...(group === undefined ? {} : { "rpc.service": group }),
-      "faas.name": deployedName,
-    },
-  } as const;
+  const deployedName = deployment.name;
+  const span = { kind: "client", attributes: deployment.attributes } as const;
   const call = Sdk.httpsCallable(functions, deployedName);
   const encode = Schema.encodeUnknownEffect(
     Schema.toCodecJson(callable.payload as Schema.Codec<unknown>),
@@ -263,8 +254,7 @@ export const make = <T extends Callable.Any | CallableGroup.Any>(
         [callable.name]: method(
           instance,
           callable,
-          undefined,
-          callable.name,
+          Callable.deployment(callable),
           Callable.errorSchemas(callable),
         ),
       } as Client<T>;
@@ -274,8 +264,7 @@ export const make = <T extends Callable.Any | CallableGroup.Any>(
       client[name] = method(
         instance,
         callable,
-        target.identifier,
-        `${target.identifier}-${name}`,
+        Callable.deployment(target, name),
         Callable.errorSchemas(target, name),
       );
     }

@@ -24,6 +24,22 @@ export type Implementation = (
   options: { readonly callable: unknown },
 ) => Effect.Effect<unknown, unknown>;
 
+/**
+ * The middleware attached to a Callable or a Callable Group, as a union. Both
+ * carry it in a phantom `~Middleware` field.
+ *
+ * @internal
+ */
+export type Attached<X> = X extends { readonly "~Middleware": infer M } ? M : never;
+
+/**
+ * What the middleware attached to a Callable or a Callable Group still
+ * requires, from their phantom `~MiddlewareServices` field.
+ *
+ * @internal
+ */
+export type AttachedServices<X> = X extends { readonly "~MiddlewareServices": infer R } ? R : never;
+
 /** @internal */
 export const Service = (
   id: string,

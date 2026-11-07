@@ -1,9 +1,8 @@
 /** @internal */
 import { Cause, Context, Effect, Exit, Layer, Logger, Scope } from "effect";
 import * as CloudLogging from "../../logger/CloudLogging.ts";
-import * as Callable from "@visiolab/effect-firebase/functions/Callable";
+import type * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
-import type * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
 import type * as CallableRequest from "@visiolab/effect-firebase/functions/CallableRequest";
 import * as Https from "firebase-functions/v2/https";
 import * as FunctionsCallableRequest from "../FunctionsCallableRequest.ts";
@@ -31,13 +30,16 @@ const internalError = () => new Https.HttpsError("internal", "INTERNAL");
 const lazyContext = <R, E>(
   live: Layer.Layer<R, E, FunctionsCallableRequest.FunctionsCallableRequest>,
 ) => {
-  // The request is provided to each call, and the handler Layers that list it
-  // read it only then, so the build itself needs nothing.
-  const build = live as Layer.Layer<R, E>;
   let pending: Promise<Exit.Exit<Context.Context<R>, E>> | undefined;
   return Effect.flatMap(Effect.context<never>(), (caller) => {
     pending ??= Effect.runPromiseExit(
-      Layer.buildWithMemoMap(build, memoMap, scope).pipe(Effect.provideContext(caller)),
+      Layer.buildWithMemoMap(live, memoMap, scope).pipe(
+        // The request is provided to each call, and the handlers that require
+        // it read it only then, so the build needs no request.
+        Effect.provideContext(
+          caller as Context.Context<FunctionsCallableRequest.FunctionsCallableRequest>,
+        ),
+      ),
     ).then((exit) => {
       if (Exit.isFailure(exit)) pending = undefined;
       return exit;
@@ -47,10 +49,15 @@ const lazyContext = <R, E>(
   });
 };
 
-/** Whether `cause` is a failure `Callable.serve` already turned into an answer. */
-const isAnswer = <E>(cause: Cause.Cause<E>) => {
+/**
+ * The answer `Callable.serve` already chose for a failed call, if `cause`
+ * carries one.
+ */
+const answerOf = <E>(cause: Cause.Cause<E>): CallableError.ResponseError | undefined => {
   const failure = cause.reasons.find(Cause.isFailReason)?.error;
-  return failure instanceof CallableError.CallableError && failure.reason._tag === "ResponseError";
+  return failure instanceof CallableError.CallableError && failure.reason._tag === "ResponseError"
+    ? failure.reason
+    : undefined;
 };
 
 /**
@@ -60,7 +67,7 @@ const isAnswer = <E>(cause: Cause.Cause<E>) => {
 const logUnexpected =
   (message: string) =>
   <E>(cause: Cause.Cause<E>) =>
-    isAnswer(cause) || Cause.hasInterruptsOnly(cause)
+    answerOf(cause) !== undefined || Cause.hasInterruptsOnly(cause)
       ? Effect.void
       : Effect.logError(message, cause);
 
@@ -71,11 +78,9 @@ const logUnexpected =
  * span by {@link logUnexpected}, is a bare `internal`.
  */
 const toHttpsError = (cause: Cause.Cause<unknown>, aborted: boolean) => {
-  const failure = cause.reasons.find(Cause.isFailReason)?.error;
-  if (failure instanceof CallableError.CallableError && failure.reason._tag === "ResponseError") {
-    const { code, message, details } = failure.reason;
-    return new Https.HttpsError(code, message, details);
-  }
+  const answer = answerOf(cause);
+  if (answer !== undefined)
+    return new Https.HttpsError(answer.code, answer.message, answer.details);
   if (Cause.hasInterruptsOnly(cause)) {
     return aborted
       ? new Https.HttpsError("cancelled", "CANCELLED")
@@ -85,36 +90,33 @@ const toHttpsError = (cause: Cause.Cause<unknown>, aborted: boolean) => {
 };
 
 /**
- * The one Callable Function of `callable`, in `group` or in no group. Each
- * export builds `live` on its own first call, so a worker that serves one
- * export builds nothing for the others.
+ * What {@link onCall} serves: `Callable.serve` of one Callable, with its
+ * requirements erased, since the public signatures check that `live` meets
+ * them.
+ *
+ * @internal
+ */
+export type Serve = Effect.Effect<
+  (request: CallableRequest.CallableRequest) => Effect.Effect<unknown, CallableError.CallableError>,
+  never,
+  unknown
+>;
+
+/**
+ * The one Callable Function that runs `serve` under the name and span
+ * attributes of `deployment`. Each export builds `live` on its own first call,
+ * so a worker that serves one export builds nothing for the others.
  *
  * @internal
  */
 export const onCall = <R, E>(
-  group: CallableGroup.Any | undefined,
-  callable: Callable.Any,
+  deployment: Callable.Deployment,
+  serve: Serve,
   live: Layer.Layer<R, E, FunctionsCallableRequest.FunctionsCallableRequest>,
   options: Https.CallableOptions = {},
 ) => {
   const context = lazyContext(live);
-  const serve: Effect.Effect<
-    (
-      request: CallableRequest.CallableRequest,
-    ) => Effect.Effect<unknown, CallableError.CallableError>,
-    never,
-    unknown
-  > = group === undefined ? Callable.serve(callable) : Callable.serve(group, callable.name);
-  const deployedName = group === undefined ? callable.name : `${group.identifier}-${callable.name}`;
-  const spanOptions = {
-    kind: "server",
-    attributes: {
-      "rpc.system": "firebase_callable",
-      "rpc.method": callable.name,
-      ...(group === undefined ? {} : { "rpc.service": group.identifier }),
-      "faas.name": deployedName,
-    },
-  } as const;
+  const spanOptions = { kind: "server", attributes: deployment.attributes } as const;
   return Https.onCall<unknown, Promise<unknown>>(options, async (request, response) => {
     const parent = externalParent();
     const deferred = new DeferredTracer();
@@ -140,7 +142,7 @@ export const onCall = <R, E>(
           Effect.provideContext(services as Context.Context<any>),
         );
       }).pipe(
-        Effect.withSpan(`CallableFunction.${deployedName}`, { ...spanOptions, parent }),
+        Effect.withSpan(`CallableFunction.${deployment.name}`, { ...spanOptions, parent }),
         // Logs from before `live` is built wait for the spans' real ids.
         Effect.updateService(Logger.CurrentLoggers, (loggers) => deferred.holdLogs(loggers)),
         // Beneath `live`: a logger that `live` provides replaces this one.

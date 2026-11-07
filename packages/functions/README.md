@@ -72,6 +72,7 @@ export const { users } = CallableFunction.group(Users, UsersLive, {
 - Implement a member with `Callable.toLayer(Users, "create", handler)`. A Layer from the Callable on its own doesn't serve it in the group.
 - The options are a sparse map of `CallableOptions` keyed by member name. The group has none of its own.
 - A Callable can be in more than one group. Each group serves and implements it separately.
+- Names must be unique within a group. `.add` throws when a name is taken, so the clash fails when the module loads. The types don't catch it.
 - Build the client from the group, `CallableClient.make(Users)`. A client built from the member on its own calls the unprefixed name and gets `not-found`.
 
 ## Middleware and the Caller
@@ -98,6 +99,7 @@ export const { whoAmI } = CallableFunction.make(
 
 - Declare a middleware of your own with `CallableMiddleware.Service`. Its implementation wraps the call and reads the portable `CallableRequest`. `FunctionsCallableRequest` has the rest of Firebase's request, such as `rawRequest`. Every call provides both, so the Layer you serve needn't, even when a handler or middleware requires them.
 - A middleware attached later wraps the ones attached before it.
+- The Payload is decoded inside the chain, so a middleware that catches every failure also catches a Payload that doesn't decode. The caller then no longer gets `invalid-argument`. Catch only the errors you mean to.
 - `CallableFunction` provides no middleware itself, so a `Live` without an implementation is a type error.
 - Run a handler in process, with its chain and without the emulator, through `Callable.handler(WhoAmI)`.
 
@@ -128,6 +130,7 @@ export const { accounts } = CallableFunction.group(
 - Group middleware runs outside each member's own middleware, so a member's middleware may require what the group's provides.
 - It is stored on the group, not copied onto the members. The same Callable in another group, or on its own, is served without it.
 - Its errors join each member's errors in `CallableClient.make(Accounts)`, and `Live` must provide its implementation.
+- Middleware isn't deduplicated: the same middleware on a group and on one of its members runs twice for that member.
 
 ## Tracing
 
@@ -151,6 +154,8 @@ Every call logs through `CloudLogging.layer`, which writes each Effect log as on
 - Log annotations become fields of the entry, other logged values go under `args` and log spans under `spans`.
 - A Cause is appended to `message` with its stacks, so defects and failed Layer builds reach Error Reporting.
 - Entries carry no uid. Add one where you want it with `Effect.annotateLogs({ uid })`.
+- The project comes from `GCLOUD_PROJECT`, else `GOOGLE_CLOUD_PROJECT`. With neither, entries carry no trace fields.
+- Logs written while the first call builds the Layer are held until the build is done, so they get the spans' final ids. Entries carry no timestamp of their own, so Cloud Logging stamps them with the time the build finished.
 - Provide a `Logger.layer` in the Layer you export to log differently.
 
 To log the same way outside a Callable Function, provide the layer yourself:

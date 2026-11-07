@@ -101,6 +101,32 @@ export const getErrorCode = (schema: Schema.Top): CallableError.ErrorCode =>
   Schema.resolveAnnotations(schema)?.callableErrorCode ?? "internal";
 
 /**
+ * The name `callable` is deployed under: its own in no group, or
+ * `<group>-<name>` in `group`. The server exports it under this name, and the
+ * client calls it.
+ *
+ * @internal
+ */
+export const deployedName = (group: CallableGroup.Fields | undefined, callable: Fields): string =>
+  group === undefined ? callable.name : `${group.identifier}-${callable.name}`;
+
+/**
+ * The attributes of the server's and the client's span of a call to
+ * `callable` in `group`, or in no group.
+ *
+ * @internal
+ */
+export const spanAttributes = (
+  group: CallableGroup.Fields | undefined,
+  callable: Fields,
+): Readonly<Record<string, string>> => ({
+  "rpc.system": "firebase_callable",
+  "rpc.method": callable.name,
+  ...(group === undefined ? {} : { "rpc.service": group.identifier }),
+  "faas.name": deployedName(group, callable),
+});
+
+/**
  * The middleware of `callable` in `group`, or in no group, in the order the
  * chain applies it: innermost first. The group's middleware wraps the
  * Callable's own.
@@ -201,7 +227,7 @@ export const serve = (group: CallableGroup.Fields | undefined, callable: Fields)
     const schemas = errorSchemas(group, callable);
     const fail = (reason: CallableError.ResponseError) =>
       new CallableError.CallableError({
-        callable: group === undefined ? callable.name : `${group.identifier}-${callable.name}`,
+        callable: deployedName(group, callable),
         reason,
       });
     return (request: CallableRequest.CallableRequest) =>
