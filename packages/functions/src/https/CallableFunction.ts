@@ -138,9 +138,9 @@ export type GroupOptions<G extends CallableGroup.Any> = {
  * Each call runs the Callable's middleware chain, the one `Callable.handler`
  * runs, with Firebase's request provided as the portable `CallableRequest`.
  * Its `rawRequest` is Firebase's Express request as Effect's
- * `HttpServerRequest`, with the caller's IP address as `remoteAddress`, built
- * on first read. The Payload is decoded inside the chain, after the
- * middleware.
+ * `HttpServerRequest`, with the caller's IP address as `remoteAddress`. Its
+ * body streams Firebase's buffered bytes without copying them. The Payload is
+ * decoded inside the chain, after the middleware.
  *
  * A failed call answers with an `HttpsError`:
  *

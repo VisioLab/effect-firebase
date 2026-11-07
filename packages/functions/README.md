@@ -97,7 +97,7 @@ export const { whoAmI } = CallableFunction.make(
 );
 ```
 
-- Declare a middleware of your own with `CallableMiddleware.Service`. Its implementation wraps the call and reads the portable `CallableRequest`: `auth`, `app`, the raw `data`, and `rawRequest`, the HTTP request as Effect's `HttpServerRequest`, with the caller's IP address as `remoteAddress`. Every call provides it, so the Layer you serve needn't, even when a handler or middleware reads it. `rawRequest` is built from Firebase's request on first read, so a call that never reads it pays nothing.
+- Declare a middleware of your own with `CallableMiddleware.Service`. Its implementation wraps the call and reads the portable `CallableRequest`: `auth`, `app`, the raw `data`, and `rawRequest`, the HTTP request as Effect's `HttpServerRequest`, with the caller's IP address as `remoteAddress`. Every call provides it, so the Layer you serve needn't, even when a handler or middleware reads it. Its body streams Firebase's buffered bytes without copying them.
 - The Firebase web SDK's `httpsCallable` can't send custom headers. A header of your own reaches `rawRequest` only from callers that don't use it, such as another server. Headers like `user-agent` and `accept-language` are there for every caller.
 - A middleware attached later wraps the ones attached before it.
 - The Payload is decoded inside the chain, so a middleware that catches every failure also catches a Payload that doesn't decode. The caller then no longer gets `invalid-argument`. Catch only the errors you mean to.

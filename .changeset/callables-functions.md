@@ -8,7 +8,7 @@ Add `CallableFunction.group`, which serves each member of a Callable Group as it
 
 A declared failure is sent as an `HttpsError` with the encoded error in `details`. A defect is a bare `internal`, a Payload that does not decode is `invalid-argument`, and a Layer that fails to build is built again on the next call.
 
-Each call runs the Callable's middleware chain, whose implementations `Live` must provide. Every call provides the portable `CallableRequest`, whose `rawRequest` is Firebase's Express request as Effect's `HttpServerRequest`, with the caller's IP address as `remoteAddress`. It is built on first read.
+Each call runs the Callable's middleware chain, whose implementations `Live` must provide. Every call provides the portable `CallableRequest`, whose `rawRequest` is Firebase's Express request as Effect's `HttpServerRequest`, with the caller's IP address as `remoteAddress`. Its body streams Firebase's buffered bytes without copying them.
 
 Every call of a Callable Function runs in a `kind: "server"` span named `CallableFunction.<deployed name>`, parented on the trace context Firebase reads from the request. Spans are exported when the Layer provides a `Tracer`.
 

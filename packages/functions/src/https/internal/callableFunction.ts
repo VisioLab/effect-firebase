@@ -43,7 +43,9 @@ const lazyContext = <R, E>(live: Layer.Layer<R, E>) => {
 
 /**
  * Firebase's Express request as Effect's `HttpServerRequest`: the same method,
- * URL, headers and body, with the caller's address as `remoteAddress`.
+ * URL, headers and body, with the caller's address as `remoteAddress`. The
+ * body streams Firebase's bytes rather than copying them, as a `Buffer` body
+ * would.
  */
 const toHttpServerRequest = (raw: Https.Request): HttpServerRequest.HttpServerRequest => {
   const headers: Array<[string, string]> = [];
@@ -52,33 +54,39 @@ const toHttpServerRequest = (raw: Https.Request): HttpServerRequest.HttpServerRe
     headers.push([name, Array.isArray(value) ? value.join(", ") : value]);
   }
   const method = raw.method.toUpperCase();
+  const bytes = raw.rawBody;
+  const init: RequestInit =
+    // A GET or HEAD request can't have a body. Callables are POSTs.
+    method === "GET" || method === "HEAD"
+      ? { method, headers }
+      : {
+          method,
+          headers,
+          body: new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(bytes);
+              controller.close();
+            },
+          }),
+          // Required of a stream body.
+          duplex: "half",
+        };
   return HttpServerRequest.fromWeb(
-    new Request(`${raw.protocol}://${raw.get("host") ?? "localhost"}${raw.originalUrl}`, {
-      method,
-      headers,
-      // A GET or HEAD request can't have a body. Callables are POSTs.
-      body: method === "GET" || method === "HEAD" ? null : raw.rawBody,
-    }),
+    new Request(`${raw.protocol}://${raw.get("host") ?? "localhost"}${raw.originalUrl}`, init),
   ).modify({ remoteAddress: Option.fromNullishOr(raw.ip) });
 };
 
 /**
  * The portable `CallableRequest` of a call, from what `firebase-functions`
- * hands over. Its `rawRequest` is built on first read, so a call that never
- * reads it pays nothing.
+ * hands over.
  */
-const toCallableRequest = (request: Https.CallableRequest): CallableRequest.CallableRequest => {
-  let rawRequest: HttpServerRequest.HttpServerRequest | undefined;
-  return {
-    auth: request.auth,
-    app: request.app,
-    instanceIdToken: request.instanceIdToken,
-    data: request.data,
-    get rawRequest() {
-      return (rawRequest ??= toHttpServerRequest(request.rawRequest));
-    },
-  };
-};
+const toCallableRequest = (request: Https.CallableRequest): CallableRequest.CallableRequest => ({
+  auth: request.auth,
+  app: request.app,
+  instanceIdToken: request.instanceIdToken,
+  data: request.data,
+  rawRequest: toHttpServerRequest(request.rawRequest),
+});
 
 /**
  * The answer `Callable.serve` already chose for a failed call, if `cause`
