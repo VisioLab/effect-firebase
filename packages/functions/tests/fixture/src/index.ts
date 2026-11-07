@@ -39,6 +39,7 @@ import {
   LayerBuilds,
   Logged,
   OnPostCreated,
+  PostFunctions,
   RequestHeader,
   Traced,
   Tracing,
@@ -372,12 +373,16 @@ export const { sleep } = Functions.make(
  */
 const triggersLog = fileURLToPath(new URL("../../triggers.log", import.meta.url));
 
-export const { onPostCreated } = Functions.make(
-  OnPostCreated,
-  DocumentTrigger.toLayer(OnPostCreated, (event) =>
+/**
+ * Records a `created` event of a post under `trigger`, with the function
+ * target the emulator runs it as.
+ */
+const recordPostCreated =
+  (trigger: string) => (event: DocumentTrigger.Event<typeof OnPostCreated>) =>
     Effect.map(event.snapshot.data, (post) => {
       const line = {
-        trigger: OnPostCreated.name,
+        trigger,
+        target: process.env["FUNCTION_TARGET"] ?? "",
         eventId: event.id,
         time: event.time,
         path: event.ref.path,
@@ -386,6 +391,17 @@ export const { onPostCreated } = Functions.make(
         data: { title: post.title, publishedAt: DateTime.formatIso(post.publishedAt) },
       };
       appendFileSync(triggersLog, `${JSON.stringify(line)}\n`);
-    }),
+    });
+
+export const { onPostCreated } = Functions.make(
+  OnPostCreated,
+  DocumentTrigger.toLayer(OnPostCreated, recordPostCreated(OnPostCreated.name)),
+);
+
+export const { posts } = Functions.group(
+  PostFunctions,
+  Layer.mergeAll(
+    Callable.toLayer(PostFunctions, "shout", ({ title }) => Effect.succeed(title.toUpperCase())),
+    DocumentTrigger.toLayer(PostFunctions, "onCreated", recordPostCreated("posts-onCreated")),
   ),
 );

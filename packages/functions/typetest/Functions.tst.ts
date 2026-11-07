@@ -270,3 +270,64 @@ describe("Functions.make with a Document Trigger", () => {
     Functions.make(Greet, GreetLive, { retry: true });
   });
 });
+
+const EditPost = Callable.make("edit", { payload: { title: Schema.String } });
+const OnCreated = DocumentTrigger.created("onCreated", Posts);
+
+class PostFunctions extends FunctionGroup.make("posts").add(EditPost, OnCreated) {}
+
+const PostFunctionsLive = Layer.mergeAll(
+  Callable.toLayer(PostFunctions, "edit", () => Effect.void),
+  DocumentTrigger.toLayer(PostFunctions, "onCreated", () => Effect.void),
+);
+
+describe("Functions.group with Callables and Document Triggers", () => {
+  test("exports each member by its kind under the group's name", () => {
+    expect(Functions.group(PostFunctions, PostFunctionsLive)).type.toBe<{
+      readonly posts: {
+        readonly edit: Functions.CallableExport;
+        readonly onCreated: Functions.DocumentTriggerExport<typeof OnCreated>;
+      };
+    }>();
+  });
+
+  test("a Live without the trigger's handler is a type error", () => {
+    const EditOnly = Callable.toLayer(PostFunctions, "edit", () => Effect.void);
+    // @ts-expect-error not assignable
+    Functions.group(PostFunctions, EditOnly);
+  });
+
+  test("a Live without the Callable's handler is a type error", () => {
+    const TriggerOnly = DocumentTrigger.toLayer(PostFunctions, "onCreated", () => Effect.void);
+    // @ts-expect-error not assignable
+    Functions.group(PostFunctions, TriggerOnly);
+  });
+
+  test("the handler of the trigger in no group doesn't serve the member", () => {
+    const Live = Layer.mergeAll(
+      Callable.toLayer(PostFunctions, "edit", () => Effect.void),
+      DocumentTrigger.toLayer(OnCreated, () => Effect.void),
+    );
+    // @ts-expect-error not assignable
+    Functions.group(PostFunctions, Live);
+  });
+
+  test("takes each member's options by its kind", () => {
+    Functions.group(PostFunctions, PostFunctionsLive, {
+      edit: { region: "europe-west1", cors: true },
+      onCreated: { region: "europe-west1", retry: true },
+    });
+  });
+
+  test("a Callable member doesn't take retry", () => {
+    // @ts-expect-error Object literal may only specify known properties
+    Functions.group(PostFunctions, PostFunctionsLive, { edit: { retry: true } });
+  });
+
+  test("a trigger member doesn't take cors or the document", () => {
+    // @ts-expect-error Object literal may only specify known properties
+    Functions.group(PostFunctions, PostFunctionsLive, { onCreated: { cors: true } });
+    // @ts-expect-error Object literal may only specify known properties
+    Functions.group(PostFunctions, PostFunctionsLive, { onCreated: { document: "posts/{id}" } });
+  });
+});

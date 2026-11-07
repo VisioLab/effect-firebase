@@ -1,6 +1,7 @@
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import type * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
+import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as DocumentTrigger from "@visiolab/effect-firebase/functions/DocumentTrigger";
 import * as FunctionGroup from "@visiolab/effect-firebase/functions/FunctionGroup";
 import { Context, Effect, type Layer, Schema } from "effect";
@@ -98,5 +99,48 @@ describe("DocumentTrigger.serve", () => {
         DocumentTrigger.HandlerFor<typeof OnPostCreated>
       >
     >();
+  });
+});
+
+const EditPost = Callable.make("edit", { payload: { title: Schema.String } });
+
+class PostFunctions extends FunctionGroup.make("posts").add(EditPost, OnPostCreated) {}
+
+describe("DocumentTrigger.toLayer in a group", () => {
+  test("provides the member's handler in the group, and requires what the handler needs", () => {
+    const live = DocumentTrigger.toLayer(PostFunctions, "onPostCreated", (event) => {
+      expect(event).type.toBe<DocumentTrigger.Created<typeof Posts>>();
+      return Effect.asVoid(Effect.service(Clock));
+    });
+    expect(live).type.toBe<
+      Layer.Layer<DocumentTrigger.Handler<"posts", "onPostCreated">, never, Clock>
+    >();
+  });
+
+  test("doesn't take a Callable member", () => {
+    // @ts-expect-error not assignable to parameter of type '"onPostCreated"'
+    DocumentTrigger.toLayer(PostFunctions, "edit", () => Effect.void);
+  });
+});
+
+describe("DocumentTrigger.serve in a group", () => {
+  test("requires the member's handler in the group and runs its event", () => {
+    expect(DocumentTrigger.serve(PostFunctions, "onPostCreated")).type.toBe<
+      Effect.Effect<
+        (event: DocumentTrigger.Created<typeof Posts>) => Effect.Effect<void, unknown>,
+        never,
+        DocumentTrigger.Handler<"posts", "onPostCreated">
+      >
+    >();
+  });
+});
+
+describe("DocumentTrigger.deployment in a group", () => {
+  test("takes the name of a trigger member only", () => {
+    expect(
+      DocumentTrigger.deployment(PostFunctions, "onPostCreated"),
+    ).type.toBe<DocumentTrigger.Deployment>();
+    // @ts-expect-error not assignable to parameter of type '"onPostCreated"'
+    DocumentTrigger.deployment(PostFunctions, "edit");
   });
 });
