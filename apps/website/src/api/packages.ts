@@ -18,6 +18,7 @@ export const packages: ReadonlyArray<Package> = [
   { dir: "effect-firebase", name: "@visiolab/effect-firebase" },
   { dir: "admin", name: "@visiolab/effect-firebase-admin" },
   { dir: "client", name: "@visiolab/effect-firebase-client" },
+  { dir: "functions", name: "@visiolab/effect-firebase-functions" },
 ];
 
 export const packageRoot = (dir: string): string => resolve("../../packages", dir);

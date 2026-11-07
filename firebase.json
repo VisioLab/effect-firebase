@@ -1,7 +1,14 @@
 {
+  "functions": {
+    "source": "packages/functions/tests/fixture",
+    "runtime": "nodejs22",
+    "ignore": ["node_modules", "src"]
+  },
   "emulators": {
     "singleProjectMode": false,
     "firestore": { "host": "127.0.0.1", "port": 8080 },
+    "auth": { "host": "127.0.0.1", "port": 9099 },
+    "functions": { "host": "127.0.0.1", "port": 5001 },
     "ui": { "enabled": false }
   }
 }

@@ -35,6 +35,13 @@
     "./firestore/Patch": "./src/firestore/Patch.ts",
     "./firestore/QuerySnapshot": "./src/firestore/QuerySnapshot.ts",
     "./firestore/Timestamp": "./src/firestore/Timestamp.ts",
+    "./functions": "./src/functions/index.ts",
+    "./functions/Callable": "./src/functions/Callable.ts",
+    "./functions/CallableError": "./src/functions/CallableError.ts",
+    "./functions/CallableGroup": "./src/functions/CallableGroup.ts",
+    "./functions/CallableMiddleware": "./src/functions/CallableMiddleware.ts",
+    "./functions/CallableRequest": "./src/functions/CallableRequest.ts",
+    "./functions/Caller": "./src/functions/Caller.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
@@ -55,6 +62,13 @@
       "./firestore/Patch": "./dist/firestore/Patch.mjs",
       "./firestore/QuerySnapshot": "./dist/firestore/QuerySnapshot.mjs",
       "./firestore/Timestamp": "./dist/firestore/Timestamp.mjs",
+      "./functions": "./dist/functions/index.mjs",
+      "./functions/Callable": "./dist/functions/Callable.mjs",
+      "./functions/CallableError": "./dist/functions/CallableError.mjs",
+      "./functions/CallableGroup": "./dist/functions/CallableGroup.mjs",
+      "./functions/CallableMiddleware": "./dist/functions/CallableMiddleware.mjs",
+      "./functions/CallableRequest": "./dist/functions/CallableRequest.mjs",
+      "./functions/Caller": "./dist/functions/Caller.mjs",
       "./package.json": "./package.json"
     },
     "registry": "https://npm.pkg.github.com"

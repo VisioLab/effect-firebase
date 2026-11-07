@@ -64,3 +64,37 @@ _Avoid_: untyped reference, reference value, raw reference
 **Shared Field**:
 A field every member of a union holds, and so one a document holding the union can be patched at without knowing which member it holds, with a value every member accepts and stores the same way.
 _Avoid_: common field
+
+### Callables
+
+**Callable**:
+A server function the client calls by name, declared once as its name, its **Payload**, what it succeeds with and the errors it can fail with. Its name is unique within its **Callable Group**. A Callable in no group is deployed under its own name.
+_Avoid_: rpc, endpoint, callable function (for the declaration)
+
+**Callable Group**:
+A named set of **Callables** whose functions deploy under the group's name as a prefix. A Callable may be added to more than one group, and each group serves and implements it separately. **Callable Middleware** attached to a group applies to all its Callables. Groups do not nest.
+_Avoid_: api, router, namespace
+
+**Payload**:
+What the client sends when calling a **Callable**.
+_Avoid_: request, input, data
+
+**Callable Handler**:
+What runs on the server to answer calls to one **Callable**.
+_Avoid_: implementation, resolver
+
+**Callable Function**:
+The deployed Firebase function that serves exactly one **Callable**.
+_Avoid_: cloud function, onCall export
+
+**Callable Client**:
+What the app uses to call the **Callables** of one **Callable Group**, or one Callable in no group, all in one region.
+_Avoid_: stub, proxy, rpc client
+
+**Callable Middleware**:
+What runs around every call to the **Callables** it is attached to, before the **Payload** is read. It can reject the call, or tell the **Callable Handler** more about it, and the errors it can fail with are part of each Callable it is attached to.
+_Avoid_: guard, interceptor
+
+**Caller**:
+The signed-in user making a call to a **Callable**.
+_Avoid_: user, current user, auth

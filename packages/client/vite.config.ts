@@ -6,6 +6,12 @@ export default defineConfig({
       // Read by the tests to point the client SDK at the emulator, which it
       // takes per database rather than from the environment.
       FIRESTORE_EMULATOR_HOST: process.env["FIRESTORE_EMULATOR_HOST"] ?? "127.0.0.1:8080",
+      // The same for the Functions emulator, which serves the fixture of
+      // `@visiolab/effect-firebase-functions` to the `CallableClient` tests.
+      FUNCTIONS_EMULATOR_HOST: process.env["FUNCTIONS_EMULATOR_HOST"] ?? "127.0.0.1:5001",
+      // The same for the Auth emulator, which signs callers in for the
+      // `CallableClient` tests of Callables behind `Authenticated`.
+      FIREBASE_AUTH_EMULATOR_HOST: process.env["FIREBASE_AUTH_EMULATOR_HOST"] ?? "127.0.0.1:9099",
     },
     globalSetup: ["./tests/emulator.ts"],
   },

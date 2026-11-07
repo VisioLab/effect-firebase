@@ -13,6 +13,9 @@ export default async function (project: TestProject) {
   try {
     await fetch(`http://${host}/`, { signal: AbortSignal.timeout(2000) });
   } catch {
+    // Known issue: the reporter prints `TypeError: code.charCodeAt is not a
+    // function` in place of this message. Vite's module runner fails to map
+    // this file's stack trace through its source map.
     throw new Error(
       `The Firestore emulator is not running at ${host}. Start it with \`vp run emulator\` from the repository root.`,
     );

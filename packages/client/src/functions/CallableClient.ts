@@ -1,0 +1,302 @@
+/**
+ * Callable Clients: call the Callables a server serves, with the Payload, the
+ * success value and the errors typed by their contract.
+ *
+ * A client calls through the {@link ClientFunctions.ClientFunctions} in
+ * context, so the region and the emulator are set once, where that is
+ * provided.
+ *
+ * @example Calling a Callable
+ * ```ts
+ * import { Effect, Layer, Schema } from "effect";
+ * import { Callable } from "@visiolab/effect-firebase/functions";
+ * import { App } from "@visiolab/effect-firebase-client/app";
+ * import { CallableClient, ClientFunctions } from "@visiolab/effect-firebase-client/functions";
+ *
+ * const Greet = Callable.make("greet", {
+ *   payload: { name: Schema.String },
+ *   success: Schema.String,
+ * });
+ *
+ * const program = Effect.gen(function* () {
+ *   const { greet } = yield* CallableClient.make(Greet);
+ *   const message = yield* greet({ name: "Ada" });
+ *   yield* Effect.log(message);
+ * });
+ *
+ * const FunctionsLive = ClientFunctions.layer().pipe(
+ *   Layer.provide(App.layer({ apiKey: "<api key>", projectId: "my-project", appId: "<app id>" })),
+ * );
+ *
+ * program.pipe(Effect.provide(FunctionsLive));
+ * ```
+ *
+ * @stability unstable
+ * @since 0.2.0
+ */
+import { Effect, Schema } from "effect";
+import * as Callable from "@visiolab/effect-firebase/functions/Callable";
+import * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
+import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
+import * as Sdk from "firebase/functions";
+import * as ClientFunctions from "./ClientFunctions.ts";
+
+/**
+ * A client of one Callable: a function from its Payload to an Effect of its
+ * success value, failing with its declared errors or a `CallableError`.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export type Method<C extends Callable.Any> = (
+  payload: Callable.Payload<C>,
+) => Effect.Effect<Callable.Success<C>, Callable.Error<C> | CallableError.CallableError>;
+
+/**
+ * What {@link make} returns: one {@link Method} per Callable, keyed by the
+ * Callable's name. For a Callable Group, one per member.
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.2.0
+ */
+export type Client<T extends Callable.Any | CallableGroup.Any> = {
+  readonly [C in Members<T> as C["name"]]: Method<C>;
+};
+
+/**
+ * The Callables a client of `T` calls: the members of a Callable Group, as
+ * the group serves them, or the Callable itself.
+ *
+ * **Details**
+ *
+ * A member carries the group's middleware, so its errors are in the member's
+ * {@link Method}.
+ *
+ * @stability unstable
+ * @category type-level
+ * @since 0.2.0
+ */
+export type Members<T extends Callable.Any | CallableGroup.Any> = T extends CallableGroup.Any
+  ? CallableGroup.Names<T> extends infer Name
+    ? Name extends string
+      ? CallableGroup.Member<T, Name>
+      : never
+    : never
+  : T;
+
+/** The ` [<status>]` the SDK appends to the message of an error built from an answer. */
+const statusSuffix = / \[(\d+)\]$/;
+
+/**
+ * The messages of the SDK's errors for an answer it can't read: not a JSON
+ * object, or one without `data` or `error`.
+ */
+const malformedAnswer = /Response is (?:not valid JSON object|missing data field)\.$/;
+
+/**
+ * The client function of `callable`, served as `deployment`. `errors` are the
+ * schemas of every error it can be answered with, its middleware's included.
+ */
+const method = (
+  functions: Sdk.Functions,
+  callable: Callable.Any,
+  deployment: Callable.Deployment,
+  errors: ReadonlyArray<Schema.Top>,
+) => {
+  const deployedName = deployment.name;
+  const span = { kind: "client", attributes: deployment.attributes } as const;
+  const call = Sdk.httpsCallable(functions, deployedName);
+  const encode = Schema.encodeUnknownEffect(
+    Schema.toCodecJson(callable.payload as Schema.Codec<unknown>),
+  );
+  const decode = Schema.decodeUnknownEffect(
+    Schema.toCodecJson(callable.success as Schema.Codec<unknown>),
+  );
+  const fail = (reason: CallableError.Reason) =>
+    new CallableError.CallableError({ callable: deployedName, reason });
+  const run = Effect.fn(
+    `CallableClient.${deployedName}`,
+    span,
+  )(function* (payload: unknown) {
+    const data = yield* encode(payload).pipe(
+      Effect.mapError((cause) => fail(new CallableError.EncodeError({ cause }))),
+    );
+    const result = yield* Effect.tryPromise({
+      try: () => call(data),
+      catch: (error) => error,
+    }).pipe(Effect.catch(decodeFailure));
+    return yield* decode(result.data).pipe(
+      Effect.mapError((cause) => fail(new CallableError.DecodeError({ cause }))),
+    );
+  });
+
+  /**
+   * Turns what the SDK threw into the declared error it carries, or into a
+   * `CallableError`.
+   */
+  const decodeFailure = (error: unknown): Effect.Effect<never, unknown> => {
+    if (!(error instanceof Sdk.FunctionsError)) {
+      return Effect.fail(fail(new CallableError.TransportError({ cause: error })));
+    }
+    // The SDK appends the HTTP status to the message of an error built from
+    // an answer, and status 0 to a network failure. The errors it makes
+    // itself, such as its timeout or a cancellation, carry no status.
+    const status = statusSuffix.exec(error.message)?.[1];
+    if (status === undefined || status === "0") {
+      // An answer arrived, but not one the SDK could read.
+      if (malformedAnswer.test(error.message)) {
+        return Effect.fail(fail(new CallableError.DecodeError({ cause: error })));
+      }
+      return Effect.fail(fail(new CallableError.TransportError({ cause: error })));
+    }
+    const code = error.code.replace(/^functions\//, "") as CallableError.ErrorCode;
+    const candidates = errors.filter((schema) => Callable.getErrorCode(schema) === code);
+    if (candidates.length === 0 || error.details === undefined) {
+      return Effect.fail(
+        fail(
+          new CallableError.ResponseError({
+            code,
+            message: error.message.replace(statusSuffix, ""),
+            details: error.details,
+          }),
+        ),
+      );
+    }
+    return Schema.decodeUnknownEffect(
+      Schema.toCodecJson(Schema.Union(candidates) as unknown as Schema.Codec<unknown>),
+    )(error.details).pipe(
+      Effect.mapError((cause) => fail(new CallableError.DecodeError({ cause }))),
+      Effect.flatMap(Effect.fail),
+    );
+  };
+  return run;
+};
+
+/**
+ * Builds the client of a Callable in no group, or of every member of a
+ * Callable Group.
+ *
+ * **When to use**
+ *
+ * Use to call Callables from the browser or any other client SDK program.
+ *
+ * **Details**
+ *
+ * Returns a record keyed by Callable name: `const { greet } = yield*
+ * CallableClient.make(Greet)` for a Callable in no group, and
+ * `const users = yield* CallableClient.make(Users)` for a group, where
+ * `users.create` calls `users-create`. The region of the
+ * {@link ClientFunctions.ClientFunctions} in context is bound once, here.
+ *
+ * Build a member's client from its group. A client built from the member on
+ * its own calls the name without the group's prefix, which the server doesn't
+ * export, and fails with `not-found`. Nothing checks this at runtime.
+ *
+ * Each call encodes the Payload with `Schema.toCodecJson`, sends it as is
+ * through the SDK's `httpsCallable`, and decodes the answer the same way.
+ *
+ * When the server answers with an error, the client strips the `functions/`
+ * prefix from its code and decodes its `details` against the declared errors
+ * that carry that code. It fails with the decoded error, so `Effect.catchTag`
+ * recovers from it. Every other failure is a
+ * {@link CallableError.CallableError}:
+ *
+ * - `EncodeError` when the Payload doesn't encode. Nothing is sent.
+ * - `DecodeError` when the success value doesn't decode, the `details` of
+ *   an error don't decode against the declared errors with its code, as after
+ *   the server and the client drift apart, or the answer isn't one the SDK
+ *   can read: not a JSON object, or one without `data`.
+ * - `ResponseError` when the server answers with a code no declared error
+ *   carries, or without details, as on a defect. `not-found` usually means a
+ *   wrong region, or a name the server doesn't export, such as a group's
+ *   member called without its group. A `deadline-exceeded` the server sends
+ *   is a `ResponseError` too.
+ * - `TransportError` when no answer arrived: a network failure, the SDK's
+ *   own timeout (`deadline-exceeded`), a cancelled call, or a deleted
+ *   Functions instance. The SDK appends the HTTP status of an answer to its
+ *   error's message as ` [<status>]`, and status 0 to a network failure. The
+ *   client treats an error without that suffix, or with status 0, as no
+ *   answer.
+ *
+ * Each call runs in a `kind: "client"` span named `CallableClient.<deployed
+ * name>`, such as `CallableClient.users-create`, with the attributes
+ * `rpc.system: "firebase_callable"`, `rpc.method` (the Callable's name),
+ * `rpc.service` (the group, for a member) and `faas.name` (the deployed name).
+ * The span isn't linked to the server's span of the same call: the two land in
+ * separate traces. It carries no uid; add one with `Effect.annotateCurrentSpan`
+ * around the call when you want it.
+ *
+ * @example Injecting a client as a service
+ * ```ts
+ * import { Context, Layer, Schema } from "effect";
+ * import { Callable } from "@visiolab/effect-firebase/functions";
+ * import { CallableClient } from "@visiolab/effect-firebase-client/functions";
+ *
+ * const Greet = Callable.make("greet", {
+ *   payload: { name: Schema.String },
+ *   success: Schema.String,
+ * });
+ *
+ * class GreetClient extends Context.Service<GreetClient, CallableClient.Client<typeof Greet>>()(
+ *   "app/GreetClient",
+ * ) {
+ *   static readonly layer = Layer.effect(GreetClient, CallableClient.make(Greet));
+ * }
+ * ```
+ *
+ * @example Calling the members of a group
+ * ```ts
+ * import { Effect, Schema } from "effect";
+ * import { Callable, CallableGroup } from "@visiolab/effect-firebase/functions";
+ * import { CallableClient } from "@visiolab/effect-firebase-client/functions";
+ *
+ * const CreateUser = Callable.make("create", {
+ *   payload: { name: Schema.String },
+ *   success: Schema.String,
+ * });
+ *
+ * class Users extends CallableGroup.make("users").add(CreateUser) {}
+ *
+ * const program = Effect.gen(function* () {
+ *   const users = yield* CallableClient.make(Users);
+ *   // Calls `users-create`.
+ *   return yield* users.create({ name: "Ada" });
+ * });
+ * ```
+ *
+ * @see {@link ClientFunctions.ClientFunctions} for the region and emulator it calls
+ * @see {@link CallableFunction.make} for serving a Callable in no group
+ * @see {@link CallableFunction.group} for serving the members of a group
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.2.0
+ */
+export const make = <T extends Callable.Any | CallableGroup.Any>(
+  target: T,
+): Effect.Effect<Client<T>, never, ClientFunctions.ClientFunctions> =>
+  Effect.map(Effect.service(ClientFunctions.ClientFunctions), ({ instance }) => {
+    if (!CallableGroup.isCallableGroup(target)) {
+      const callable = target as Callable.Any;
+      return {
+        [callable.name]: method(
+          instance,
+          callable,
+          Callable.deployment(callable),
+          Callable.errorSchemas(callable),
+        ),
+      } as Client<T>;
+    }
+    const client: Record<string, ReturnType<typeof method>> = {};
+    for (const [name, callable] of Object.entries(target.callables)) {
+      client[name] = method(
+        instance,
+        callable,
+        Callable.deployment(target, name),
+        Callable.errorSchemas(target, name),
+      );
+    }
+    return client as Client<T>;
+  });
