@@ -12,7 +12,7 @@ import { emulator } from "./emulator.ts";
 // suite apart from the others in the package, and its Auth apart from theirs.
 const AppLive = App.layer(
   { apiKey: "demo", projectId: "demo-effect-firebase" },
-  "callable-client-group-middleware",
+  "callable-client-group-member-middleware",
 );
 const FunctionsLive = ClientFunctions.layer({ emulator }).pipe(Layer.provideMerge(AppLive));
 
@@ -27,13 +27,12 @@ const auth = Effect.map(Effect.service(App.App), (app) => {
   return auth;
 });
 
-describe("CallableClient with group middleware", () => {
-  it.effect("fails a signed-out call to each member of a group behind Authenticated", () =>
+describe("CallableClient with middleware on the members of a group", () => {
+  it.effect("fails a signed-out call to each member that attaches Authenticated", () =>
     Effect.gen(function* () {
       const signedIn = yield* auth;
       yield* Effect.promise(() => signOut(signedIn));
       const accounts = yield* CallableClient.make(Accounts);
-      // `get` was added before the middleware, `me` after it.
       const errors = yield* Effect.all([
         Effect.flip(accounts.get({ id: "ada" })),
         Effect.flip(accounts.me()),
@@ -43,16 +42,18 @@ describe("CallableClient with group middleware", () => {
     }).pipe(Effect.provide(FunctionsLive)),
   );
 
-  it.effect("accepts a signed-out call to the same Callable in a group without it", () =>
-    Effect.gen(function* () {
-      const signedIn = yield* auth;
-      yield* Effect.promise(() => signOut(signedIn));
-      const admins = yield* CallableClient.make(Admins);
-      expect(yield* admins.get({ id: "ada" })).toEqual({ id: "ada", servedBy: "admins" });
-    }).pipe(Effect.provide(FunctionsLive)),
+  it.effect(
+    "accepts a signed-out call to the same Callable without the middleware in another group",
+    () =>
+      Effect.gen(function* () {
+        const signedIn = yield* auth;
+        yield* Effect.promise(() => signOut(signedIn));
+        const admins = yield* CallableClient.make(Admins);
+        expect(yield* admins.get({ id: "ada" })).toEqual({ id: "ada", servedBy: "admins" });
+      }).pipe(Effect.provide(FunctionsLive)),
   );
 
-  it.effect("serves a signed-in call, with the Caller the group middleware provides", () =>
+  it.effect("serves a signed-in call, with the Caller the member's middleware provides", () =>
     Effect.gen(function* () {
       const signedIn = yield* auth;
       const { user } = yield* Effect.promise(() => signInAnonymously(signedIn));

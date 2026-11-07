@@ -96,8 +96,8 @@ export interface Callable<
    *
    * Returns a new Callable. The middleware runs around every call, before
    * the Payload is decoded. A middleware attached later wraps the ones
-   * attached before it, so it can provide what they require. The middleware
-   * of a group the Callable is served in wraps all of them.
+   * attached before it, so it can provide what they require. A Callable
+   * Group carries no middleware, so a member of a group runs only its own.
    *
    * Its `provides` are removed from what the handler's Layer requires, and
    * its errors join the Callable's error union. Its implementation is
@@ -106,11 +106,9 @@ export interface Callable<
    *
    * The Payload is decoded inside the chain, so a middleware that catches
    * every failure also catches a Payload that doesn't decode, and the caller
-   * then no longer gets `invalid-argument`. The same middleware on the
-   * Callable and on its group runs twice.
+   * then no longer gets `invalid-argument`.
    *
    * @see {@link CallableMiddleware.Service} for declaring a middleware
-   * @see {@link CallableGroup.CallableGroup.middleware} for attaching one to every member of a group
    */
   middleware<I extends CallableMiddleware.AnyId, S>(
     middleware: Context.Key<I, S>,
@@ -629,8 +627,7 @@ export const serve: {
  * a member of a {@link CallableGroup.CallableGroup}.
  *
  * Requires the handler, every middleware implementation, and what the chain
- * still requires. For a member of a group, that includes the group's
- * middleware, which runs outside the Callable's own. A middleware whose
+ * still requires. A middleware whose
  * `requires` no middleware outside it provides leaves that requirement here,
  * so a chain in the wrong order is a type error where the Layers are
  * provided.
@@ -776,7 +773,7 @@ export const getErrorCode: (schema: Schema.Top) => CallableError.ErrorCode = int
 export const errorSchemas: {
   (callable: Any): ReadonlyArray<Schema.Top>;
   <G extends CallableGroup.Any>(group: G, name: CallableGroup.Names<G>): ReadonlyArray<Schema.Top>;
-} = ((...args: ReadonlyArray<unknown>) => internal.errorSchemas(...target(args))) as never;
+} = ((...args: ReadonlyArray<unknown>) => internal.errorSchemas(target(args)[1])) as never;
 
 /**
  * Where a Callable is served: the name it is deployed under and the

@@ -43,7 +43,6 @@ import type { unhandled } from "effect/Types";
 import type * as Callable from "./Callable.ts";
 // Only the documentation links to it.
 // oxlint-disable-next-line no-unused-vars
-import type * as CallableGroup from "./CallableGroup.ts";
 import type * as CallableRequest from "./CallableRequest.ts";
 import * as internal from "./internal/callableMiddleware.ts";
 
@@ -254,7 +253,6 @@ export type ServiceClass<
  * ```
  *
  * @see {@link Callable.Callable.middleware} for attaching it to a Callable
- * @see {@link CallableGroup.CallableGroup.middleware} for attaching it to every member of a group
  * @see {@link Caller.Authenticated} for the built-in middleware
  *
  * @stability unstable

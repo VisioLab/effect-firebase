@@ -104,18 +104,18 @@ export const { whoAmI } = CallableFunction.make(
 - `CallableFunction` provides no middleware itself, so a `Live` without an implementation is a type error.
 - Run a handler in process, with its chain and without the emulator, through `Callable.handler(WhoAmI)`. Pass a `rawRequest` built with `HttpServerRequest.fromWeb` to test a middleware that reads headers or the address; left out, it is a JSON `POST` of the Payload to `http://localhost/<deployed name>`.
 
-### Group middleware
+### Middleware in a group
 
-`.middleware(M)` on a Callable Group attaches the middleware to every member, including members added after it:
+A Callable Group carries no middleware. Attach a middleware to each member that needs it:
 
 ```ts
 import { Effect, Layer, Schema } from "effect";
 import { Callable, CallableGroup, Caller } from "@visiolab/effect-firebase/functions";
 import { CallableFunction } from "@visiolab/effect-firebase-functions/https";
 
-const Me = Callable.make("me", { success: Schema.String });
+const Me = Callable.make("me", { success: Schema.String }).middleware(Caller.Authenticated);
 
-class Accounts extends CallableGroup.make("accounts").middleware(Caller.Authenticated).add(Me) {}
+class Accounts extends CallableGroup.make("accounts").add(Me) {}
 
 export const { accounts } = CallableFunction.group(
   Accounts,
@@ -127,11 +127,6 @@ export const { accounts } = CallableFunction.group(
   ),
 );
 ```
-
-- Group middleware runs outside each member's own middleware, so a member's middleware may require what the group's provides.
-- It is stored on the group, not copied onto the members. The same Callable in another group, or on its own, is served without it.
-- Its errors join each member's errors in `CallableClient.make(Accounts)`, and `Live` must provide its implementation.
-- Middleware isn't deduplicated: the same middleware on a group and on one of its members runs twice for that member.
 
 ## Tracing
 

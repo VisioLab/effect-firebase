@@ -98,7 +98,7 @@ What the app uses to call the **Callables** of one **Function Group**, or one Ca
 _Avoid_: stub, proxy, rpc client
 
 **Callable Middleware**:
-What runs around every call to the **Callables** it is attached to, before the **Payload** is read. It can reject the call, or tell the **Callable Handler** more about it, and the errors it can fail with are part of each Callable it is attached to.
+What runs around every call to the **Callables** it is attached to, before the **Payload** is read. It is attached to each Callable on its own; a **Function Group** carries none. It can reject the call, or tell the **Callable Handler** more about it, and the errors it can fail with are part of each Callable it is attached to.
 _Avoid_: guard, interceptor
 
 **Caller**:

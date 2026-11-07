@@ -1,7 +1,6 @@
 /** @internal */
 import { Pipeable } from "effect";
 import type * as Callable from "./callable.ts";
-import type * as CallableMiddleware from "./callableMiddleware.ts";
 
 /** @internal */
 export const TypeId = "~@visiolab/effect-firebase/functions/CallableGroup";
@@ -10,8 +9,6 @@ export const TypeId = "~@visiolab/effect-firebase/functions/CallableGroup";
 export interface Fields {
   readonly identifier: string;
   readonly callables: Readonly<Record<string, Callable.Fields>>;
-  /** The group's own middleware, in the order it was attached. */
-  readonly middlewares: ReadonlySet<CallableMiddleware.Key>;
 }
 
 /** @internal */
@@ -30,14 +27,7 @@ const Proto = {
       }
       callables[callable.name] = callable;
     }
-    return make({ identifier: this.identifier, callables, middlewares: this.middlewares });
-  },
-  middleware(this: Fields, middleware: CallableMiddleware.Key) {
-    return make({
-      identifier: this.identifier,
-      callables: this.callables,
-      middlewares: new Set([...this.middlewares, middleware]),
-    });
+    return make({ identifier: this.identifier, callables });
   },
   pipe() {
     return Pipeable.pipeArguments(this, arguments);

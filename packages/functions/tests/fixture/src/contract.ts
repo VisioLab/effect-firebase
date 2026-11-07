@@ -47,17 +47,17 @@ export class Users extends CallableGroup.make("users").add(CreateUser, GetUser, 
 
 export class Admins extends CallableGroup.make("admins").add(GetUser) {}
 
-/** Answers with the uid of the Caller that group middleware provides. */
-export const Me = Callable.make("me", { success: Schema.String });
+/** Answers with the uid of the Caller that `Authenticated` provides. */
+export const Me = Callable.make("me", { success: Schema.String }).middleware(Caller.Authenticated);
 
 /**
- * {@link GetUser} again, behind `Authenticated` as group middleware, and
- * {@link Me}, added after the middleware.
+ * {@link GetUser} again, behind `Authenticated`, and {@link Me}. A group
+ * carries no middleware, so each member attaches its own.
  */
-export class Accounts extends CallableGroup.make("accounts")
-  .add(GetUser)
-  .middleware(Caller.Authenticated)
-  .add(Me) {}
+export class Accounts extends CallableGroup.make("accounts").add(
+  GetUser.middleware(Caller.Authenticated),
+  Me,
+) {}
 
 /** What a member of `workers` answers: the worker that built its Layer, and how often. */
 const BuiltBy = Schema.Struct({ target: Schema.String, builds: Schema.Finite });

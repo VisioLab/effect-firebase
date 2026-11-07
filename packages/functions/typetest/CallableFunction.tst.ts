@@ -135,10 +135,10 @@ describe("CallableFunction.make with middleware", () => {
   });
 });
 
-class Signed extends CallableGroup.make("signed")
-  .add(GetUser)
-  .middleware(Caller.Authenticated)
-  .add(CreateUser) {}
+class Signed extends CallableGroup.make("signed").add(
+  GetUser,
+  CreateUser.middleware(Caller.Authenticated),
+) {}
 
 const SignedLive = Layer.mergeAll(
   Callable.toLayer(Signed, "create", () =>
@@ -147,8 +147,8 @@ const SignedLive = Layer.mergeAll(
   Callable.toLayer(Signed, "get", ({ id }) => Effect.succeed(id)),
 );
 
-describe("CallableFunction.group with group middleware", () => {
-  test("a Live with the handlers and the group middleware's implementation is accepted", () => {
+describe("CallableFunction.group with a member's middleware", () => {
+  test("a Live with the handlers and the member's middleware implementation is accepted", () => {
     expect(
       CallableFunction.group(Signed, Layer.merge(SignedLive, Caller.Authenticated.layer)),
     ).type.toBe<{
@@ -159,7 +159,7 @@ describe("CallableFunction.group with group middleware", () => {
     }>();
   });
 
-  test("a Live without the group middleware's implementation is a type error", () => {
+  test("a Live without the member's middleware implementation is a type error", () => {
     // @ts-expect-error not assignable
     CallableFunction.group(Signed, SignedLive);
   });
@@ -186,7 +186,7 @@ const AuditedLive = Callable.toLayer(Audited, () => Effect.void);
 const UserAgent = Callable.make("userAgent", { success: Schema.String });
 const UserAgentLive = Callable.toLayer(UserAgent, () => userAgent);
 
-class Reading extends CallableGroup.make("reading").add(UserAgent).middleware(ReadsRequest) {}
+class Reading extends CallableGroup.make("reading").add(UserAgent.middleware(ReadsRequest)) {}
 const ReadingLive = Callable.toLayer(Reading, "userAgent", () => userAgent);
 
 describe("CallableRequest.rawRequest, provided per call", () => {
@@ -202,7 +202,7 @@ describe("CallableRequest.rawRequest, provided per call", () => {
     }>();
   });
 
-  test("a group's handler and middleware that read it need no Live to provide it", () => {
+  test("a group member's handler and middleware that read it need no Live to provide it", () => {
     expect(CallableFunction.group(Reading, Layer.merge(ReadingLive, ReadsRequestLive))).type.toBe<{
       readonly reading: { readonly userAgent: CallableFunction.Export };
     }>();

@@ -128,32 +128,14 @@ export const spanAttributes = (
 });
 
 /**
- * The middleware of `callable` in `group`, or in no group, in the order the
- * chain applies it: innermost first. The group's middleware wraps the
- * Callable's own.
- *
- * @internal
- */
-export const middlewares = (
-  group: CallableGroup.Fields | undefined,
-  callable: Fields,
-): ReadonlyArray<CallableMiddleware.Key> => [
-  ...callable.middlewares,
-  ...(group === undefined ? [] : group.middlewares),
-];
-
-/**
  * The schemas of every error a call to `callable` can be answered with: its
  * declared errors, then those of its middleware.
  *
  * @internal
  */
-export const errorSchemas = (
-  group: CallableGroup.Fields | undefined,
-  callable: Fields,
-): ReadonlyArray<Schema.Top> => [
+export const errorSchemas = (callable: Fields): ReadonlyArray<Schema.Top> => [
   ...callable.error,
-  ...middlewares(group, callable).flatMap((middleware) => [...middleware.error]),
+  ...[...callable.middlewares].flatMap((middleware) => [...middleware.error]),
 ];
 
 /**
@@ -202,9 +184,8 @@ export const chain = (group: CallableGroup.Fields | undefined, callable: Fields)
   Effect.gen(function* () {
     const handler = yield* Effect.service(handlerKey(group?.identifier, callable.name));
     const context = yield* Effect.context<never>();
-    const implementations = middlewares(group, callable).map((key) =>
-      Context.getUnsafe(context, key),
-    );
+    // Innermost first: a middleware attached later wraps the ones before it.
+    const implementations = [...callable.middlewares].map((key) => Context.getUnsafe(context, key));
     const decode = Schema.decodeUnknownEffect(codec(callable.payload));
     return (request: CallableRequest.CallableRequest): Effect.Effect<unknown, unknown> => {
       let effect: Effect.Effect<unknown, unknown> = decode(request.data).pipe(
@@ -225,7 +206,7 @@ export const chain = (group: CallableGroup.Fields | undefined, callable: Fields)
 export const serve = (group: CallableGroup.Fields | undefined, callable: Fields) =>
   Effect.map(chain(group, callable), (run) => {
     const encode = Schema.encodeUnknownEffect(codec(callable.success));
-    const schemas = errorSchemas(group, callable);
+    const schemas = errorSchemas(callable);
     const fail = (reason: CallableError.ResponseError) =>
       new CallableError.CallableError({
         callable: deployedName(group, callable),
