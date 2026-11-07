@@ -1,5 +1,6 @@
 /** @internal */
-import { Cause, Effect, Exit, Layer, Scope, type Context } from "effect";
+import { Cause, Context, Effect, Exit, Layer, Logger, Scope } from "effect";
+import * as CloudLogging from "../../logger/CloudLogging.ts";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import type * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
@@ -56,7 +57,7 @@ const logUnexpected =
   <E>(cause: Cause.Cause<E>) =>
     isAnswer(cause) || Cause.hasInterruptsOnly(cause)
       ? Effect.void
-      : Effect.logError(message, Cause.pretty(cause));
+      : Effect.logError(message, cause);
 
 /**
  * The `HttpsError` a failed call answers with. A failure is already the
@@ -117,6 +118,9 @@ export const onCall = <R, E>(
     const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {
         const services = yield* context.pipe(
+          // With no services to take a Tracer from, the call's spans and held
+          // logs go to the native Tracer, so the failure is logged in one trace.
+          Effect.onError(() => Effect.sync(() => deferred.attach(Context.empty()))),
           Effect.onError(logUnexpected("The Layer of a Callable failed to build")),
         );
         deferred.attach(services as Context.Context<never>);
@@ -132,6 +136,10 @@ export const onCall = <R, E>(
         );
       }).pipe(
         Effect.withSpan(`CallableFunction.${deployedName}`, { ...spanOptions, parent }),
+        // Logs from before `live` is built wait for the spans' real ids.
+        Effect.updateService(Logger.CurrentLoggers, (loggers) => deferred.holdLogs(loggers)),
+        // Beneath `live`: a logger that `live` provides replaces this one.
+        Effect.provide(CloudLogging.layer),
         Effect.withTracer(deferred.tracer),
       ),
       signal === undefined ? undefined : { signal },
