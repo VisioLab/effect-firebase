@@ -503,6 +503,7 @@ export type ChainServices<C extends Any, H> = H | Middleware<C> | MiddlewareServ
  * @see {@link make} for declaring the Callable
  * @see {@link serve} for running a call against the handler
  * @see {@link DocumentTrigger.toLayer} for implementing a Document Trigger
+ * @see {@link FunctionGroup.make} for collecting Functions under one prefix
  *
  * @stability unstable
  * @category constructors
@@ -724,6 +725,7 @@ export const handler: {
  * ```
  *
  * @see {@link getErrorCode} for reading the code back
+ * @see {@link make} for declaring the errors a Callable fails with
  *
  * @stability unstable
  * @category errors

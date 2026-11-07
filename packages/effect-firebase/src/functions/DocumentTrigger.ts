@@ -335,6 +335,8 @@ export type HandlerFunction<T extends Any, R> = (
  * @see {@link deleted} for running when a document is deleted
  * @see {@link written} for running on a create, an update and a delete alike
  * @see {@link toLayer} for implementing the trigger
+ * @see {@link createdEvent} for building its event in a test
+ * @see {@link FunctionGroup.make} for collecting Functions under one prefix
  * @see {@link Callable.make} for declaring a Function the client calls
  *
  * @stability unstable
@@ -380,6 +382,7 @@ export const created = <const Name extends string, C extends Collection.Any>(
  *
  * @see {@link created} for declaring the trigger
  * @see {@link serve} for running the event through the handler
+ * @see {@link Created} for the event it builds
  *
  * @stability unstable
  * @category constructors
@@ -427,6 +430,8 @@ export const createdEvent: <C extends Collection.Any>(input: {
  * @see {@link updated} for running when an existing document changes
  * @see {@link written} for running on a create, an update and a delete alike
  * @see {@link toLayer} for implementing the trigger
+ * @see {@link deletedEvent} for building its event in a test
+ * @see {@link FunctionGroup.make} for collecting Functions under one prefix
  *
  * @stability unstable
  * @category constructors
@@ -472,6 +477,7 @@ export const deleted = <const Name extends string, C extends Collection.Any>(
  *
  * @see {@link deleted} for declaring the trigger
  * @see {@link serve} for running the event through the handler
+ * @see {@link Deleted} for the event it builds
  *
  * @stability unstable
  * @category constructors
@@ -525,6 +531,8 @@ export const deletedEvent: <C extends Collection.Any>(input: {
  * @see {@link deleted} for running when a document is deleted
  * @see {@link written} for running on a create and a delete too
  * @see {@link toLayer} for implementing the trigger
+ * @see {@link updatedEvent} for building its event in a test
+ * @see {@link FunctionGroup.make} for collecting Functions under one prefix
  *
  * @stability unstable
  * @category constructors
@@ -571,6 +579,7 @@ export const updated = <const Name extends string, C extends Collection.Any>(
  *
  * @see {@link updated} for declaring the trigger
  * @see {@link serve} for running the event through the handler
+ * @see {@link Updated} for the event it builds
  *
  * @stability unstable
  * @category constructors
@@ -626,6 +635,8 @@ export const updatedEvent: <C extends Collection.Any>(input: {
  * @see {@link updated} for running on an update only, with both sides always there
  * @see {@link deleted} for running on a delete only, with the last data always there
  * @see {@link toLayer} for implementing the trigger
+ * @see {@link writtenEvent} for building its event in a test
+ * @see {@link FunctionGroup.make} for collecting Functions under one prefix
  *
  * @stability unstable
  * @category constructors
@@ -674,6 +685,7 @@ export const written = <const Name extends string, C extends Collection.Any>(
  *
  * @see {@link written} for declaring the trigger
  * @see {@link serve} for running the event through the handler
+ * @see {@link Written} for the event it builds
  *
  * @stability unstable
  * @category constructors
@@ -755,6 +767,7 @@ export const writtenEvent: <C extends Collection.Any>(input: {
  * @see {@link created}, {@link updated}, {@link deleted} and {@link written} for declaring the trigger
  * @see {@link serve} for running an event through the handler
  * @see {@link Callable.toLayer} for implementing a Callable
+ * @see {@link FunctionGroup.make} for collecting Functions under one prefix
  *
  * @stability unstable
  * @category constructors
@@ -840,6 +853,11 @@ export const toLayer: {
  * ```
  *
  * @see {@link toLayer} for providing the handler
+ * @see {@link createdEvent} for building the event of a `created` trigger
+ * @see {@link deletedEvent} for building the event of a `deleted` trigger
+ * @see {@link updatedEvent} for building the event of an `updated` trigger
+ * @see {@link writtenEvent} for building the event of a `written` trigger
+ * @see {@link Functions.make} for deploying the trigger through `firebase-functions`
  * @see {@link Callable.serve} for running a call to a Callable
  *
  * @stability unstable

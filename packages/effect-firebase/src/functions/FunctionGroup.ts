@@ -212,6 +212,8 @@ export const isFunctionGroup: (u: unknown) => u is Any = internal.isFunctionGrou
  *
  * @see {@link Callable.make} for declaring a Callable member
  * @see {@link Callable.toLayer} for implementing a Callable member
+ * @see {@link DocumentTrigger.created} for declaring a Document Trigger member
+ * @see {@link DocumentTrigger.toLayer} for implementing a Document Trigger member
  * @see {@link Functions.group} for deploying the group
  *
  * @stability unstable
