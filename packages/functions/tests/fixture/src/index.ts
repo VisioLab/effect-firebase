@@ -6,7 +6,7 @@
  */
 import { appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { Context, Data, Effect, Exit, Layer, Logger, Option, Tracer } from "effect";
+import { Cause, Context, Data, Effect, Exit, Layer, Logger, Option, Tracer } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import * as CallableFunction from "../../../src/https/CallableFunction.ts";
@@ -14,11 +14,13 @@ import { onCall } from "firebase-functions/v2/https";
 import {
   Admins,
   Banned,
+  BrokenBuild,
   Fail,
   Failing,
   Flaky,
   Greet,
   LayerBuilds,
+  Logged,
   Traced,
   Tracing,
   NameTaken,
@@ -156,11 +158,10 @@ export const { tracing } = CallableFunction.group(
 const serverLog = fileURLToPath(new URL("../../server.log", import.meta.url));
 
 const ServerLogLive = Logger.layer([
-  Logger.make(({ logLevel, message }) => {
-    appendFileSync(
-      serverLog,
-      `${JSON.stringify({ level: logLevel, message: (Array.isArray(message) ? message : [message]).map(String) })}\n`,
-    );
+  Logger.make(({ cause, logLevel, message }) => {
+    const values = (Array.isArray(message) ? message : [message]).map(String);
+    if (cause.reasons.length > 0) values.push(Cause.pretty(cause));
+    appendFileSync(serverLog, `${JSON.stringify({ level: logLevel, message: values })}\n`);
   }),
 ]);
 
@@ -230,4 +231,46 @@ export const { flaky } = CallableFunction.make(
           Effect.succeed({ builds }),
     ),
   ).pipe(Layer.provide(ConnectionLive)),
+);
+
+/**
+ * Where the fixture copies every `console.log` and `console.error` line, as
+ * JSON `{ method, line }`, so the tests can read what the Cloud Logging logger
+ * wrote. It lies outside the functions source, next to the tests.
+ */
+const consoleLog = fileURLToPath(new URL("../../console.log", import.meta.url));
+
+for (const method of ["log", "error"] as const) {
+  const write = console[method].bind(console);
+  console[method] = (...args: Array<unknown>) => {
+    appendFileSync(consoleLog, `${JSON.stringify({ method, line: args.map(String).join(" ") })}\n`);
+    write(...args);
+  };
+}
+
+export const { logged } = CallableFunction.make(
+  Logged,
+  Layer.mergeAll(
+    Callable.toLayer(
+      Logged,
+      Effect.log("Building logged").pipe(
+        Effect.as(({ callId }: Callable.Payload<typeof Logged>) =>
+          Effect.gen(function* () {
+            yield* Effect.annotateCurrentSpan("callId", callId);
+            yield* Effect.log("first");
+            yield* Effect.sleep("50 millis");
+            yield* Effect.log("second");
+          }).pipe(Effect.annotateLogs({ callId })),
+        ),
+      ),
+    ),
+    SpanRecorder,
+  ),
+);
+
+class LayerBroke extends Data.TaggedError("LayerBroke")<{ readonly message: string }> {}
+
+export const { brokenBuild } = CallableFunction.make(
+  BrokenBuild,
+  Callable.toLayer(BrokenBuild, Effect.fail(new LayerBroke({ message: "The Layer broke" }))),
 );

@@ -105,3 +105,9 @@ export const Traced = Callable.make("traced", { payload: { callId: Schema.String
 
 /** Serves {@link Traced} as `tracing-traced`, with a Layer whose build opens a span. */
 export class Tracing extends CallableGroup.make("tracing").add(Traced) {}
+
+/** Logs twice, with a pause between, annotated with the call's id. */
+export const Logged = Callable.make("logged", { payload: { callId: Schema.String } });
+
+/** Its Layer always fails to build. */
+export const BrokenBuild = Callable.make("brokenBuild");
