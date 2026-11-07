@@ -1,7 +1,9 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Option, Schema } from "effect";
+import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as Callable from "../../src/functions/Callable.ts";
 import * as CallableError from "../../src/functions/CallableError.ts";
+import * as CallableGroup from "../../src/functions/CallableGroup.ts";
 import * as CallableMiddleware from "../../src/functions/CallableMiddleware.ts";
 import * as CallableRequest from "../../src/functions/CallableRequest.ts";
 import * as Caller from "../../src/functions/Caller.ts";
@@ -72,6 +74,65 @@ describe("Callable.handler", () => {
       );
       yield* remind({ at: new Date("2026-11-06T12:00:00.000Z") }, {});
       expect(seen).toEqual([{ at: "2026-11-06T12:00:00.000Z" }]);
+    }),
+  );
+
+  it.effect("hands middleware the HTTP request it is given", () =>
+    Effect.gen(function* () {
+      const seen: Array<unknown> = [];
+      const Ping = Callable.make("ping").middleware(Recorder);
+      const ping = yield* Callable.handler(Ping).pipe(
+        Effect.provide(
+          Layer.merge(
+            Callable.toLayer(Ping, () => Effect.void),
+            Layer.succeed(Recorder, (effect) =>
+              Effect.flatMap(Effect.service(CallableRequest.CallableRequest), ({ rawRequest }) => {
+                seen.push(rawRequest.headers["user-agent"], rawRequest.remoteAddress);
+                return effect;
+              }),
+            ),
+          ),
+        ),
+      );
+      const rawRequest = HttpServerRequest.fromWeb(
+        new Request("https://example.com/ping", {
+          method: "POST",
+          headers: { "user-agent": "curl/8.7.1" },
+        }),
+      ).modify({ remoteAddress: Option.some("203.0.113.7") });
+      yield* ping(undefined, { rawRequest });
+      expect(seen).toEqual(["curl/8.7.1", Option.some("203.0.113.7")]);
+    }),
+  );
+
+  it.effect("hands middleware a JSON POST to the deployed name when no request is given", () =>
+    Effect.gen(function* () {
+      const seen: Array<unknown> = [];
+      const Create = Callable.make("create", { payload: { name: Schema.String } }).middleware(
+        Recorder,
+      );
+      class Users extends CallableGroup.make("users").add(Create) {}
+      const create = yield* Callable.handler(Users, "create").pipe(
+        Effect.provide(
+          Layer.merge(
+            Callable.toLayer(Users, "create", () => Effect.void),
+            Layer.succeed(Recorder, (effect) =>
+              Effect.gen(function* () {
+                const { rawRequest } = yield* CallableRequest.CallableRequest;
+                seen.push(
+                  rawRequest.method,
+                  rawRequest.url,
+                  rawRequest.headers["content-type"],
+                  yield* Effect.orDie(rawRequest.json),
+                );
+                return yield* effect;
+              }),
+            ),
+          ),
+        ),
+      );
+      yield* create({ name: "ada" }, {});
+      expect(seen).toEqual(["POST", "/users-create", "application/json", { name: "ada" }]);
     }),
   );
 

@@ -39,6 +39,9 @@ const readEntries = () =>
     },
   );
 
+/** The caller's address, as Google's front end forwards it. */
+const callerAddress = "203.0.113.7";
+
 const randomTraceId = () => crypto.randomUUID().replaceAll("-", "");
 
 /**
@@ -52,6 +55,8 @@ const call = (deployedName: string, traceId: string, data: unknown = null) =>
       headers: {
         "Content-Type": "application/json",
         "X-Cloud-Trace-Context": `${traceId}/1;o=1`,
+        // Google's front end sends the caller's address; the emulator doesn't.
+        "X-Forwarded-For": callerAddress,
       },
       body: JSON.stringify({ data }),
     });
@@ -126,8 +131,9 @@ describe("CallableFunction logging", () => {
           ["Audit", "INFO"],
           ["Rejected", "WARNING"],
         ]);
-        // This call's own Firebase request reaches the middleware, inside the call's span.
+        // This call's own HTTP request reaches the middleware, inside the call's span.
         expect(entries[0]?.["traceHeader"]).toBe(`${traceId}/1;o=1`);
+        expect(entries[0]?.["remoteAddress"]).toBe(callerAddress);
         for (const entry of entries) {
           expect(entry).toMatchObject({
             "logging.googleapis.com/trace": traceField(traceId),

@@ -4,10 +4,10 @@
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
 import * as CallableMiddleware from "@visiolab/effect-firebase/functions/CallableMiddleware";
+import * as CallableRequest from "@visiolab/effect-firebase/functions/CallableRequest";
 import * as Caller from "@visiolab/effect-firebase/functions/Caller";
 import * as CallableFunction from "@visiolab/effect-firebase-functions/https/CallableFunction";
-import * as FunctionsCallableRequest from "@visiolab/effect-firebase-functions/https/FunctionsCallableRequest";
-import { Context, Effect, Layer, Schema } from "effect";
+import { Context, Effect, Layer, Option, Schema } from "effect";
 import { describe, expect, test } from "tstyche";
 
 const Greet = Callable.make("greet", {
@@ -165,18 +165,19 @@ describe("CallableFunction.group with group middleware", () => {
   });
 });
 
-class ReadsRequest extends CallableMiddleware.Service<
-  ReadsRequest,
-  { requires: FunctionsCallableRequest.FunctionsCallableRequest }
->()("test/ReadsRequest") {}
+class ReadsRequest extends CallableMiddleware.Service<ReadsRequest>()("test/ReadsRequest") {}
 
 const ReadsRequestLive = Layer.succeed(ReadsRequest, (effect) =>
-  Effect.andThen(Effect.service(FunctionsCallableRequest.FunctionsCallableRequest), effect),
+  Effect.andThen(
+    Effect.map(Effect.service(CallableRequest.CallableRequest), ({ rawRequest }) =>
+      Option.getOrNull(rawRequest.remoteAddress),
+    ),
+    effect,
+  ),
 );
 
-const userAgent = Effect.map(
-  Effect.service(FunctionsCallableRequest.FunctionsCallableRequest),
-  ({ rawRequest }) => String(rawRequest.headers["user-agent"]),
+const userAgent = Effect.map(Effect.service(CallableRequest.CallableRequest), ({ rawRequest }) =>
+  String(rawRequest.headers["user-agent"]),
 );
 
 const Audited = Callable.make("audited").middleware(ReadsRequest);
@@ -188,20 +189,20 @@ const UserAgentLive = Callable.toLayer(UserAgent, () => userAgent);
 class Reading extends CallableGroup.make("reading").add(UserAgent).middleware(ReadsRequest) {}
 const ReadingLive = Callable.toLayer(Reading, "userAgent", () => userAgent);
 
-describe("FunctionsCallableRequest, provided per call", () => {
-  test("a middleware that requires it needs no Live to provide it", () => {
+describe("CallableRequest.rawRequest, provided per call", () => {
+  test("a middleware that reads it needs no Live to provide it", () => {
     expect(CallableFunction.make(Audited, Layer.merge(AuditedLive, ReadsRequestLive))).type.toBe<{
       readonly audited: CallableFunction.Export;
     }>();
   });
 
-  test("a handler that requires it needs no Live to provide it", () => {
+  test("a handler that reads it needs no Live to provide it", () => {
     expect(CallableFunction.make(UserAgent, UserAgentLive)).type.toBe<{
       readonly userAgent: CallableFunction.Export;
     }>();
   });
 
-  test("a group's handler and middleware that require it need no Live to provide it", () => {
+  test("a group's handler and middleware that read it need no Live to provide it", () => {
     expect(CallableFunction.group(Reading, Layer.merge(ReadingLive, ReadsRequestLive))).type.toBe<{
       readonly reading: { readonly userAgent: CallableFunction.Export };
     }>();

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
+import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as Callable from "../../src/functions/Callable.ts";
 import * as CallableError from "../../src/functions/CallableError.ts";
 import * as CallableGroup from "../../src/functions/CallableGroup.ts";
@@ -13,7 +14,15 @@ class Admins extends CallableGroup.make("admins").add(GetUser) {}
 
 const call = <A, E, R>(
   serve: Effect.Effect<(request: CallableRequest.CallableRequest) => Effect.Effect<A, E>, never, R>,
-) => serve.pipe(Effect.flatMap((run) => run(CallableRequest.make({ data: { id: "ada" } }))));
+) =>
+  serve.pipe(
+    Effect.flatMap((run) =>
+      run({
+        data: { id: "ada" },
+        rawRequest: HttpServerRequest.fromWeb(new Request("http://localhost/", { method: "POST" })),
+      }),
+    ),
+  );
 
 describe("CallableGroup", () => {
   it("serves its members under their names", () => {

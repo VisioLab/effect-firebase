@@ -30,7 +30,6 @@
   "exports": {
     "./https": "./src/https/index.ts",
     "./https/CallableFunction": "./src/https/CallableFunction.ts",
-    "./https/FunctionsCallableRequest": "./src/https/FunctionsCallableRequest.ts",
     "./logger": "./src/logger/index.ts",
     "./logger/CloudLogging": "./src/logger/CloudLogging.ts",
     "./package.json": "./package.json"
@@ -39,7 +38,6 @@
     "exports": {
       "./https": "./dist/https/index.mjs",
       "./https/CallableFunction": "./dist/https/CallableFunction.mjs",
-      "./https/FunctionsCallableRequest": "./dist/https/FunctionsCallableRequest.mjs",
       "./logger": "./dist/logger/index.mjs",
       "./logger/CloudLogging": "./dist/logger/CloudLogging.mjs",
       "./package.json": "./package.json"

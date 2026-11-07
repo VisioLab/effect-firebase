@@ -145,7 +145,7 @@ describe("CallableFunction", () => {
     expect(builds).toBe(0);
   });
 
-  it.effect("hands each call's handler its own FunctionsCallableRequest", () =>
+  it.effect("hands each call's handler its own HTTP request", () =>
     Effect.gen(function* () {
       const tags = Array.from({ length: 3 }, () => crypto.randomUUID());
       const answers = yield* Effect.forEach(

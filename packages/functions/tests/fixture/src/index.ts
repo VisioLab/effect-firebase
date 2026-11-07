@@ -12,7 +12,6 @@ import * as CallableError from "@visiolab/effect-firebase/functions/CallableErro
 import * as Caller from "@visiolab/effect-firebase/functions/Caller";
 import * as CallableRequest from "@visiolab/effect-firebase/functions/CallableRequest";
 import * as CallableFunction from "../../../src/https/CallableFunction.ts";
-import * as FunctionsCallableRequest from "../../../src/https/FunctionsCallableRequest.ts";
 import { onCall } from "firebase-functions/v2/https";
 import {
   Accounts,
@@ -306,17 +305,20 @@ export const { brokenBuild } = CallableFunction.make(
 
 /**
  * Tags the call's span and logs with the call's id from the raw data, logs
- * the trace header of Firebase's request, and logs "Rejected" when the call it
- * wraps fails.
+ * the trace header and the caller's address from the call's HTTP request, and
+ * logs "Rejected" when the call it wraps fails.
  */
 const AuditLive = Layer.succeed(Audit, (effect) =>
   Effect.gen(function* () {
-    const { data } = yield* CallableRequest.CallableRequest;
+    const { data, rawRequest } = yield* CallableRequest.CallableRequest;
     const callId = String((data as { readonly callId?: unknown } | null)?.callId);
-    const { rawRequest } = yield* FunctionsCallableRequest.FunctionsCallableRequest;
     yield* Effect.annotateCurrentSpan("callId", callId);
     yield* Effect.log("Audit").pipe(
-      Effect.annotateLogs({ callId, traceHeader: rawRequest.header("x-cloud-trace-context") }),
+      Effect.annotateLogs({
+        callId,
+        traceHeader: rawRequest.headers["x-cloud-trace-context"],
+        remoteAddress: Option.getOrNull(rawRequest.remoteAddress),
+      }),
     );
     return yield* effect.pipe(
       Effect.tapCause(() => Effect.logWarning("Rejected").pipe(Effect.annotateLogs({ callId }))),
@@ -338,8 +340,8 @@ export const { requestHeader } = CallableFunction.make(
   RequestHeader,
   Callable.toLayer(RequestHeader, () =>
     Effect.map(
-      Effect.service(FunctionsCallableRequest.FunctionsCallableRequest),
-      ({ rawRequest }) => rawRequest.header("x-test-tag") ?? null,
+      Effect.service(CallableRequest.CallableRequest),
+      ({ rawRequest }) => rawRequest.headers["x-test-tag"] ?? null,
     ),
   ),
 );

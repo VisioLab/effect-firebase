@@ -10,7 +10,6 @@ import * as CallableError from "@visiolab/effect-firebase/functions/CallableErro
 import * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
 import * as CallableMiddleware from "@visiolab/effect-firebase/functions/CallableMiddleware";
 import * as Caller from "@visiolab/effect-firebase/functions/Caller";
-import type * as FunctionsCallableRequest from "../../../src/https/FunctionsCallableRequest.ts";
 
 /** A Callable in no group, with a `Date` each way. */
 export const Greet = Callable.make("greet", {
@@ -135,20 +134,17 @@ export const Logged = Callable.make("logged", { payload: { callId: Schema.String
 export const BrokenBuild = Callable.make("brokenBuild");
 
 /**
- * Logs each call it wraps, with a header of Firebase's request, and logs again
- * when that call fails.
+ * Logs each call it wraps, with a header and the caller's address from the
+ * call's HTTP request, and logs again when that call fails.
  */
-export class Audit extends CallableMiddleware.Service<
-  Audit,
-  { requires: FunctionsCallableRequest.FunctionsCallableRequest }
->()("Audit") {}
+export class Audit extends CallableMiddleware.Service<Audit>()("Audit") {}
 
 /** `Audit` outside `Authenticated`, so `Audit` logs the rejection of a signed-out call. */
 export const Audited = Callable.make("audited", { payload: { callId: Schema.String } })
   .middleware(Caller.Authenticated)
   .middleware(Audit);
 
-/** Answers with the `X-Test-Tag` header of Firebase's request, read by its handler. */
+/** Answers with the `X-Test-Tag` header of the call's HTTP request, read by its handler. */
 export const RequestHeader = Callable.make("requestHeader", {
   success: Schema.NullOr(Schema.String),
 });

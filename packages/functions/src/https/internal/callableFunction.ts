@@ -1,11 +1,11 @@
 /** @internal */
-import { Cause, Context, Effect, Exit, Layer, Logger, Scope } from "effect";
+import { Cause, Context, Effect, Exit, Layer, Logger, Option, Scope } from "effect";
+import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as CloudLogging from "../../logger/CloudLogging.ts";
 import type * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import type * as CallableRequest from "@visiolab/effect-firebase/functions/CallableRequest";
 import * as Https from "firebase-functions/v2/https";
-import * as FunctionsCallableRequest from "../FunctionsCallableRequest.ts";
 import { DeferredTracer, externalParent } from "./serverSpan.ts";
 
 /**
@@ -27,19 +27,11 @@ const internalError = () => new Https.HttpsError("internal", "INTERNAL");
  * that fails closes the scope it was built in, which drops its failed entries
  * from the memo map, so the retry builds anew.
  */
-const lazyContext = <R, E>(
-  live: Layer.Layer<R, E, FunctionsCallableRequest.FunctionsCallableRequest>,
-) => {
+const lazyContext = <R, E>(live: Layer.Layer<R, E>) => {
   let pending: Promise<Exit.Exit<Context.Context<R>, E>> | undefined;
   return Effect.flatMap(Effect.context<never>(), (caller) => {
     pending ??= Effect.runPromiseExit(
-      Layer.buildWithMemoMap(live, memoMap, scope).pipe(
-        // The request is provided to each call, and the handlers that require
-        // it read it only then, so the build needs no request.
-        Effect.provideContext(
-          caller as Context.Context<FunctionsCallableRequest.FunctionsCallableRequest>,
-        ),
-      ),
+      Layer.buildWithMemoMap(live, memoMap, scope).pipe(Effect.provideContext(caller)),
     ).then((exit) => {
       if (Exit.isFailure(exit)) pending = undefined;
       return exit;
@@ -47,6 +39,45 @@ const lazyContext = <R, E>(
     const attempt = pending;
     return Effect.flatten(Effect.promise(() => attempt));
   });
+};
+
+/**
+ * Firebase's Express request as Effect's `HttpServerRequest`: the same method,
+ * URL, headers and body, with the caller's address as `remoteAddress`.
+ */
+const toHttpServerRequest = (raw: Https.Request): HttpServerRequest.HttpServerRequest => {
+  const headers: Array<[string, string]> = [];
+  for (const [name, value] of Object.entries(raw.headers)) {
+    if (value === undefined) continue;
+    headers.push([name, Array.isArray(value) ? value.join(", ") : value]);
+  }
+  const method = raw.method.toUpperCase();
+  return HttpServerRequest.fromWeb(
+    new Request(`${raw.protocol}://${raw.get("host") ?? "localhost"}${raw.originalUrl}`, {
+      method,
+      headers,
+      // A GET or HEAD request can't have a body. Callables are POSTs.
+      body: method === "GET" || method === "HEAD" ? null : raw.rawBody,
+    }),
+  ).modify({ remoteAddress: Option.fromNullishOr(raw.ip) });
+};
+
+/**
+ * The portable `CallableRequest` of a call, from what `firebase-functions`
+ * hands over. Its `rawRequest` is built on first read, so a call that never
+ * reads it pays nothing.
+ */
+const toCallableRequest = (request: Https.CallableRequest): CallableRequest.CallableRequest => {
+  let rawRequest: HttpServerRequest.HttpServerRequest | undefined;
+  return {
+    auth: request.auth,
+    app: request.app,
+    instanceIdToken: request.instanceIdToken,
+    data: request.data,
+    get rawRequest() {
+      return (rawRequest ??= toHttpServerRequest(request.rawRequest));
+    },
+  };
 };
 
 /**
@@ -112,7 +143,7 @@ export type Serve = Effect.Effect<
 export const onCall = <R, E>(
   deployment: Callable.Deployment,
   serve: Serve,
-  live: Layer.Layer<R, E, FunctionsCallableRequest.FunctionsCallableRequest>,
+  live: Layer.Layer<R, E>,
   options: Https.CallableOptions = {},
 ) => {
   const context = lazyContext(live);
@@ -121,7 +152,7 @@ export const onCall = <R, E>(
     const parent = externalParent();
     const deferred = new DeferredTracer();
     const signal = response?.signal;
-    const callRequest = FunctionsCallableRequest.make(request);
+    const callRequest = toCallableRequest(request);
     const exit = await Effect.runPromiseExit(
       Effect.gen(function* () {
         const services = yield* context.pipe(
@@ -135,8 +166,6 @@ export const onCall = <R, E>(
           Effect.flatMap((run) => run(callRequest)),
           // Logged with the services of `live`, so a logger it provides is used.
           Effect.onError(logUnexpected("A Callable failed")),
-          // Firebase's request, under both keys, over the services of `live`.
-          Effect.provideContext(FunctionsCallableRequest.context(callRequest)),
           // The public signatures check that `live` provides the handler and
           // every middleware implementation.
           Effect.provideContext(services as Context.Context<any>),

@@ -1,6 +1,6 @@
 /**
- * The call a Callable is answering: who made it, from which app, and the raw
- * Payload as it arrived.
+ * The call a Callable is answering: who made it, from which app, the raw
+ * Payload as it arrived and the HTTP request it came in.
  *
  * Every call runs with a {@link CallableRequest} in scope. Callable Middleware
  * reads it to decide whether the call may go on, and a handler may read it
@@ -8,29 +8,35 @@
  * `@visiolab/effect-firebase-functions` provides it from Firebase's request,
  * and `Callable.handler` provides it from a {@link Input} of your own.
  *
- * @example Reading the request in a middleware
+ * @example Rate limiting by the caller's address
  * ```ts
- * import { Effect, Layer } from "effect";
- * import { CallableMiddleware, CallableRequest } from "@visiolab/effect-firebase/functions";
+ * import { Effect, Layer, Option } from "effect";
+ * import { CallableError, CallableMiddleware, CallableRequest } from "@visiolab/effect-firebase/functions";
  *
- * class LogApp extends CallableMiddleware.Service<LogApp>()("LogApp") {}
+ * class RateLimit extends CallableMiddleware.Service<RateLimit>()("RateLimit", {
+ *   error: CallableError.ResourceExhausted,
+ * }) {}
  *
- * const LogAppLive = Layer.succeed(LogApp, (effect) =>
- *   Effect.gen(function* () {
- *     const { app } = yield* CallableRequest.CallableRequest;
- *     yield* Effect.logInfo("Called from", app?.appId ?? "an unknown app");
- *     return yield* effect;
- *   }),
- * );
+ * const RateLimitLive = Layer.sync(RateLimit, () => {
+ *   const calls = new Map<string, number>();
+ *   return (effect) =>
+ *     Effect.gen(function* () {
+ *       const { rawRequest } = yield* CallableRequest.CallableRequest;
+ *       const address = Option.getOrElse(rawRequest.remoteAddress, () => "unknown");
+ *       const count = (calls.get(address) ?? 0) + 1;
+ *       calls.set(address, count);
+ *       if (count > 100) return yield* new CallableError.ResourceExhausted();
+ *       return yield* effect;
+ *     });
+ * });
  * ```
  *
  * @stability unstable
  * @since 0.3.0
  */
 import type { Context } from "effect";
+import type * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as internal from "./internal/callableRequest.ts";
-
-const TypeId = internal.TypeId;
 
 /**
  * Who made a call: the signed-in user's uid, the claims of their ID token and
@@ -66,31 +72,6 @@ export interface App {
 }
 
 /**
- * The fields of a {@link CallableRequest}, without its brand. A building block
- * for the functions package's request service. Most apps don't need it.
- *
- * **Details**
- *
- * An SDK's request service extends this rather than {@link CallableRequest},
- * so that providing the portable service alone doesn't satisfy a requirement
- * on the SDK's.
- *
- * @stability unstable
- * @category models
- * @since 0.3.0
- */
-export interface Base {
-  /** The signed-in caller, absent for a signed-out call. */
-  readonly auth?: Auth | undefined;
-  /** The app the call came from, absent without App Check. */
-  readonly app?: App | undefined;
-  /** An unverified Firebase Instance ID token, if the client sent one. */
-  readonly instanceIdToken?: string | undefined;
-  /** The raw Payload, before it is decoded. */
-  readonly data: unknown;
-}
-
-/**
  * The call a Callable is answering.
  *
  * **Details**
@@ -99,12 +80,39 @@ export interface Base {
  * Callable Middleware runs before the Payload is decoded, so it sees only
  * `data`.
  *
+ * `rawRequest` is the HTTP request the call came in, as Effect's
+ * `HttpServerRequest`. `CallableFunction` builds it from Firebase's request,
+ * and `Callable.handler` from {@link Input.rawRequest}. Both build it when it
+ * is first read, so a call that never reads it pays nothing.
+ *
  * @stability unstable
  * @category models
  * @since 0.3.0
  */
-export interface CallableRequest extends Base {
-  readonly [TypeId]: typeof TypeId;
+export interface CallableRequest {
+  /** The signed-in caller, absent for a signed-out call. */
+  readonly auth?: Auth | undefined;
+  /** The app the call came from, absent without App Check. */
+  readonly app?: App | undefined;
+  /** An unverified Firebase Instance ID token, if the client sent one. */
+  readonly instanceIdToken?: string | undefined;
+  /** The raw Payload, before it is decoded. */
+  readonly data: unknown;
+  /**
+   * The HTTP request the call came in: its headers, method, URL, body and the
+   * caller's `remoteAddress`.
+   *
+   * **Details**
+   *
+   * The Firebase web SDK's `httpsCallable` can't send custom headers, so a
+   * header of your own comes only from callers that don't use it, such as
+   * another server. Headers the browser or the SDK sets, such as `user-agent`
+   * and `accept-language`, are there for every caller.
+   *
+   * `remoteAddress` is the caller's IP address as the platform reports it,
+   * `Option.none()` when it is unknown.
+   */
+  readonly rawRequest: HttpServerRequest.HttpServerRequest;
 }
 
 /**
@@ -123,8 +131,9 @@ export const CallableRequest: Context.Service<CallableRequest, CallableRequest> 
   internal.CallableRequest;
 
 /**
- * What `Callable.handler` takes about a call: who makes it and from which app.
- * `Callable.handler` fills `data` by encoding the Payload.
+ * What `Callable.handler` takes about a call: who makes it, from which app and
+ * over which HTTP request. `Callable.handler` fills `data` by encoding the
+ * Payload.
  *
  * **Details**
  *
@@ -149,27 +158,50 @@ export interface Input {
   readonly app?: App | undefined;
   /** A Firebase Instance ID token. */
   readonly instanceIdToken?: string | undefined;
+  /**
+   * The HTTP request the call comes in, for middleware that reads headers or
+   * the caller's address.
+   *
+   * **Details**
+   *
+   * Left out, it is a `POST` of the encoded Payload as JSON to
+   * `http://localhost/<deployed name>`, with `content-type:
+   * application/json`, no other headers and no `remoteAddress`. Build one with
+   * `HttpServerRequest.fromWeb` from `effect/http/HttpServerRequest`, and set
+   * `remoteAddress` with its `modify`.
+   *
+   * @example Calling with a request of your own
+   * ```ts
+   * import { Effect, Layer, Option } from "effect";
+   * import * as HttpServerRequest from "effect/http/HttpServerRequest";
+   * import { Callable, CallableMiddleware, CallableRequest } from "@visiolab/effect-firebase/functions";
+   *
+   * class LogLocale extends CallableMiddleware.Service<LogLocale>()("LogLocale") {}
+   *
+   * const Ping = Callable.make("ping").middleware(LogLocale);
+   *
+   * const program = Effect.gen(function* () {
+   *   const ping = yield* Callable.handler(Ping);
+   *   const rawRequest = HttpServerRequest.fromWeb(
+   *     new Request("https://example.com/ping", {
+   *       method: "POST",
+   *       headers: { "accept-language": "de-CH" },
+   *     }),
+   *   ).modify({ remoteAddress: Option.some("203.0.113.7") });
+   *   yield* ping(undefined, { rawRequest });
+   * }).pipe(
+   *   Effect.provide(
+   *     Layer.mergeAll(
+   *       Callable.toLayer(Ping, () => Effect.void),
+   *       Layer.succeed(LogLocale, (effect) =>
+   *         Effect.flatMap(Effect.service(CallableRequest.CallableRequest), ({ rawRequest }) =>
+   *           Effect.andThen(Effect.logInfo("Locale", rawRequest.headers["accept-language"]), effect),
+   *         ),
+   *       ),
+   *     ),
+   *   ),
+   * );
+   * ```
+   */
+  readonly rawRequest?: HttpServerRequest.HttpServerRequest | undefined;
 }
-
-/**
- * Makes a {@link CallableRequest} from its fields. A building block for the
- * functions package. Most apps don't need it.
- *
- * **When to use**
- *
- * Use when serving Callables from a transport of your own, to build the
- * request that `Callable.serve` takes. `CallableFunction` and
- * `Callable.handler` build it for you.
- *
- * **Details**
- *
- * Keeps every field it is given, so an SDK's request service can pass its own
- * fields along and get back an object that is both.
- *
- * @see {@link Input} for what `Callable.handler` takes instead
- *
- * @stability unstable
- * @category constructors
- * @since 0.3.0
- */
-export const make: <A extends Base>(fields: A) => A & CallableRequest = internal.make;

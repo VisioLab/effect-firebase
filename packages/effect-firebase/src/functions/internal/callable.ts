@@ -1,5 +1,6 @@
 /** @internal */
 import { Context, Effect, Layer, Pipeable, Schema } from "effect";
+import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as CallableError from "../CallableError.ts";
 import type * as CallableRequest from "../CallableRequest.ts";
 import type * as CallableGroup from "./callableGroup.ts";
@@ -253,30 +254,47 @@ export const serve = (group: CallableGroup.Fields | undefined, callable: Fields)
       );
   });
 
+/**
+ * The HTTP request of a call `handler` runs with no request given: a JSON
+ * `POST` of the encoded Payload to the deployed name.
+ */
+const syntheticRequest = (name: string, data: unknown) =>
+  HttpServerRequest.fromWeb(
+    new Request(`http://localhost/${name}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(data),
+    }),
+  );
+
 /** @internal */
 export const handler = (group: CallableGroup.Fields | undefined, callable: Fields) =>
   Effect.map(chain(group, callable), (run) => {
     const encode = Schema.encodeUnknownEffect(codec(callable.payload));
+    const name = deployedName(group, callable);
     return (payload: unknown, input: CallableRequest.Input) =>
       encode(payload).pipe(
         Effect.orDie,
-        Effect.flatMap((data) =>
-          run(
-            callableRequest.make({
-              auth:
-                input.auth === undefined
-                  ? undefined
-                  : {
-                      uid: input.auth.uid,
-                      token: input.auth.token,
-                      rawToken: input.auth.rawToken ?? "",
-                    },
-              app: input.app,
-              instanceIdToken: input.instanceIdToken,
-              data,
-            }),
-          ),
-        ),
+        Effect.flatMap((data) => {
+          let rawRequest = input.rawRequest;
+          return run({
+            auth:
+              input.auth === undefined
+                ? undefined
+                : {
+                    uid: input.auth.uid,
+                    token: input.auth.token,
+                    rawToken: input.auth.rawToken ?? "",
+                  },
+            app: input.app,
+            instanceIdToken: input.instanceIdToken,
+            data,
+            // Built on first read, so a call that never reads it pays nothing.
+            get rawRequest() {
+              return (rawRequest ??= syntheticRequest(name, data));
+            },
+          });
+        }),
         // The Payload was encoded from its own type, so a Payload that doesn't
         // decode back is a defect of its schema.
         Effect.catchIf(
