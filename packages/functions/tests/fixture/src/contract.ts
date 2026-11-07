@@ -181,3 +181,12 @@ export const Posts = Authors.subcollection("posts", Post);
 
 /** Records each post created under any author. */
 export const OnPostCreated = DocumentTrigger.created("onPostCreated", Posts);
+
+/** Records each post deleted under any author, with its last data. */
+export const OnPostDeleted = DocumentTrigger.deleted("onPostDeleted", Posts);
+
+/** Records each update to a post, with its data before and after. */
+export const OnPostUpdated = DocumentTrigger.updated("onPostUpdated", Posts);
+
+/** Records each create, update and delete of a post, with either side possibly missing. */
+export const OnPostWritten = DocumentTrigger.written("onPostWritten", Posts);

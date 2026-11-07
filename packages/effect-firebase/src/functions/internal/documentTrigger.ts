@@ -15,7 +15,7 @@ export const kind = "DocumentTrigger";
  *
  * @internal
  */
-export type EventKind = "created";
+export type EventKind = "created" | "deleted" | "updated" | "written";
 
 /** @internal */
 export interface Fields extends FirebaseFunction.Fields {
@@ -110,4 +110,34 @@ export const createdEvent = <C extends Collection.Any>(input: {
   time: input.time,
   ref: input.snapshot.ref,
   snapshot: input.snapshot,
+});
+
+/**
+ * A `deleted` event has the shape of a `created` one, with the document as it
+ * was just before it was deleted.
+ *
+ * @internal
+ */
+export const deletedEvent = createdEvent;
+
+/**
+ * The event of a change with a document on each side. Both sides are at the
+ * same reference; `ref` is taken from `after`.
+ *
+ * @internal
+ */
+export const changeEvent = <
+  C extends Collection.Any,
+  S extends DocumentSnapshot.DocumentSnapshot<C>,
+>(input: {
+  readonly id: string;
+  readonly time: string;
+  readonly before: S;
+  readonly after: S;
+}) => ({
+  id: input.id,
+  time: input.time,
+  ref: input.after.ref,
+  before: input.before,
+  after: input.after,
 });

@@ -47,7 +47,8 @@ import * as internal from "./internal/documentTrigger.ts";
 const TypeId = internal.TypeId;
 
 /**
- * The change to a document a {@link DocumentTrigger} runs on: `"created"`.
+ * The change to a document a {@link DocumentTrigger} runs on: `"created"`,
+ * `"updated"`, `"deleted"` or `"written"`.
  *
  * @stability unstable
  * @category models
@@ -152,6 +153,74 @@ export interface Created<C extends Collection.Any> extends BaseEvent<C> {
 }
 
 /**
+ * The event of a {@link deleted} trigger: the document as it was just before
+ * it was deleted.
+ *
+ * **Details**
+ *
+ * `snapshot` holds the document's last data. `snapshot.data` decodes it
+ * through the collection's model when it runs, as for {@link Created}.
+ *
+ * @see {@link deletedEvent} for building one
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export interface Deleted<C extends Collection.Any> extends BaseEvent<C> {
+  /** The document as it was just before it was deleted. */
+  readonly snapshot: DocumentSnapshot.Existing<C>;
+}
+
+/**
+ * The event of an {@link updated} trigger: the document before and after the
+ * update.
+ *
+ * **Details**
+ *
+ * Both sides exist. Each side's `data` decodes through the collection's model
+ * when it runs, so a handler can compare the two.
+ *
+ * @see {@link updatedEvent} for building one
+ * @see {@link Written} for the event of a change that may create or delete
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export interface Updated<C extends Collection.Any> extends BaseEvent<C> {
+  /** The document as it was before the update. */
+  readonly before: DocumentSnapshot.Existing<C>;
+  /** The document as it is after the update. */
+  readonly after: DocumentSnapshot.Existing<C>;
+}
+
+/**
+ * The event of a {@link written} trigger: the document before and after a
+ * create, an update or a delete.
+ *
+ * **Details**
+ *
+ * Each side is a `DocumentSnapshot`: on a create, `before` is `Missing`; on a
+ * delete, `after` is `Missing`; on an update, both are `Existing`. Narrow a
+ * side with `DocumentSnapshot.isExisting` or `DocumentSnapshot.isMissing`
+ * before reading its data. `ref` is set in every case.
+ *
+ * @see {@link writtenEvent} for building one
+ * @see {@link Updated} for the event of an update alone, where both sides exist
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.3.0
+ */
+export interface Written<C extends Collection.Any> extends BaseEvent<C> {
+  /** The document before the write: `Missing` when the write created it. */
+  readonly before: DocumentSnapshot.DocumentSnapshot<C>;
+  /** The document after the write: `Missing` when the write deleted it. */
+  readonly after: DocumentSnapshot.DocumentSnapshot<C>;
+}
+
+/**
  * The event of each change a trigger on `C` can run on, keyed by the change.
  *
  * @stability unstable
@@ -160,11 +229,16 @@ export interface Created<C extends Collection.Any> extends BaseEvent<C> {
  */
 export interface Events<C extends Collection.Any> {
   readonly created: Created<C>;
+  readonly deleted: Deleted<C>;
+  readonly updated: Updated<C>;
+  readonly written: Written<C>;
 }
 
 /**
  * The event a {@link DocumentTrigger} hands its handler, by its change: a
- * {@link Created} for a {@link created} trigger.
+ * {@link Created} for a {@link created} trigger, an {@link Updated} for an
+ * {@link updated} one, a {@link Deleted} for a {@link deleted} one and a
+ * {@link Written} for a {@link written} one.
  *
  * @stability unstable
  * @category type-level
@@ -242,6 +316,9 @@ export type HandlerFunction<T extends Any, R> = (
  * const OnPostCreated = DocumentTrigger.created("onPostCreated", Posts);
  * ```
  *
+ * @see {@link updated} for running when an existing document changes
+ * @see {@link deleted} for running when a document is deleted
+ * @see {@link written} for running on a create, an update and a delete alike
  * @see {@link toLayer} for implementing the trigger
  * @see {@link Callable.make} for declaring a Function the client calls
  *
@@ -286,6 +363,7 @@ export const created = <const Name extends string, C extends Collection.Any>(
  * });
  * ```
  *
+ * @see {@link created} for declaring the trigger
  * @see {@link serve} for running the event through the handler
  *
  * @stability unstable
@@ -297,6 +375,301 @@ export const createdEvent: <C extends Collection.Any>(input: {
   readonly time: string;
   readonly snapshot: DocumentSnapshot.Existing<C>;
 }) => Created<C> = internal.createdEvent;
+
+/**
+ * Declares a trigger that runs when a document of `collection` is deleted.
+ *
+ * **When to use**
+ *
+ * Use to clean up after a document of a collection is deleted, such as
+ * removing what refers to it.
+ *
+ * **Details**
+ *
+ * Its handler gets a {@link Deleted} event, with the document as it was just
+ * before it was deleted. It is deployed at the same path pattern as a
+ * {@link created} trigger on the same collection.
+ *
+ * Firebase delivers each event at least once. Make the handler idempotent,
+ * keyed on the event's `id`.
+ *
+ * @example Reading the deleted document
+ * ```ts
+ * import { Effect, Schema } from "effect";
+ * import { Collection, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ * import { DocumentTrigger } from "@visiolab/effect-firebase/functions";
+ *
+ * class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
+ *
+ * const OnPostDeleted = DocumentTrigger.deleted("onPostDeleted", Collection.make("posts", Post));
+ *
+ * const OnPostDeletedLive = DocumentTrigger.toLayer(OnPostDeleted, (event) =>
+ *   Effect.flatMap(event.snapshot.data, (post) => Effect.log(`Deleted ${post.title}`)),
+ * );
+ * ```
+ *
+ * @see {@link created} for running when a document is created
+ * @see {@link updated} for running when an existing document changes
+ * @see {@link written} for running on a create, an update and a delete alike
+ * @see {@link toLayer} for implementing the trigger
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.3.0
+ */
+export const deleted = <const Name extends string, C extends Collection.Any>(
+  name: Name,
+  collection: C,
+): DocumentTrigger<Name, C, "deleted"> =>
+  internal.make({ kind: internal.kind, name, event: "deleted", collection }) as never;
+
+/**
+ * Builds the event of a {@link deleted} trigger from the snapshot of the
+ * document as it was just before it was deleted.
+ *
+ * **When to use**
+ *
+ * Use in a test, to run a handler through {@link serve} with an event of
+ * your own. The functions package builds its events with it too.
+ *
+ * **Details**
+ *
+ * The event's `ref` is the snapshot's. Build the snapshot with
+ * `DocumentSnapshot.existing` and the document's last data as Firestore
+ * Values.
+ *
+ * @example Building an event for a test
+ * ```ts
+ * import { Schema } from "effect";
+ * import { Collection, DocumentSnapshot, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ * import { DocumentTrigger } from "@visiolab/effect-firebase/functions";
+ *
+ * class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
+ *
+ * const Posts = Collection.make("posts", Post);
+ *
+ * const event = DocumentTrigger.deletedEvent({
+ *   id: "event-1",
+ *   time: "2026-01-01T00:00:00.000Z",
+ *   snapshot: DocumentSnapshot.existing(Posts.doc(Posts.id.make("hello")), { title: "Hello" }),
+ * });
+ * ```
+ *
+ * @see {@link deleted} for declaring the trigger
+ * @see {@link serve} for running the event through the handler
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.3.0
+ */
+export const deletedEvent: <C extends Collection.Any>(input: {
+  readonly id: string;
+  readonly time: string;
+  readonly snapshot: DocumentSnapshot.Existing<C>;
+}) => Deleted<C> = internal.deletedEvent;
+
+/**
+ * Declares a trigger that runs when a document of `collection` that already
+ * exists is changed.
+ *
+ * **When to use**
+ *
+ * Use to react to changes to existing documents, with the data before and
+ * after the change at hand.
+ *
+ * **Details**
+ *
+ * Its handler gets an {@link Updated} event, with the document before and
+ * after the update. Creating or deleting a document doesn't run it.
+ *
+ * Firebase delivers each event at least once. Make the handler idempotent,
+ * keyed on the event's `id`.
+ *
+ * @example Reacting to a changed title
+ * ```ts
+ * import { Effect, Schema } from "effect";
+ * import { Collection, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ * import { DocumentTrigger } from "@visiolab/effect-firebase/functions";
+ *
+ * class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
+ *
+ * const OnPostUpdated = DocumentTrigger.updated("onPostUpdated", Collection.make("posts", Post));
+ *
+ * const OnPostUpdatedLive = DocumentTrigger.toLayer(OnPostUpdated, (event) =>
+ *   Effect.gen(function* () {
+ *     const before = yield* event.before.data;
+ *     const after = yield* event.after.data;
+ *     if (before.title !== after.title) {
+ *       yield* Effect.log(`Renamed ${before.title} to ${after.title}`);
+ *     }
+ *   }),
+ * );
+ * ```
+ *
+ * @see {@link created} for running when a document is created
+ * @see {@link deleted} for running when a document is deleted
+ * @see {@link written} for running on a create and a delete too
+ * @see {@link toLayer} for implementing the trigger
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.3.0
+ */
+export const updated = <const Name extends string, C extends Collection.Any>(
+  name: Name,
+  collection: C,
+): DocumentTrigger<Name, C, "updated"> =>
+  internal.make({ kind: internal.kind, name, event: "updated", collection }) as never;
+
+/**
+ * Builds the event of an {@link updated} trigger from the snapshots of the
+ * document before and after the update.
+ *
+ * **When to use**
+ *
+ * Use in a test, to run a handler through {@link serve} with an event of
+ * your own. The functions package builds its events with it too.
+ *
+ * **Details**
+ *
+ * Both snapshots are of the same document. The event's `ref` is the one of
+ * `after`. Build each with `DocumentSnapshot.existing`.
+ *
+ * @example Building an event for a test
+ * ```ts
+ * import { Schema } from "effect";
+ * import { Collection, DocumentSnapshot, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ * import { DocumentTrigger } from "@visiolab/effect-firebase/functions";
+ *
+ * class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
+ *
+ * const Posts = Collection.make("posts", Post);
+ * const ref = Posts.doc(Posts.id.make("hello"));
+ *
+ * const event = DocumentTrigger.updatedEvent({
+ *   id: "event-1",
+ *   time: "2026-01-01T00:00:00.000Z",
+ *   before: DocumentSnapshot.existing(ref, { title: "Draft" }),
+ *   after: DocumentSnapshot.existing(ref, { title: "Final" }),
+ * });
+ * ```
+ *
+ * @see {@link updated} for declaring the trigger
+ * @see {@link serve} for running the event through the handler
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.3.0
+ */
+export const updatedEvent: <C extends Collection.Any>(input: {
+  readonly id: string;
+  readonly time: string;
+  readonly before: DocumentSnapshot.Existing<C>;
+  readonly after: DocumentSnapshot.Existing<C>;
+}) => Updated<C> = internal.changeEvent;
+
+/**
+ * Declares a trigger that runs when a document of `collection` is created,
+ * updated or deleted.
+ *
+ * **When to use**
+ *
+ * Use to handle every change to a collection's documents in one handler, such
+ * as keeping a copy or a count in sync. Prefer {@link created},
+ * {@link updated} or {@link deleted} when the handler acts on one change only.
+ *
+ * **Details**
+ *
+ * Its handler gets a {@link Written} event, whose `before` and `after` are
+ * `DocumentSnapshot`s: `before` is `Missing` on a create, and `after` is
+ * `Missing` on a delete. Narrow each with `DocumentSnapshot.isExisting` or
+ * `DocumentSnapshot.isMissing`.
+ *
+ * Firebase delivers each event at least once. Make the handler idempotent,
+ * keyed on the event's `id`.
+ *
+ * @example Telling a create, an update and a delete apart
+ * ```ts
+ * import { Effect, Schema } from "effect";
+ * import { Collection, DocumentSnapshot, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ * import { DocumentTrigger } from "@visiolab/effect-firebase/functions";
+ *
+ * class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
+ *
+ * const OnPostWritten = DocumentTrigger.written("onPostWritten", Collection.make("posts", Post));
+ *
+ * const OnPostWrittenLive = DocumentTrigger.toLayer(OnPostWritten, (event) => {
+ *   if (DocumentSnapshot.isMissing(event.after)) {
+ *     return Effect.log(`Deleted ${event.ref.id}`);
+ *   }
+ *   const verb = DocumentSnapshot.isExisting(event.before) ? "Updated" : "Created";
+ *   return Effect.flatMap(event.after.data, (post) => Effect.log(`${verb} ${post.title}`));
+ * });
+ * ```
+ *
+ * @see {@link created} for running on a create only, with the document always there
+ * @see {@link updated} for running on an update only, with both sides always there
+ * @see {@link deleted} for running on a delete only, with the last data always there
+ * @see {@link toLayer} for implementing the trigger
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.3.0
+ */
+export const written = <const Name extends string, C extends Collection.Any>(
+  name: Name,
+  collection: C,
+): DocumentTrigger<Name, C, "written"> =>
+  internal.make({ kind: internal.kind, name, event: "written", collection }) as never;
+
+/**
+ * Builds the event of a {@link written} trigger from the snapshots of the
+ * document before and after the write.
+ *
+ * **When to use**
+ *
+ * Use in a test, to run a handler through {@link serve} with an event of
+ * your own. The functions package builds its events with it too.
+ *
+ * **Details**
+ *
+ * Both snapshots are of the same document. The event's `ref` is the one of
+ * `after`, which a `Missing` snapshot carries too. Build a side that exists
+ * with `DocumentSnapshot.existing` and one that doesn't with
+ * `DocumentSnapshot.missing`.
+ *
+ * @example Building the event of a create for a test
+ * ```ts
+ * import { Schema } from "effect";
+ * import { Collection, DocumentSnapshot, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ * import { DocumentTrigger } from "@visiolab/effect-firebase/functions";
+ *
+ * class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
+ *
+ * const Posts = Collection.make("posts", Post);
+ * const ref = Posts.doc(Posts.id.make("hello"));
+ *
+ * const event = DocumentTrigger.writtenEvent({
+ *   id: "event-1",
+ *   time: "2026-01-01T00:00:00.000Z",
+ *   before: DocumentSnapshot.missing(ref),
+ *   after: DocumentSnapshot.existing(ref, { title: "Hello" }),
+ * });
+ * ```
+ *
+ * @see {@link written} for declaring the trigger
+ * @see {@link serve} for running the event through the handler
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.3.0
+ */
+export const writtenEvent: <C extends Collection.Any>(input: {
+  readonly id: string;
+  readonly time: string;
+  readonly before: DocumentSnapshot.DocumentSnapshot<C>;
+  readonly after: DocumentSnapshot.DocumentSnapshot<C>;
+}) => Written<C> = internal.changeEvent;
 
 /**
  * Implements a Document Trigger as a Layer.
@@ -339,7 +712,7 @@ export const createdEvent: <C extends Collection.Any>(input: {
  * );
  * ```
  *
- * @see {@link created} for declaring the trigger
+ * @see {@link created}, {@link updated}, {@link deleted} and {@link written} for declaring the trigger
  * @see {@link serve} for running an event through the handler
  * @see {@link Callable.toLayer} for implementing a Callable
  *
@@ -361,7 +734,8 @@ export const toLayer = <T extends Any, R = never, EB = never, RB = never>(
  * **When to use**
  *
  * Use to test a trigger's handler in process, without the emulator and
- * without `firebase-functions`: build an event with {@link createdEvent} and
+ * without `firebase-functions`: build an event with {@link createdEvent},
+ * {@link updatedEvent}, {@link deletedEvent} or {@link writtenEvent} and
  * provide the Layer from {@link toLayer}. `Functions.make` from
  * `@visiolab/effect-firebase-functions` runs every real event through it too.
  *

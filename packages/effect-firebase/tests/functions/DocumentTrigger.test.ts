@@ -139,3 +139,168 @@ describe("DocumentTrigger.serve", () => {
     }),
   );
 });
+
+const OnPostDeleted = DocumentTrigger.deleted("onPostDeleted", Posts);
+
+describe("DocumentTrigger.deleted", () => {
+  it.effect("runs the handler with the document as it was before it was deleted", () =>
+    Effect.gen(function* () {
+      const received: Array<unknown> = [];
+      const live = DocumentTrigger.toLayer(OnPostDeleted, (input) =>
+        Effect.gen(function* () {
+          const post = yield* input.snapshot.data;
+          received.push({ id: input.id, time: input.time, ref: input.ref.path, post });
+        }),
+      );
+      const snapshot = DocumentSnapshot.existing(ref, { title: "Gone", createdAt });
+      yield* DocumentTrigger.serve(OnPostDeleted).pipe(
+        Effect.flatMap((run) =>
+          run(
+            DocumentTrigger.deletedEvent({
+              id: "event-2",
+              time: "2026-11-07T12:00:00.000Z",
+              snapshot,
+            }),
+          ),
+        ),
+        Effect.provide(live),
+      );
+      expect(OnPostDeleted.event).toBe("deleted");
+      expect(received).toEqual([
+        {
+          id: "event-2",
+          time: "2026-11-07T12:00:00.000Z",
+          ref: "users/alice/posts/hello",
+          post: new Post({ title: "Gone", createdAt }),
+        },
+      ]);
+    }),
+  );
+});
+
+const OnPostUpdated = DocumentTrigger.updated("onPostUpdated", Posts);
+
+describe("DocumentTrigger.updated", () => {
+  it.effect("runs the handler with the old data before and the new data after", () =>
+    Effect.gen(function* () {
+      const received: Array<unknown> = [];
+      const live = DocumentTrigger.toLayer(OnPostUpdated, (input) =>
+        Effect.gen(function* () {
+          const before = yield* input.before.data;
+          const after = yield* input.after.data;
+          received.push({ id: input.id, ref: input.ref.path, before, after });
+        }),
+      );
+      yield* DocumentTrigger.serve(OnPostUpdated).pipe(
+        Effect.flatMap((run) =>
+          run(
+            DocumentTrigger.updatedEvent({
+              id: "event-3",
+              time: "2026-11-07T12:00:00.000Z",
+              before: DocumentSnapshot.existing(ref, { title: "Draft", createdAt }),
+              after: DocumentSnapshot.existing(ref, { title: "Final", createdAt }),
+            }),
+          ),
+        ),
+        Effect.provide(live),
+      );
+      expect(OnPostUpdated.event).toBe("updated");
+      expect(received).toEqual([
+        {
+          id: "event-3",
+          ref: "users/alice/posts/hello",
+          before: new Post({ title: "Draft", createdAt }),
+          after: new Post({ title: "Final", createdAt }),
+        },
+      ]);
+    }),
+  );
+});
+
+const OnPostWritten = DocumentTrigger.written("onPostWritten", Posts);
+
+describe("DocumentTrigger.written", () => {
+  /** What the handler sees of one side: its decoded data, or that it is missing. */
+  const side = (snapshot: DocumentSnapshot.DocumentSnapshot<typeof Posts>) =>
+    DocumentSnapshot.isExisting(snapshot) ? snapshot.data : Effect.succeed("missing" as const);
+
+  const runWritten = (
+    before: DocumentSnapshot.DocumentSnapshot<typeof Posts>,
+    after: DocumentSnapshot.DocumentSnapshot<typeof Posts>,
+  ) =>
+    Effect.gen(function* () {
+      const received: Array<unknown> = [];
+      const live = DocumentTrigger.toLayer(OnPostWritten, (input) =>
+        Effect.gen(function* () {
+          received.push({
+            ref: input.ref.path,
+            before: yield* side(input.before),
+            after: yield* side(input.after),
+          });
+        }),
+      );
+      yield* DocumentTrigger.serve(OnPostWritten).pipe(
+        Effect.flatMap((run) =>
+          run(
+            DocumentTrigger.writtenEvent({
+              id: "event-4",
+              time: "2026-11-07T12:00:00.000Z",
+              before,
+              after,
+            }),
+          ),
+        ),
+        Effect.provide(live),
+      );
+      return received;
+    });
+
+  it.effect("runs on a create, with before missing", () =>
+    Effect.gen(function* () {
+      expect(OnPostWritten.event).toBe("written");
+      const received = yield* runWritten(
+        DocumentSnapshot.missing(ref),
+        DocumentSnapshot.existing(ref, { title: "New", createdAt }),
+      );
+      expect(received).toEqual([
+        {
+          ref: "users/alice/posts/hello",
+          before: "missing",
+          after: new Post({ title: "New", createdAt }),
+        },
+      ]);
+    }),
+  );
+
+  it.effect("runs on an update, with both sides existing", () =>
+    Effect.gen(function* () {
+      const received = yield* runWritten(
+        DocumentSnapshot.existing(ref, { title: "Draft", createdAt }),
+        DocumentSnapshot.existing(ref, { title: "Final", createdAt }),
+      );
+      expect(received).toEqual([
+        {
+          ref: "users/alice/posts/hello",
+          before: new Post({ title: "Draft", createdAt }),
+          after: new Post({ title: "Final", createdAt }),
+        },
+      ]);
+    }),
+  );
+
+  it.effect("runs on a delete, with after missing and the ref still set", () =>
+    Effect.gen(function* () {
+      const received = yield* runWritten(
+        DocumentSnapshot.existing(ref, { title: "Gone", createdAt }),
+        DocumentSnapshot.missing(ref),
+      );
+      expect(received).toEqual([
+        {
+          ref: "users/alice/posts/hello",
+          before: new Post({ title: "Gone", createdAt }),
+          after: "missing",
+        },
+      ]);
+    }),
+  );
+});
