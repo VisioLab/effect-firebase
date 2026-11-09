@@ -176,15 +176,35 @@ export const DocumentPath: DocumentPath = firestoreSchema.DocumentPath;
 /**
  * Type-level representation of {@link DocumentReference}.
  *
+ * **Details**
+ *
+ * `C` is the collection the reference points into, or a {@link Collection.Key}
+ * naming it. Either way the reference reads back as the same
+ * {@link Collection.DocumentReference}. Name a key only to annotate a
+ * `Schema.suspend` field that closes a cycle; see {@link DocumentReference}.
+ *
+ * @see {@link Collection.Key} for naming a collection before it is defined
+ *
  * @stability unstable
  * @category models
  * @since 0.2.0
  */
-export interface DocumentReference<C extends Collection.Any> extends Schema.declare<
-  Collection.DocumentReference<C>
-> {
+export interface DocumentReference<
+  C extends Collection.Any | Collection.Key<any>,
+> extends Schema.declare<ResolvedReference<C>> {
   readonly Rebuild: DocumentReference<C>;
 }
+
+// Resolving the key directly in `Schema.declare<...>` is circular for a
+// cyclic model, so it goes through one more interface. For a collection it is
+// identical to `Collection.DocumentReference<C>`.
+interface ResolvedReference<C> extends Collection.DocumentReference<CollectionOf<C>> {}
+
+type CollectionOf<C> = C extends { readonly "~collection": infer K extends Collection.Any }
+  ? K
+  : C extends Collection.Any
+    ? C
+    : never;
 
 /**
  * Schema for a reference to a document in `collection`, held as a typed
@@ -196,6 +216,11 @@ export interface DocumentReference<C extends Collection.Any> extends Schema.decl
  * reference keeps its ids and model typed. For a field that may point into
  * several collections, use a `Schema.Union` of one of these per collection.
  * Use {@link DocumentPath} when the target collection is unknown.
+ *
+ * When the field closes a cycle, because the collection is built from this
+ * model, from a subcollection of it, or from a model that references this one
+ * back, wrap it in `Schema.suspend` and annotate the thunk's return type with
+ * a {@link Collection.Key}. Leave every other field unannotated.
  *
  * **Details**
  *
@@ -219,7 +244,26 @@ export interface DocumentReference<C extends Collection.Any> extends Schema.decl
  * }) {}
  * ```
  *
+ * @example Referencing a document of the model's own collection
+ * ```ts
+ * import { Schema } from "effect";
+ * import { Collection, FirestoreModel, FirestoreSchema } from "@visiolab/effect-firebase/firestore";
+ *
+ * interface UsersKey extends Collection.Key<typeof Users> {}
+ *
+ * class User extends FirestoreModel.Class<User>("User")({
+ *   name: Schema.String,
+ *   bestFriend: Schema.NullOr(
+ *     Schema.suspend(
+ *       (): FirestoreSchema.DocumentReference<UsersKey> => FirestoreSchema.DocumentReference(Users),
+ *     ),
+ *   ),
+ * }) {}
+ * const Users = Collection.make("users", User);
+ * ```
+ *
  * @see {@link DocumentPath} for an untyped reference
+ * @see {@link Collection.Key} for a field that references the model's own collection, or closes another cycle
  *
  * @stability unstable
  * @category schemas
