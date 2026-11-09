@@ -1,5 +1,13 @@
 # @visiolab/effect-firebase-client
 
+## 0.3.1
+
+### Patch Changes
+
+- [#195](https://github.com/VisioLab/effect-firebase/pull/195) [`eeed4ff`](https://github.com/VisioLab/effect-firebase/commit/eeed4ff505188865bdcc946f5b83f6a7bc93277a) Thanks [@Kaeldehta](https://github.com/Kaeldehta)! - The npm pages link to the docs at https://visiolab.github.io/effect-firebase/, and the install command for `@visiolab/effect-firebase-functions` now adds its `@visiolab/effect-firebase-admin` and `firebase-admin` peers.
+- Updated dependencies [[`eeed4ff`](https://github.com/VisioLab/effect-firebase/commit/eeed4ff505188865bdcc946f5b83f6a7bc93277a)]:
+  - @visiolab/effect-firebase@0.3.1
+
 ## 0.3.0
 
 ### Minor Changes
