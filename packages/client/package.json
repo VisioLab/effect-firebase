@@ -1,6 +1,6 @@
 {
   "name": "@visiolab/effect-firebase-client",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Firebase client SDK implementation of the @visiolab/effect-firebase services.",
   "keywords": [
     "effect",

@@ -1,5 +1,31 @@
 # @visiolab/effect-firebase-client
 
+## 0.3.0
+
+### Minor Changes
+
+- [#154](https://github.com/VisioLab/effect-firebase/pull/154) [`eb017af`](https://github.com/VisioLab/effect-firebase/commit/eb017af4cc16c2c05bc0c481f15a22ae9b1fe1ac) Thanks [@Kaeldehta](https://github.com/Kaeldehta)! - Move `App` and `Auth` into their own lowercase entries, the way `firestore` is laid out, and drop the package roots, which re-exported only them. Import `App` from `@visiolab/effect-firebase-admin/app` or `@visiolab/effect-firebase-client/app`, `Auth` from `@visiolab/effect-firebase-admin/auth`, and `defaultAppName` from `@visiolab/effect-firebase/app/App` (or `App` from `@visiolab/effect-firebase/app`). The bare package imports and the `/App` and `/Auth` subpaths are gone. The service keys follow the new paths too: `@visiolab/effect-firebase-admin/app/App`, `@visiolab/effect-firebase-client/app/App` and `@visiolab/effect-firebase-admin/auth/Auth`.
+
+- [#138](https://github.com/VisioLab/effect-firebase/pull/138) [`ebb0378`](https://github.com/VisioLab/effect-firebase/commit/ebb03785572affe1112bf6a6b1088500b7fefa11) Thanks [@Kaeldehta](https://github.com/Kaeldehta)! - `ClientFirestore` is now built on core's `Firestore.make`. Its methods and options are unchanged: read source and listen options still apply, and snapshots still carry and print Snapshot Metadata. One difference you may notice is that each `Firestore.*` span now covers encoding and decoding as well as the SDK call.
+
+  `ClientFirestore` follows Effect's pattern for driver services such as `PgClient`: its type extends `Firestore.With` rather than `Firestore`, and its key hands back `ClientFirestore & Firestore`. Providing only a portable `Firestore` no longer removes `ClientFirestore` from an effect's requirements.
+
+- [#193](https://github.com/VisioLab/effect-firebase/pull/193) [`9c7e0d5`](https://github.com/VisioLab/effect-firebase/commit/9c7e0d53ac16feca7195d73dc5979409568a8e46) Thanks [@Kaeldehta](https://github.com/Kaeldehta)! - Add the `functions` entry with `ClientFunctions` and `CallableClient`. `CallableClient.make(Greet)` calls a Callable through `httpsCallable`, with its Payload and success value typed and sent through `Schema.toCodecJson`.
+
+  `CallableClient.make(Users)` builds the client of a Function Group: one function per Callable member, each calling `<group>-<name>`. Members of other kinds, such as Document Triggers, get none.
+
+  A declared error comes back as its own class, so `Effect.catchTag` recovers from it, and so do the errors of a Callable's middleware, such as `Unauthenticated` from `Caller.Authenticated`. Every other failure is a `CallableError` with a `TransportError`, `ResponseError`, `DecodeError` or `EncodeError` reason. A `TransportError` means no answer arrived: a network failure, the SDK's own timeout, or a cancelled call. A `deadline-exceeded` the server sends is a `ResponseError`.
+
+  Every `CallableClient` call runs in a `kind: "client"` span named `CallableClient.<deployed name>`.
+
+### Patch Changes
+
+- [#185](https://github.com/VisioLab/effect-firebase/pull/185) [`bd7d20a`](https://github.com/VisioLab/effect-firebase/commit/bd7d20a6d49a82004c5dc78d04267a5e13629259) Thanks [@Kaeldehta](https://github.com/Kaeldehta)! - All packages now release together under one version, so `@visiolab/effect-firebase-client` and `@visiolab/effect-firebase-functions` skip ahead to 0.3.0. Install every `@visiolab/effect-firebase*` package at the same version: each one works with the core version it shares a number with.
+
+- [#194](https://github.com/VisioLab/effect-firebase/pull/194) [`303319c`](https://github.com/VisioLab/effect-firebase/commit/303319c6aac7b17def21ea650e8141dca9897d79) Thanks [@Kaeldehta](https://github.com/Kaeldehta)! - Packages now publish publicly to npmjs.com instead of GitHub Packages, so installing them needs no token or `.npmrc` mapping. Remove any `@visiolab:registry=https://npm.pkg.github.com` line from your `.npmrc`.
+- Updated dependencies [[`eb017af`](https://github.com/VisioLab/effect-firebase/commit/eb017af4cc16c2c05bc0c481f15a22ae9b1fe1ac), [`ebb0378`](https://github.com/VisioLab/effect-firebase/commit/ebb03785572affe1112bf6a6b1088500b7fefa11), [`bd7d20a`](https://github.com/VisioLab/effect-firebase/commit/bd7d20a6d49a82004c5dc78d04267a5e13629259), [`9c7e0d5`](https://github.com/VisioLab/effect-firebase/commit/9c7e0d53ac16feca7195d73dc5979409568a8e46), [`303319c`](https://github.com/VisioLab/effect-firebase/commit/303319c6aac7b17def21ea650e8141dca9897d79), [`ebb0378`](https://github.com/VisioLab/effect-firebase/commit/ebb03785572affe1112bf6a6b1088500b7fefa11)]:
+  - @visiolab/effect-firebase@0.3.0
+
 ## 0.1.0
 
 ### Minor Changes

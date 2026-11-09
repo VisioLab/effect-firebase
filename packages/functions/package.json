@@ -1,6 +1,6 @@
 {
   "name": "@visiolab/effect-firebase-functions",
-  "version": "0.0.0",
+  "version": "0.3.0",
   "description": "Cloud Functions for Firebase deployment of the @visiolab/effect-firebase Functions.",
   "keywords": [
     "effect",

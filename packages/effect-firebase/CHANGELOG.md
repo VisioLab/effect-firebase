@@ -1,5 +1,40 @@
 # @visiolab/effect-firebase
 
+## 0.3.0
+
+### Minor Changes
+
+- [#154](https://github.com/VisioLab/effect-firebase/pull/154) [`eb017af`](https://github.com/VisioLab/effect-firebase/commit/eb017af4cc16c2c05bc0c481f15a22ae9b1fe1ac) Thanks [@Kaeldehta](https://github.com/Kaeldehta)! - Move `App` and `Auth` into their own lowercase entries, the way `firestore` is laid out, and drop the package roots, which re-exported only them. Import `App` from `@visiolab/effect-firebase-admin/app` or `@visiolab/effect-firebase-client/app`, `Auth` from `@visiolab/effect-firebase-admin/auth`, and `defaultAppName` from `@visiolab/effect-firebase/app/App` (or `App` from `@visiolab/effect-firebase/app`). The bare package imports and the `/App` and `/Auth` subpaths are gone. The service keys follow the new paths too: `@visiolab/effect-firebase-admin/app/App`, `@visiolab/effect-firebase-client/app/App` and `@visiolab/effect-firebase-admin/auth/Auth`.
+
+- [#138](https://github.com/VisioLab/effect-firebase/pull/138) [`ebb0378`](https://github.com/VisioLab/effect-firebase/commit/ebb03785572affe1112bf6a6b1088500b7fefa11) Thanks [@Kaeldehta](https://github.com/Kaeldehta)! - Build a `Firestore` for any backend with `Firestore.make`. A backend supplies Effect-native hooks that read and write Firestore Values by document path, and core does the rest: models, snapshots, Collection Groups, spans and transactions. `Firestore.transactionFromCallback` and `Firestore.streamFromListener` wrap an SDK that runs transactions as callbacks or listens through callbacks. The Admin and client packages are now built this way.
+
+  What `make` returns is typed from its hooks, as a `Firestore.With<ReadOptions, ListenOptions, Extra, TransactionServices>`. The options a backend's reads take, what its snapshots carry beyond the portable ones, and the services a transaction body can ask for all stay in the type, and a backend's own service extends `Firestore.With`. What `make` returns is always a portable `Firestore` too, so it can be provided as one. The portable `Firestore` and `Transaction` now carry a type id, so a backend's own service and transaction types, which extend `Firestore.With` and the new `Firestore.TransactionBase`, stay apart from them in an effect's requirements. Everything `make` takes is `@stability unstable`.
+
+- [#193](https://github.com/VisioLab/effect-firebase/pull/193) [`9c7e0d5`](https://github.com/VisioLab/effect-firebase/commit/9c7e0d53ac16feca7195d73dc5979409568a8e46) Thanks [@Kaeldehta](https://github.com/Kaeldehta)! - Add the `functions` entry, which declares server Functions in code shared by server and client, with no Firebase SDK import. A Function is a `FirebaseFunction` of a kind: a Callable or a Document Trigger.
+
+  - `Callable.make` declares a Callable once, as its name, its Payload and its success value. `Callable.toLayer` implements it as a Layer, and `Callable.handler` runs a handler behind its middleware chain in process.
+  - A Callable declares the errors it can fail with in `error`. `Callable.errorCode` and the `callableErrorCode` annotation give an error its Firebase error code, and `CallableError` adds built-in errors such as `NotFound` and `PermissionDenied`.
+  - `CallableMiddleware`, `CallableRequest` and `Caller`: `.middleware(M)` attaches Callable Middleware to a Callable. It runs before the Payload is decoded; its `provides` leave the handler's Layer and its errors join the Callable's. The built-in `Caller.Authenticated` provides the `Caller` and fails a signed-out call with `Unauthenticated`. `CallableRequest.rawRequest` is the HTTP request a call came in, as Effect's `HttpServerRequest`, for middleware that reads headers or the caller's `remoteAddress`.
+  - `FunctionGroup.make("users").add(...)` collects Functions of any kind, Callables and Document Triggers together, that deploy as `users-<name>`. `Callable.toLayer(Users, "create", handler)` and `DocumentTrigger.toLayer(Users, "onCreated", handler)` implement a member. `FunctionGroup.Members`, `Names` and `Member` take an optional kind, such as `FunctionGroup.Members<typeof Users, Callable.Any>`, to keep only the members of that kind. A group carries no middleware: attach it to each Callable that needs it.
+  - `Callable.deployment` gives a Callable's deployed name and span attributes, which the functions and client packages share. `DocumentTrigger.deployment` gives a trigger's deployed name and document path pattern.
+
+  Document Triggers run when a document of a collection changes:
+
+  - `DocumentTrigger.created`, `deleted`, `updated` and `written(name, collection)` declare a trigger from a name and a `Collection` definition. Each event carries the document's typed Document Reference (`ref`, whose `ancestors` and `id` hold the path's ids) and the CloudEvent's `id` and `time`. A `created` or `deleted` event hands over the document as an existing Document Snapshot (`snapshot`), as it was just before it was deleted for `deleted`. An `updated` event hands over `before` and `after`, both existing. A `written` event runs on a create, an update and a delete: `before` is `Missing` on a create and `after` is `Missing` on a delete, narrowed with `DocumentSnapshot.isExisting` or `DocumentSnapshot.isMissing`. Snapshot data decodes through the collection's model when it is read.
+  - `DocumentTrigger.toLayer(trigger, handler | Effect<handler>)` implements a trigger, and `DocumentTrigger.serve` runs an event through its handler in process. Build test events with `DocumentTrigger.createdEvent`, `deletedEvent`, `updatedEvent` or `writtenEvent` and `DocumentSnapshot.existing`.
+
+  Firebase delivers each event at least once, so make handlers idempotent, keyed on the event's `id`.
+
+- [#138](https://github.com/VisioLab/effect-firebase/pull/138) [`ebb0378`](https://github.com/VisioLab/effect-firebase/commit/ebb03785572affe1112bf6a6b1088500b7fefa11) Thanks [@Kaeldehta](https://github.com/Kaeldehta)! - `DocumentSnapshot.make`, `DocumentSnapshot.existing`, `DocumentSnapshot.missing` and `QuerySnapshot.make` take an optional `extra`: an SDK passes what it knows about a read beyond the portable snapshot, and each of its fields is put on the snapshot and shown when it prints. Snapshots built without one are unchanged.
+
+  `QuerySnapshot` takes the extra its documents carry as a second type argument, `QuerySnapshot<C, DocumentExtra>`, whose `docs` are each `Existing<C> & DocumentExtra`. The query snapshot's own extra stays an intersection, as `QuerySnapshot<C, E> & E`. `QuerySnapshot<C>` means what it did. `QuerySnapshot.make` infers it from the documents it is given, so a query snapshot built from snapshots with an extra keeps it in its type.
+
+### Patch Changes
+
+- [#185](https://github.com/VisioLab/effect-firebase/pull/185) [`bd7d20a`](https://github.com/VisioLab/effect-firebase/commit/bd7d20a6d49a82004c5dc78d04267a5e13629259) Thanks [@Kaeldehta](https://github.com/Kaeldehta)! - All packages now release together under one version, so `@visiolab/effect-firebase-client` and `@visiolab/effect-firebase-functions` skip ahead to 0.3.0. Install every `@visiolab/effect-firebase*` package at the same version: each one works with the core version it shares a number with.
+
+- [#194](https://github.com/VisioLab/effect-firebase/pull/194) [`303319c`](https://github.com/VisioLab/effect-firebase/commit/303319c6aac7b17def21ea650e8141dca9897d79) Thanks [@Kaeldehta](https://github.com/Kaeldehta)! - Packages now publish publicly to npmjs.com instead of GitHub Packages, so installing them needs no token or `.npmrc` mapping. Remove any `@visiolab:registry=https://npm.pkg.github.com` line from your `.npmrc`.
+
 ## 0.2.0
 
 ### Minor Changes
