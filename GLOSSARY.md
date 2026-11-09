@@ -34,6 +34,10 @@ A **Transaction** that can also read every document in a collection or a **Colle
 The collections the model defines under one collection id, wherever each sits, read together as one. Each document read through it still belongs to the one collection it lives in.
 _Avoid_: group query, all collections named X
 
+**Collection Key**:
+A name for one collection the model defines that a model's own fields can use before that collection exists, such as a user's reference to another user. A **Document Reference** typed through it is the same as one typed by the collection.
+_Avoid_: collection type, collection handle, collection ref
+
 ### Reads
 
 **Document Snapshot**:
