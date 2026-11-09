@@ -9,6 +9,7 @@ import {
   CreateUser,
   Failing,
   NameTaken,
+  PostFunctions,
   Users,
 } from "../../../functions/tests/fixture/src/contract.ts";
 import { emulator } from "./emulator.ts";
@@ -100,6 +101,14 @@ describe("CallableClient with a group", () => {
         callable: "failing-fail",
         reason: { _tag: "ResponseError", code: "internal" },
       });
+    }).pipe(Effect.provide(FunctionsLive)),
+  );
+
+  it.effect("calls the Callable of a group that holds a Document Trigger too", () =>
+    Effect.gen(function* () {
+      const posts = yield* CallableClient.make(PostFunctions);
+      expect(Object.keys(posts)).toEqual(["shout"]);
+      expect(yield* posts.shout({ title: "Hello" })).toBe("HELLO");
     }).pipe(Effect.provide(FunctionsLive)),
   );
 });

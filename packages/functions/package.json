@@ -1,7 +1,7 @@
 {
   "name": "@visiolab/effect-firebase-functions",
   "version": "0.0.0",
-  "description": "Cloud Functions for Firebase implementation of the @visiolab/effect-firebase Callables.",
+  "description": "Cloud Functions for Firebase deployment of the @visiolab/effect-firebase Functions.",
   "keywords": [
     "effect",
     "firebase",
@@ -28,16 +28,16 @@
   "type": "module",
   "sideEffects": [],
   "exports": {
-    "./https": "./src/https/index.ts",
-    "./https/CallableFunction": "./src/https/CallableFunction.ts",
+    ".": "./src/index.ts",
+    "./Functions": "./src/Functions.ts",
     "./logger": "./src/logger/index.ts",
     "./logger/CloudLogging": "./src/logger/CloudLogging.ts",
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "exports": {
-      "./https": "./dist/https/index.mjs",
-      "./https/CallableFunction": "./dist/https/CallableFunction.mjs",
+      ".": "./dist/index.mjs",
+      "./Functions": "./dist/Functions.mjs",
       "./logger": "./dist/logger/index.mjs",
       "./logger/CloudLogging": "./dist/logger/CloudLogging.mjs",
       "./package.json": "./package.json"
@@ -55,8 +55,10 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@visiolab/effect-firebase": "workspace:^",
+    "@visiolab/effect-firebase-admin": "workspace:^",
     "effect": "catalog:",
     "firebase": "catalog:",
+    "firebase-admin": "catalog:",
     "firebase-functions": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
@@ -65,7 +67,9 @@
   },
   "peerDependencies": {
     "@visiolab/effect-firebase": "workspace:^",
+    "@visiolab/effect-firebase-admin": "workspace:^",
     "effect": "catalog:peers",
+    "firebase-admin": "catalog:peers",
     "firebase-functions": "catalog:peers"
   }
 }

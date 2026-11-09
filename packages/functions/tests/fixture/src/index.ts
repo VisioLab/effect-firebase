@@ -6,12 +6,25 @@
  */
 import { appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { Cause, Context, Data, Effect, Exit, Layer, Logger, Option, Tracer } from "effect";
+import {
+  Cause,
+  Context,
+  Data,
+  DateTime,
+  Effect,
+  Exit,
+  Layer,
+  Logger,
+  Option,
+  Tracer,
+} from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import * as Caller from "@visiolab/effect-firebase/functions/Caller";
 import * as CallableRequest from "@visiolab/effect-firebase/functions/CallableRequest";
-import * as CallableFunction from "../../../src/https/CallableFunction.ts";
+import * as DocumentTrigger from "@visiolab/effect-firebase/functions/DocumentTrigger";
+import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
+import * as Functions from "../../../src/Functions.ts";
 import { onCall } from "firebase-functions/v2/https";
 import {
   Accounts,
@@ -26,6 +39,14 @@ import {
   Greet,
   LayerBuilds,
   Logged,
+  OnPostCreated,
+  OnTaskCreated,
+  PostFunctions,
+  OnPostDeleted,
+  OnPostUpdated,
+  OnPostWritten,
+  Post,
+  Posts,
   RequestHeader,
   Traced,
   Tracing,
@@ -43,7 +64,7 @@ export const echo = onCall<{ readonly message: string }>((request) => ({
   echoed: request.data.message,
 }));
 
-export const { greet } = CallableFunction.make(
+export const { greet } = Functions.make(
   Greet,
   Callable.toLayer(Greet, ({ name, at }) =>
     Effect.succeed({
@@ -56,7 +77,7 @@ export const { greet } = CallableFunction.make(
 /** How often the Layer of `layerBuilds` was built in this process. */
 let builds = 0;
 
-export const { layerBuilds } = CallableFunction.make(
+export const { layerBuilds } = Functions.make(
   LayerBuilds,
   Callable.toLayer(
     LayerBuilds,
@@ -67,7 +88,7 @@ export const { layerBuilds } = CallableFunction.make(
   ),
 );
 
-export const { users } = CallableFunction.group(
+export const { users } = Functions.group(
   Users,
   Layer.mergeAll(
     Callable.toLayer(Users, "create", ({ name, birthday }) =>
@@ -79,12 +100,12 @@ export const { users } = CallableFunction.group(
   { delete: { region: "europe-west1" } },
 );
 
-export const { admins } = CallableFunction.group(
+export const { admins } = Functions.group(
   Admins,
   Callable.toLayer(Admins, "get", ({ id }) => Effect.succeed({ id, servedBy: "admins" })),
 );
 
-export const { accounts } = CallableFunction.group(
+export const { accounts } = Functions.group(
   Accounts,
   Layer.mergeAll(
     Callable.toLayer(Accounts, "get", ({ id }) => Effect.succeed({ id, servedBy: "accounts" })),
@@ -110,7 +131,7 @@ const WorkersLive = Layer.unwrap(
   }),
 );
 
-export const { workers } = CallableFunction.group(Workers, WorkersLive);
+export const { workers } = Functions.group(Workers, WorkersLive);
 
 /**
  * Where {@link SpanRecorder} writes the spans it ends, one JSON line each:
@@ -153,12 +174,12 @@ const SpanRecorder = Layer.succeed(
 const handleTraced = ({ callId }: { readonly callId: string }) =>
   Effect.void.pipe(Effect.withSpan("fixture.handler", { attributes: { callId } }));
 
-export const { traced } = CallableFunction.make(
+export const { traced } = Functions.make(
   Traced,
   Layer.mergeAll(Callable.toLayer(Traced, handleTraced), SpanRecorder),
 );
 
-export const { tracing } = CallableFunction.group(
+export const { tracing } = Functions.group(
   Tracing,
   Layer.mergeAll(
     Callable.toLayer(
@@ -207,15 +228,12 @@ const failWith = ({ with: failure }: Callable.Payload<typeof Fail>) => {
   }
 };
 
-export const { fail } = CallableFunction.make(
+export const { fail } = Functions.make(
   Fail,
   Callable.toLayer(Fail, failWith).pipe(Layer.merge(ServerLogLive)),
 );
 
-export const { failing } = CallableFunction.group(
-  Failing,
-  Callable.toLayer(Failing, "fail", failWith),
-);
+export const { failing } = Functions.group(Failing, Callable.toLayer(Failing, "fail", failWith));
 
 /** How often the connection of `flaky` was built in this process. */
 let connectionBuilds = 0;
@@ -242,7 +260,7 @@ const ConnectionLive = Layer.effect(
   }),
 );
 
-export const { flaky } = CallableFunction.make(
+export const { flaky } = Functions.make(
   Flaky,
   Callable.toLayer(
     Flaky,
@@ -255,7 +273,7 @@ export const { flaky } = CallableFunction.make(
   ).pipe(Layer.provide(ConnectionLive)),
 );
 
-export const { whoAmI } = CallableFunction.make(
+export const { whoAmI } = Functions.make(
   WhoAmI,
   Layer.merge(
     Callable.toLayer(WhoAmI, ({ greeting }) =>
@@ -280,7 +298,7 @@ for (const method of ["log", "error"] as const) {
   };
 }
 
-export const { logged } = CallableFunction.make(
+export const { logged } = Functions.make(
   Logged,
   Layer.mergeAll(
     Callable.toLayer(
@@ -302,7 +320,7 @@ export const { logged } = CallableFunction.make(
 
 class LayerBroke extends Data.TaggedError("LayerBroke")<{ readonly message: string }> {}
 
-export const { brokenBuild } = CallableFunction.make(
+export const { brokenBuild } = Functions.make(
   BrokenBuild,
   Callable.toLayer(BrokenBuild, Effect.fail(new LayerBroke({ message: "The Layer broke" }))),
 );
@@ -330,7 +348,7 @@ const AuditLive = Layer.succeed(Audit, (effect) =>
   }),
 );
 
-export const { audited } = CallableFunction.make(
+export const { audited } = Functions.make(
   Audited,
   Layer.mergeAll(
     Callable.toLayer(Audited, () => Effect.void),
@@ -340,7 +358,7 @@ export const { audited } = CallableFunction.make(
   ),
 );
 
-export const { requestHeader } = CallableFunction.make(
+export const { requestHeader } = Functions.make(
   RequestHeader,
   Callable.toLayer(RequestHeader, () =>
     Effect.map(
@@ -350,7 +368,145 @@ export const { requestHeader } = CallableFunction.make(
   ),
 );
 
-export const { sleep } = CallableFunction.make(
+export const { sleep } = Functions.make(
   Sleep,
   Callable.toLayer(Sleep, ({ millis }) => Effect.sleep(millis)),
+);
+
+/**
+ * Where the fixture's triggers record each event they receive, one JSON line
+ * each: `packages/functions/tests/triggers.log`, next to the tests, which wait
+ * for their own document's line.
+ */
+const triggersLog = fileURLToPath(new URL("../../triggers.log", import.meta.url));
+
+/** A decoded post as the triggers record it, with `publishedAt` as ISO. */
+const recordedPost = (post: Post) => ({
+  title: post.title,
+  publishedAt: DateTime.formatIso(post.publishedAt),
+});
+
+/** One side of a change as recorded: the decoded post, or `null` when missing. */
+const recordedSide = (snapshot: DocumentSnapshot.DocumentSnapshot<typeof Posts>) =>
+  DocumentSnapshot.isExisting(snapshot)
+    ? Effect.map(snapshot.data, recordedPost)
+    : Effect.succeed(null);
+
+/**
+ * Appends what every trigger records of an event under `trigger`, with the
+ * function target the emulator runs it as, and `fields`, to the triggers log,
+ * and tags the event's span with the post's path.
+ */
+const recordEvent = (
+  trigger: string,
+  event: DocumentTrigger.BaseEvent<typeof Posts>,
+  fields: object,
+) =>
+  Effect.andThen(
+    Effect.annotateCurrentSpan("documentPath", event.ref.path),
+    Effect.sync(() => {
+      const line = {
+        trigger,
+        target: process.env["FUNCTION_TARGET"] ?? "",
+        eventId: event.id,
+        time: event.time,
+        path: event.ref.path,
+        ancestors: event.ref.ancestors,
+        id: event.ref.id,
+        ...fields,
+      };
+      appendFileSync(triggersLog, `${JSON.stringify(line)}\n`);
+    }),
+  );
+
+/** Records a `created` event of a post under `trigger`. */
+const recordPostCreated =
+  (trigger: string) => (event: DocumentTrigger.Event<typeof OnPostCreated>) =>
+    Effect.flatMap(event.snapshot.data, (post) =>
+      recordEvent(trigger, event, { data: recordedPost(post) }),
+    );
+
+export const { onPostCreated } = Functions.make(
+  OnPostCreated,
+  DocumentTrigger.toLayer(OnPostCreated, recordPostCreated(OnPostCreated.name)),
+);
+
+export const { posts } = Functions.group(
+  PostFunctions,
+  Layer.mergeAll(
+    Callable.toLayer(PostFunctions, "shout", ({ title }) => Effect.succeed(title.toUpperCase())),
+    DocumentTrigger.toLayer(PostFunctions, "onCreated", recordPostCreated("posts-onCreated")),
+    SpanRecorder,
+  ),
+);
+
+export const { onPostDeleted } = Functions.make(
+  OnPostDeleted,
+  DocumentTrigger.toLayer(OnPostDeleted, (event) =>
+    Effect.flatMap(event.snapshot.data, (post) =>
+      recordEvent(OnPostDeleted.name, event, { data: recordedPost(post) }),
+    ),
+  ),
+);
+
+export const { onPostUpdated } = Functions.make(
+  OnPostUpdated,
+  DocumentTrigger.toLayer(OnPostUpdated, (event) =>
+    Effect.gen(function* () {
+      const before = recordedPost(yield* event.before.data);
+      const after = recordedPost(yield* event.after.data);
+      yield* recordEvent(OnPostUpdated.name, event, { before, after });
+    }),
+  ),
+);
+
+export const { onPostWritten } = Functions.make(
+  OnPostWritten,
+  DocumentTrigger.toLayer(OnPostWritten, (event) =>
+    Effect.gen(function* () {
+      const before = yield* recordedSide(event.before);
+      const after = yield* recordedSide(event.after);
+      yield* recordEvent(OnPostWritten.name, event, { before, after });
+    }),
+  ),
+);
+
+class TaskFailed extends Data.TaggedError("TaskFailed")<{ readonly message: string }> {}
+
+/** How often `onTaskCreated` received the event of each task in this process, by task id. */
+const taskAttempts = new Map<string, number>();
+
+/**
+ * Records each attempt at a task, tags the event's span and logs with the
+ * task's id, and ends the first attempt the way the task asks.
+ */
+export const { onTaskCreated } = Functions.make(
+  OnTaskCreated,
+  Layer.mergeAll(
+    DocumentTrigger.toLayer(OnTaskCreated, (event) =>
+      Effect.gen(function* () {
+        const taskId = event.ref.id;
+        const attempt = (taskAttempts.get(taskId) ?? 0) + 1;
+        taskAttempts.set(taskId, attempt);
+        yield* Effect.annotateCurrentSpan("taskId", taskId);
+        yield* Effect.log("Handling task");
+        const line = { trigger: OnTaskCreated.name, id: taskId, eventId: event.id, attempt };
+        appendFileSync(triggersLog, `${JSON.stringify(line)}\n`);
+        if (attempt > 1) return;
+        const { firstAttempt } = yield* event.snapshot.data;
+        switch (firstAttempt) {
+          case "succeed":
+            return;
+          case "fail":
+            return yield* new TaskFailed({ message: `Task ${taskId} failed` });
+          case "die":
+            return yield* Effect.die(new Error(`Boom: task ${taskId} broke`));
+          case "interrupt":
+            return yield* Effect.interrupt;
+        }
+      }).pipe(Effect.annotateLogs({ taskId: event.ref.id })),
+    ),
+    SpanRecorder,
+  ),
+  { retry: true },
 );

@@ -1,0 +1,260 @@
+import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
+import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
+import * as Callable from "@visiolab/effect-firebase/functions/Callable";
+import * as DocumentTrigger from "@visiolab/effect-firebase/functions/DocumentTrigger";
+import * as FunctionGroup from "@visiolab/effect-firebase/functions/FunctionGroup";
+import { Context, Effect, type Layer, Schema } from "effect";
+import { describe, expect, test } from "tstyche";
+
+class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
+class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
+
+const Users = Collection.make("users", User);
+const Posts = Users.subcollection("posts", Post);
+
+const OnPostCreated = DocumentTrigger.created("onPostCreated", Posts);
+
+class Clock extends Context.Service<Clock, { readonly now: Effect.Effect<Date> }>()("test/Clock") {}
+
+describe("DocumentTrigger.created", () => {
+  test("keeps the name as a literal type and the collection it watches", () => {
+    expect(OnPostCreated.name).type.toBe<"onPostCreated">();
+    expect(OnPostCreated.collection).type.toBe<typeof Posts>();
+    expect(OnPostCreated.event).type.toBe<"created">();
+  });
+
+  test("takes a Collection, not a path", () => {
+    // @ts-expect-error not assignable
+    DocumentTrigger.created("onPostCreated", "users/{userId}/posts/{postId}");
+  });
+
+  test("hands its handler the created document, its typed reference, and the CloudEvent's id and time", () => {
+    expect<DocumentTrigger.Event<typeof OnPostCreated>>().type.toBe<
+      DocumentTrigger.Created<typeof Posts>
+    >();
+    type Event = DocumentTrigger.Event<typeof OnPostCreated>;
+    expect<Event["snapshot"]>().type.toBe<DocumentSnapshot.Existing<typeof Posts>>();
+    expect<Event["ref"]>().type.toBe<Collection.DocumentReference<typeof Posts>>();
+    expect<Event["id"]>().type.toBe<string>();
+    expect<Event["time"]>().type.toBe<string>();
+    expect<Event>().type.not.toHaveProperty("params");
+  });
+
+  test("reads the wildcard ids from the reference, branded with their collections", () => {
+    DocumentTrigger.toLayer(OnPostCreated, (event) => {
+      expect(event.ref.ancestors).type.toBe<Readonly<Collection.Ancestors<typeof Posts>>>();
+      expect(event.ref.ancestors[0]).type.toBe<Collection.Id<typeof Users>>();
+      expect(event.ref.id).type.toBe<Collection.Id<typeof Posts>>();
+      return Effect.void;
+    });
+  });
+
+  test("is a Function Group member of kind DocumentTrigger", () => {
+    class Posting extends FunctionGroup.make("posting").add(OnPostCreated) {}
+    expect<FunctionGroup.Names<typeof Posting, DocumentTrigger.Any>>().type.toBe<"onPostCreated">();
+  });
+});
+
+const OnPostDeleted = DocumentTrigger.deleted("onPostDeleted", Posts);
+const OnPostUpdated = DocumentTrigger.updated("onPostUpdated", Posts);
+const OnPostWritten = DocumentTrigger.written("onPostWritten", Posts);
+
+describe("DocumentTrigger.deleted", () => {
+  test("keeps the name, the collection and the change", () => {
+    expect(OnPostDeleted).type.toBe<
+      DocumentTrigger.DocumentTrigger<"onPostDeleted", typeof Posts, "deleted">
+    >();
+  });
+
+  test("hands its handler the document as it was, its typed reference, and the CloudEvent's id and time", () => {
+    type Event = DocumentTrigger.Event<typeof OnPostDeleted>;
+    expect<Event>().type.toBe<DocumentTrigger.Deleted<typeof Posts>>();
+    expect<Event["snapshot"]>().type.toBe<DocumentSnapshot.Existing<typeof Posts>>();
+    expect<Event["ref"]>().type.toBe<Collection.DocumentReference<typeof Posts>>();
+    expect<Event["id"]>().type.toBe<string>();
+    expect<Event["time"]>().type.toBe<string>();
+  });
+});
+
+describe("DocumentTrigger.updated", () => {
+  test("keeps the name, the collection and the change", () => {
+    expect(OnPostUpdated).type.toBe<
+      DocumentTrigger.DocumentTrigger<"onPostUpdated", typeof Posts, "updated">
+    >();
+  });
+
+  test("hands its handler both sides as existing, its typed reference, and the CloudEvent's id and time", () => {
+    type Event = DocumentTrigger.Event<typeof OnPostUpdated>;
+    expect<Event>().type.toBe<DocumentTrigger.Updated<typeof Posts>>();
+    expect<Event["before"]>().type.toBe<DocumentSnapshot.Existing<typeof Posts>>();
+    expect<Event["after"]>().type.toBe<DocumentSnapshot.Existing<typeof Posts>>();
+    expect<Event["ref"]>().type.toBe<Collection.DocumentReference<typeof Posts>>();
+    expect<Event["id"]>().type.toBe<string>();
+    expect<Event["time"]>().type.toBe<string>();
+    expect<Event>().type.not.toHaveProperty("snapshot");
+  });
+});
+
+describe("DocumentTrigger.written", () => {
+  test("keeps the name, the collection and the change", () => {
+    expect(OnPostWritten).type.toBe<
+      DocumentTrigger.DocumentTrigger<"onPostWritten", typeof Posts, "written">
+    >();
+  });
+
+  test("hands its handler each side as a Document Snapshot, which may be missing", () => {
+    type Event = DocumentTrigger.Event<typeof OnPostWritten>;
+    expect<Event>().type.toBe<DocumentTrigger.Written<typeof Posts>>();
+    expect<Event["before"]>().type.toBe<DocumentSnapshot.DocumentSnapshot<typeof Posts>>();
+    expect<Event["after"]>().type.toBe<DocumentSnapshot.DocumentSnapshot<typeof Posts>>();
+    expect<Event["ref"]>().type.toBe<Collection.DocumentReference<typeof Posts>>();
+    expect<Event["id"]>().type.toBe<string>();
+    expect<Event["time"]>().type.toBe<string>();
+  });
+
+  test("reads a side's data only once it is narrowed to existing", () => {
+    DocumentTrigger.toLayer(OnPostWritten, (event) => {
+      // @ts-expect-error Property 'data' does not exist
+      void event.after.data;
+      if (DocumentSnapshot.isExisting(event.after)) {
+        expect(event.after).type.toBe<DocumentSnapshot.Existing<typeof Posts>>();
+        expect(event.after.data).type.toBe<Effect.Effect<Post, Schema.SchemaError, never>>();
+      }
+      if (DocumentSnapshot.isMissing(event.before)) {
+        expect(event.before).type.toBe<DocumentSnapshot.Missing<typeof Posts>>();
+      }
+      return Effect.void;
+    });
+  });
+});
+
+describe("DocumentTrigger.createdEvent", () => {
+  test("builds the event of the snapshot's collection", () => {
+    const snapshot = {} as DocumentSnapshot.Existing<typeof Posts>;
+    expect(DocumentTrigger.createdEvent({ id: "1", time: "t", snapshot })).type.toBe<
+      DocumentTrigger.Created<typeof Posts>
+    >();
+  });
+});
+
+describe("DocumentTrigger.deletedEvent", () => {
+  test("builds the event of the snapshot's collection", () => {
+    const snapshot = {} as DocumentSnapshot.Existing<typeof Posts>;
+    expect(DocumentTrigger.deletedEvent({ id: "1", time: "t", snapshot })).type.toBe<
+      DocumentTrigger.Deleted<typeof Posts>
+    >();
+  });
+
+  test("takes only an existing snapshot", () => {
+    const snapshot = {} as DocumentSnapshot.Missing<typeof Posts>;
+    // @ts-expect-error is missing the following properties
+    DocumentTrigger.deletedEvent({ id: "1", time: "t", snapshot });
+  });
+});
+
+describe("DocumentTrigger.updatedEvent", () => {
+  test("builds the event of the snapshots' collection", () => {
+    const snapshot = {} as DocumentSnapshot.Existing<typeof Posts>;
+    expect(
+      DocumentTrigger.updatedEvent({ id: "1", time: "t", before: snapshot, after: snapshot }),
+    ).type.toBe<DocumentTrigger.Updated<typeof Posts>>();
+  });
+
+  test("takes only existing snapshots", () => {
+    const existing = {} as DocumentSnapshot.Existing<typeof Posts>;
+    const missing = {} as DocumentSnapshot.Missing<typeof Posts>;
+    // @ts-expect-error is missing the following properties
+    DocumentTrigger.updatedEvent({ id: "1", time: "t", before: missing, after: existing });
+  });
+});
+
+describe("DocumentTrigger.writtenEvent", () => {
+  test("builds the event of the snapshots' collection, with a missing side", () => {
+    const existing = {} as DocumentSnapshot.Existing<typeof Posts>;
+    const missing = {} as DocumentSnapshot.Missing<typeof Posts>;
+    expect(
+      DocumentTrigger.writtenEvent({ id: "1", time: "t", before: missing, after: existing }),
+    ).type.toBe<DocumentTrigger.Written<typeof Posts>>();
+  });
+});
+
+describe("DocumentTrigger.toLayer", () => {
+  test("provides the trigger's handler, and requires what the handler needs", () => {
+    const live = DocumentTrigger.toLayer(OnPostCreated, () => Effect.asVoid(Effect.service(Clock)));
+    expect(live).type.toBe<
+      Layer.Layer<DocumentTrigger.HandlerFor<typeof OnPostCreated>, never, Clock>
+    >();
+  });
+
+  test("takes an Effect that builds the handler", () => {
+    const live = DocumentTrigger.toLayer(
+      OnPostCreated,
+      Effect.map(Effect.service(Clock), () => () => Effect.void),
+    );
+    expect(live).type.toBe<
+      Layer.Layer<DocumentTrigger.HandlerFor<typeof OnPostCreated>, never, Clock>
+    >();
+  });
+
+  test("leaves the handler's error channel open", () => {
+    expect(DocumentTrigger.toLayer(OnPostCreated, () => Effect.fail("boom"))).type.toBe<
+      Layer.Layer<DocumentTrigger.HandlerFor<typeof OnPostCreated>>
+    >();
+  });
+});
+
+describe("DocumentTrigger.serve", () => {
+  test("requires the trigger's handler and runs its event", () => {
+    expect(DocumentTrigger.serve(OnPostCreated)).type.toBe<
+      Effect.Effect<
+        (event: DocumentTrigger.Created<typeof Posts>) => Effect.Effect<void, unknown>,
+        never,
+        DocumentTrigger.HandlerFor<typeof OnPostCreated>
+      >
+    >();
+  });
+});
+
+const EditPost = Callable.make("edit", { payload: { title: Schema.String } });
+
+class PostFunctions extends FunctionGroup.make("posts").add(EditPost, OnPostCreated) {}
+
+describe("DocumentTrigger.toLayer in a group", () => {
+  test("provides the member's handler in the group, and requires what the handler needs", () => {
+    const live = DocumentTrigger.toLayer(PostFunctions, "onPostCreated", (event) => {
+      expect(event).type.toBe<DocumentTrigger.Created<typeof Posts>>();
+      return Effect.asVoid(Effect.service(Clock));
+    });
+    expect(live).type.toBe<
+      Layer.Layer<DocumentTrigger.Handler<"posts", "onPostCreated">, never, Clock>
+    >();
+  });
+
+  test("doesn't take a Callable member", () => {
+    // @ts-expect-error not assignable to parameter of type '"onPostCreated"'
+    DocumentTrigger.toLayer(PostFunctions, "edit", () => Effect.void);
+  });
+});
+
+describe("DocumentTrigger.serve in a group", () => {
+  test("requires the member's handler in the group and runs its event", () => {
+    expect(DocumentTrigger.serve(PostFunctions, "onPostCreated")).type.toBe<
+      Effect.Effect<
+        (event: DocumentTrigger.Created<typeof Posts>) => Effect.Effect<void, unknown>,
+        never,
+        DocumentTrigger.Handler<"posts", "onPostCreated">
+      >
+    >();
+  });
+});
+
+describe("DocumentTrigger.deployment in a group", () => {
+  test("takes the name of a trigger member only", () => {
+    expect(
+      DocumentTrigger.deployment(PostFunctions, "onPostCreated"),
+    ).type.toBe<DocumentTrigger.Deployment>();
+    // @ts-expect-error not assignable to parameter of type '"onPostCreated"'
+    DocumentTrigger.deployment(PostFunctions, "edit");
+  });
+});

@@ -3,14 +3,14 @@ import { Effect, Layer, Schema } from "effect";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
 import * as Callable from "../../src/functions/Callable.ts";
 import * as CallableError from "../../src/functions/CallableError.ts";
-import * as CallableGroup from "../../src/functions/CallableGroup.ts";
+import * as FunctionGroup from "../../src/functions/FunctionGroup.ts";
 import * as CallableRequest from "../../src/functions/CallableRequest.ts";
 
 const GetUser = Callable.make("get", { payload: { id: Schema.String }, success: Schema.String });
 const DeleteUser = Callable.make("delete", { payload: { id: Schema.String } });
 
-class Users extends CallableGroup.make("users").add(GetUser, DeleteUser) {}
-class Admins extends CallableGroup.make("admins").add(GetUser) {}
+class Users extends FunctionGroup.make("users").add(GetUser, DeleteUser) {}
+class Admins extends FunctionGroup.make("admins").add(GetUser) {}
 
 const call = <A, E, R>(
   serve: Effect.Effect<(request: CallableRequest.CallableRequest) => Effect.Effect<A, E>, never, R>,
@@ -24,16 +24,24 @@ const call = <A, E, R>(
     ),
   );
 
-describe("CallableGroup", () => {
+describe("FunctionGroup", () => {
   it("serves its members under their names", () => {
     expect(Users.identifier).toBe("users");
-    expect(Object.keys(Users.callables)).toEqual(["get", "delete"]);
-    expect(Users.callables.get).toBe(GetUser);
+    expect(Object.keys(Users.functions)).toEqual(["get", "delete"]);
+    expect(Users.functions.get).toBe(GetUser);
   });
 
   it("throws when a name is already taken in the group", () => {
     expect(() => Users.add(Callable.make("get"))).toThrow(
-      'The Callable Group "users" already has a Callable named "get"',
+      'The Function Group "users" already has a Function named "get"',
+    );
+  });
+
+  it("throws when a name is taken by a member of another kind", () => {
+    // A Function of a kind other than Callable, standing in for a Document Trigger.
+    const OnGet = { kind: "Other", name: "get" } as const;
+    expect(() => Users.add(OnGet)).toThrow(
+      'The Function Group "users" already has a Function named "get"',
     );
   });
 
@@ -59,7 +67,7 @@ describe("CallableGroup", () => {
         payload: { id: Schema.String },
         error: CallableError.NotFound,
       });
-      class Lookups extends CallableGroup.make("lookups").add(Find) {}
+      class Lookups extends FunctionGroup.make("lookups").add(Find) {}
       const Live = Layer.mergeAll(
         Callable.toLayer(Lookups, "find", () => Effect.fail(new CallableError.NotFound())),
         Callable.toLayer(Find, () => Effect.fail(new CallableError.NotFound())),

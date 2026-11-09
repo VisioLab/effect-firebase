@@ -36,8 +36,8 @@
  */
 import { Effect, Schema } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
-import * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
+import * as FunctionGroup from "@visiolab/effect-firebase/functions/FunctionGroup";
 import * as Sdk from "firebase/functions";
 import * as ClientFunctions from "./ClientFunctions.ts";
 
@@ -55,35 +55,26 @@ export type Method<C extends Callable.Any> = (
 
 /**
  * What {@link make} returns: one {@link Method} per Callable, keyed by the
- * Callable's name. For a Callable Group, one per member.
+ * Callable's name. For a Function Group, one per Callable member.
  *
  * @stability unstable
  * @category models
  * @since 0.3.0
  */
-export type Client<T extends Callable.Any | CallableGroup.Any> = {
+export type Client<T extends Callable.Any | FunctionGroup.Any> = {
   readonly [C in Members<T> as C["name"]]: Method<C>;
 };
 
 /**
- * The Callables a client of `T` calls: the members of a Callable Group, as
- * the group serves them, or the Callable itself.
- *
- * **Details**
- *
- * A member carries the group's middleware, so its errors are in the member's
- * {@link Method}.
+ * The Callables a client of `T` calls: the Callable members of a Function
+ * Group, or the Callable itself. Members of other kinds are left out.
  *
  * @stability unstable
  * @category type-level
  * @since 0.3.0
  */
-export type Members<T extends Callable.Any | CallableGroup.Any> = T extends CallableGroup.Any
-  ? CallableGroup.Names<T> extends infer Name
-    ? Name extends string
-      ? CallableGroup.Member<T, Name>
-      : never
-    : never
+export type Members<T extends Callable.Any | FunctionGroup.Any> = T extends FunctionGroup.Any
+  ? FunctionGroup.Members<T, Callable.Any>
   : T;
 
 /** The ` [<status>]` the SDK appends to the message of an error built from an answer. */
@@ -175,8 +166,8 @@ const method = (
 };
 
 /**
- * Builds the client of a Callable in no group, or of every member of a
- * Callable Group.
+ * Builds the client of a Callable in no group, or of every Callable member of
+ * a Function Group.
  *
  * **When to use**
  *
@@ -187,7 +178,8 @@ const method = (
  * Returns a record keyed by Callable name: `const { greet } = yield*
  * CallableClient.make(Greet)` for a Callable in no group, and
  * `const users = yield* CallableClient.make(Users)` for a group, where
- * `users.create` calls `users-create`. The region of the
+ * `users.create` calls `users-create`. A group's members of other kinds, which
+ * no client calls, are left out. The region of the
  * {@link ClientFunctions.ClientFunctions} in context is bound once, here.
  *
  * Build a member's client from its group. A client built from the member on
@@ -249,7 +241,7 @@ const method = (
  * @example Calling the members of a group
  * ```ts
  * import { Effect, Schema } from "effect";
- * import { Callable, CallableGroup } from "@visiolab/effect-firebase/functions";
+ * import { Callable, FunctionGroup } from "@visiolab/effect-firebase/functions";
  * import { CallableClient } from "@visiolab/effect-firebase-client/functions";
  *
  * const CreateUser = Callable.make("create", {
@@ -257,7 +249,7 @@ const method = (
  *   success: Schema.String,
  * });
  *
- * class Users extends CallableGroup.make("users").add(CreateUser) {}
+ * class Users extends FunctionGroup.make("users").add(CreateUser) {}
  *
  * const program = Effect.gen(function* () {
  *   const users = yield* CallableClient.make(Users);
@@ -267,18 +259,18 @@ const method = (
  * ```
  *
  * @see {@link ClientFunctions.ClientFunctions} for the region and emulator it calls
- * @see {@link CallableFunction.make} for serving a Callable in no group
- * @see {@link CallableFunction.group} for serving the members of a group
+ * @see {@link Functions.make} for serving a Callable in no group
+ * @see {@link Functions.group} for serving the members of a group
  *
  * @stability unstable
  * @category constructors
  * @since 0.3.0
  */
-export const make = <T extends Callable.Any | CallableGroup.Any>(
+export const make = <T extends Callable.Any | FunctionGroup.Any>(
   target: T,
 ): Effect.Effect<Client<T>, never, ClientFunctions.ClientFunctions> =>
   Effect.map(Effect.service(ClientFunctions.ClientFunctions), ({ instance }) => {
-    if (!CallableGroup.isCallableGroup(target)) {
+    if (!FunctionGroup.isFunctionGroup(target)) {
       const callable = target as Callable.Any;
       return {
         [callable.name]: method(
@@ -290,10 +282,12 @@ export const make = <T extends Callable.Any | CallableGroup.Any>(
       } as Client<T>;
     }
     const client: Record<string, ReturnType<typeof method>> = {};
-    for (const [name, callable] of Object.entries(target.callables)) {
+    for (const [name, member] of Object.entries(target.functions)) {
+      // Only Callables are called by a client.
+      if (member.kind !== "Callable") continue;
       client[name] = method(
         instance,
-        callable,
+        member as Callable.Any,
         Callable.deployment(target, name),
         Callable.errorSchemas(target, name),
       );

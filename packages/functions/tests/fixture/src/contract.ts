@@ -1,13 +1,17 @@
 /**
- * The Callables the fixture serves, shared with the tests that call them.
+ * The Callables and Document Triggers the fixture serves, shared with the
+ * tests that call them or write the documents they watch.
  *
  * Imports only the portable core, as an app's shared contract would, except
  * for the type of the request `Audit` requires.
  */
 import { Schema } from "effect";
+import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
-import * as CallableGroup from "@visiolab/effect-firebase/functions/CallableGroup";
+import * as DocumentTrigger from "@visiolab/effect-firebase/functions/DocumentTrigger";
+import * as FunctionGroup from "@visiolab/effect-firebase/functions/FunctionGroup";
 import * as CallableMiddleware from "@visiolab/effect-firebase/functions/CallableMiddleware";
 import * as Caller from "@visiolab/effect-firebase/functions/Caller";
 
@@ -43,27 +47,27 @@ export const GetUser = Callable.make("get", {
 /** Served in `europe-west1`, through the options of its group's export. */
 export const DeleteUser = Callable.make("delete", { payload: { id: Schema.String } });
 
-export class Users extends CallableGroup.make("users").add(CreateUser, GetUser, DeleteUser) {}
+export class Users extends FunctionGroup.make("users").add(CreateUser, GetUser, DeleteUser) {}
 
-export class Admins extends CallableGroup.make("admins").add(GetUser) {}
+export class Admins extends FunctionGroup.make("admins").add(GetUser) {}
 
-/** Answers with the uid of the Caller that group middleware provides. */
-export const Me = Callable.make("me", { success: Schema.String });
+/** Answers with the uid of the Caller that `Authenticated` provides. */
+export const Me = Callable.make("me", { success: Schema.String }).middleware(Caller.Authenticated);
 
 /**
- * {@link GetUser} again, behind `Authenticated` as group middleware, and
- * {@link Me}, added after the middleware.
+ * {@link GetUser} again, behind `Authenticated`, and {@link Me}. A group
+ * carries no middleware, so each member attaches its own.
  */
-export class Accounts extends CallableGroup.make("accounts")
-  .add(GetUser)
-  .middleware(Caller.Authenticated)
-  .add(Me) {}
+export class Accounts extends FunctionGroup.make("accounts").add(
+  GetUser.middleware(Caller.Authenticated),
+  Me,
+) {}
 
 /** What a member of `workers` answers: the worker that built its Layer, and how often. */
 const BuiltBy = Schema.Struct({ target: Schema.String, builds: Schema.Finite });
 
 /** Two members that share one Layer, to show each worker builds it for itself. */
-export class Workers extends CallableGroup.make("workers").add(
+export class Workers extends FunctionGroup.make("workers").add(
   Callable.make("first", { success: BuiltBy }),
   Callable.make("second", { success: BuiltBy }),
 ) {}
@@ -125,7 +129,7 @@ export const Flaky = Callable.make("flaky", {
 });
 
 /** `Fail` again, as a member of a group, deployed as `failing-fail`. */
-export class Failing extends CallableGroup.make("failing").add(Fail) {}
+export class Failing extends FunctionGroup.make("failing").add(Fail) {}
 
 /** Greets the signed-in Caller by uid, behind `Authenticated`. */
 export const WhoAmI = Callable.make("whoAmI", {
@@ -137,7 +141,7 @@ export const WhoAmI = Callable.make("whoAmI", {
 export const Traced = Callable.make("traced", { payload: { callId: Schema.String } });
 
 /** Serves {@link Traced} as `tracing-traced`, with a Layer whose build opens a span. */
-export class Tracing extends CallableGroup.make("tracing").add(Traced) {}
+export class Tracing extends FunctionGroup.make("tracing").add(Traced) {}
 
 /** Logs twice, with a pause between, annotated with the call's id. */
 export const Logged = Callable.make("logged", { payload: { callId: Schema.String } });
@@ -160,3 +164,55 @@ export const Audited = Callable.make("audited", { payload: { callId: Schema.Stri
 export const RequestHeader = Callable.make("requestHeader", {
   success: Schema.NullOr(Schema.String),
 });
+
+/** An author, the parent document of {@link Posts}. */
+export class Author extends FirestoreModel.Class<Author>("Author")({ name: Schema.String }) {}
+
+/** A post, with a Timestamp the model decodes into a `DateTime.Utc`. */
+export class Post extends FirestoreModel.Class<Post>("Post")({
+  title: Schema.String,
+  publishedAt: FirestoreModel.Timestamp(Schema.DateTimeUtc),
+}) {}
+
+export const Authors = Collection.make("authors", Author);
+
+/** The posts under each author. */
+export const Posts = Authors.subcollection("posts", Post);
+
+/** Records each post created under any author. */
+export const OnPostCreated = DocumentTrigger.created("onPostCreated", Posts);
+
+/** Answers with a post's title in upper case, deployed as `posts-shout`. */
+export const ShoutTitle = Callable.make("shout", {
+  payload: { title: Schema.String },
+  success: Schema.String,
+});
+
+/** Records each post created under any author, deployed as `posts-onCreated`. */
+export const OnCreated = DocumentTrigger.created("onCreated", Posts);
+
+/** A Callable and a Document Trigger in one group. */
+export class PostFunctions extends FunctionGroup.make("posts").add(ShoutTitle, OnCreated) {}
+
+/** Records each post deleted under any author, with its last data. */
+export const OnPostDeleted = DocumentTrigger.deleted("onPostDeleted", Posts);
+
+/** Records each update to a post, with its data before and after. */
+export const OnPostUpdated = DocumentTrigger.updated("onPostUpdated", Posts);
+
+/** Records each create, update and delete of a post, with either side possibly missing. */
+export const OnPostWritten = DocumentTrigger.written("onPostWritten", Posts);
+
+/** A task, which tells the trigger that handles it how its first attempt ends. */
+export class Task extends FirestoreModel.Class<Task>("Task")({
+  firstAttempt: Schema.Literals(["succeed", "fail", "die", "interrupt"]),
+}) {}
+
+export const Tasks = Collection.make("tasks", Task);
+
+/**
+ * Ends its first attempt at each task the way the task asks, and succeeds on
+ * any later one. Deployed with `retry`, so Firebase delivers a failed event
+ * again.
+ */
+export const OnTaskCreated = DocumentTrigger.created("onTaskCreated", Tasks);

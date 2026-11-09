@@ -2,9 +2,9 @@
  * A Logger that writes Effect logs as Cloud Logging structured entries, one
  * JSON line each, tied to the trace of the fiber's current span.
  *
- * `CallableFunction` installs it for every call, beneath the Layer you serve,
- * so you need this module only to log the same way elsewhere, or to change
- * how a Callable Function logs.
+ * `Functions` installs it for every call or event, beneath the Layer you
+ * serve, so you need this module only to log the same way elsewhere, or to
+ * change how a deployed Function logs.
  *
  * @stability unstable
  * @since 0.3.0
@@ -123,13 +123,13 @@ export const logger: Logger.Logger<unknown, void> = Logger.make(
  *
  * **When to use**
  *
- * Use to log as Cloud Logging entries outside a Callable Function, in any
- * Effect program that runs on Google Cloud. Callable Functions already log
- * this way.
+ * Use to log as Cloud Logging entries outside a Function deployed with
+ * `Functions`, in any Effect program that runs on Google Cloud. Deployed
+ * Functions already log this way.
  *
  * **Details**
  *
- * Provided in the Layer of a Callable Function, it changes nothing. To log
+ * Provided in the Layer of a deployed Function, it changes nothing. To log
  * differently there, provide your own `Logger.layer`, which wins over this one.
  *
  * @example Logging from a scheduled job

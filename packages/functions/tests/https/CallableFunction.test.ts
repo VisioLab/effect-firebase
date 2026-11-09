@@ -10,7 +10,7 @@ import {
 } from "firebase/functions";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import * as CallableFunction from "../../src/https/CallableFunction.ts";
+import * as Functions from "../../src/Functions.ts";
 
 /** Where the fixture's logger writes what the server logs, one JSON line per entry. */
 const serverLog = fileURLToPath(new URL("../server.log", import.meta.url));
@@ -130,7 +130,7 @@ describe("CallableFunction", () => {
   it("builds nothing when the export is made or discovered", () => {
     const Ping = Callable.make("ping", { success: Schema.Finite });
     let builds = 0;
-    const { ping } = CallableFunction.make(
+    const { ping } = Functions.make(
       Ping,
       Callable.toLayer(
         Ping,

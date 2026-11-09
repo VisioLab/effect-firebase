@@ -65,15 +65,21 @@ _Avoid_: untyped reference, reference value, raw reference
 A field every member of a union holds, and so one a document holding the union can be patched at without knowing which member it holds, with a value every member accepts and stores the same way.
 _Avoid_: common field
 
+### Functions
+
+**Function**:
+A server function declared once by its name and what runs it: a call from the client for a **Callable**, a change to a document for a **Document Trigger**. Its name is unique within its **Function Group**. A Function in no group is deployed under its own name.
+_Avoid_: cloud function, endpoint
+
+**Function Group**:
+A named set of **Functions** of any kind, deployed under the group's name as a prefix. A Function may be added to more than one group, and each group serves and implements it separately. Groups do not nest.
+_Avoid_: api, router, namespace, Callable Group
+
 ### Callables
 
 **Callable**:
-A server function the client calls by name, declared once as its name, its **Payload**, what it succeeds with and the errors it can fail with. Its name is unique within its **Callable Group**. A Callable in no group is deployed under its own name.
+A **Function** the client calls by name, declared once as its name, its **Payload**, what it succeeds with and the errors it can fail with.
 _Avoid_: rpc, endpoint, callable function (for the declaration)
-
-**Callable Group**:
-A named set of **Callables** whose functions deploy under the group's name as a prefix. A Callable may be added to more than one group, and each group serves and implements it separately. **Callable Middleware** attached to a group applies to all its Callables. Groups do not nest.
-_Avoid_: api, router, namespace
 
 **Payload**:
 What the client sends when calling a **Callable**.
@@ -88,13 +94,19 @@ The deployed Firebase function that serves exactly one **Callable**.
 _Avoid_: cloud function, onCall export
 
 **Callable Client**:
-What the app uses to call the **Callables** of one **Callable Group**, or one Callable in no group, all in one region.
+What the app uses to call the **Callables** of one **Function Group**, or one Callable in no group, all in one region.
 _Avoid_: stub, proxy, rpc client
 
 **Callable Middleware**:
-What runs around every call to the **Callables** it is attached to, before the **Payload** is read. It can reject the call, or tell the **Callable Handler** more about it, and the errors it can fail with are part of each Callable it is attached to.
+What runs around every call to the **Callables** it is attached to, before the **Payload** is read. It is attached to each Callable on its own; a **Function Group** carries none. It can reject the call, or tell the **Callable Handler** more about it, and the errors it can fail with are part of each Callable it is attached to.
 _Avoid_: guard, interceptor
 
 **Caller**:
 The signed-in user making a call to a **Callable**.
 _Avoid_: user, current user, auth
+
+### Document Triggers
+
+**Document Trigger**:
+A **Function** that runs when a document in one defined collection is created, updated, deleted, or written in any of those ways.
+_Avoid_: firestore trigger, listener, onDocument function

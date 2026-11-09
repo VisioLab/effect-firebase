@@ -4,7 +4,7 @@
  *
  * Every call runs with a {@link CallableRequest} in scope. Callable Middleware
  * reads it to decide whether the call may go on, and a handler may read it
- * too. It is portable: `CallableFunction` from
+ * too. It is portable: `Functions` from
  * `@visiolab/effect-firebase-functions` provides it from Firebase's request,
  * and `Callable.handler` provides it from a {@link Input} of your own.
  *
@@ -81,7 +81,7 @@ export interface App {
  * `data`.
  *
  * `rawRequest` is the HTTP request the call came in, as Effect's
- * `HttpServerRequest`. `CallableFunction` builds it from Firebase's request,
+ * `HttpServerRequest`. `Functions` builds it from Firebase's request,
  * streaming its body without copying the bytes, and `Callable.handler` takes
  * it from {@link Input.rawRequest}.
  *
