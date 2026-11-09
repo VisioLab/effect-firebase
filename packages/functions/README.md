@@ -3,7 +3,7 @@
 Deploys the Functions of [`@visiolab/effect-firebase`](https://github.com/VisioLab/effect-firebase/tree/main/packages/effect-firebase) as Cloud Functions for Firebase, with `firebase-functions`. A Function is a server function declared once by its name and what runs it. Callables are the kind of Function the client calls, with `CallableClient` from [`@visiolab/effect-firebase-client`](https://github.com/VisioLab/effect-firebase/tree/main/packages/client).
 
 ```sh
-pnpm add effect @visiolab/effect-firebase @visiolab/effect-firebase-functions firebase-functions
+pnpm add effect @visiolab/effect-firebase @visiolab/effect-firebase-admin @visiolab/effect-firebase-functions firebase-admin firebase-functions
 ```
 
 ## Callable Functions
