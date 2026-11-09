@@ -6,7 +6,7 @@ on:
 
 permissions:
   contents: write # version PR commits, release tags
-  packages: write # publish to npm.pkg.github.com
+  id-token: write # npm trusted publishing (OIDC) and provenance
   pull-requests: write # open the version PR
 
 concurrency:
@@ -25,7 +25,7 @@ jobs:
         with:
           node-version: "24"
           cache: true
-          registry-url: https://npm.pkg.github.com
+          registry-url: https://registry.npmjs.org
 
       - uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v2.1.2
         with:
@@ -35,4 +35,6 @@ jobs:
           pr-title: "chore(release): version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # changelog-github looks up PRs and authors
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Granular npm token for each package's first publish. Delete the secret once
+          # every package has a trusted publisher for release.yml on npmjs.com.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

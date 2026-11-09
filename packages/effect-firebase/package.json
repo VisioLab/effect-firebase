@@ -75,7 +75,7 @@
       "./functions/FunctionGroup": "./dist/functions/FunctionGroup.mjs",
       "./package.json": "./package.json"
     },
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "scripts": {
     "build": "vp pack",
