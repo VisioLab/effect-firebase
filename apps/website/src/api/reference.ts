@@ -80,7 +80,8 @@ export interface PackageReference {
   readonly modules: ReadonlyArray<Module>;
 }
 
-export const packagePath = (pkg: { readonly dir: string }) => `/api/${pkg.dir}/`;
+export const packagePath = (pkg: { readonly dir: string }) =>
+  `${import.meta.env.BASE_URL.replace(/\/$/, "")}/api/${pkg.dir}/`;
 
 export const modulePath = (pkg: { readonly dir: string }, module: { readonly path: string }) =>
   `${packagePath(pkg)}${module.path}/`;

@@ -33,6 +33,8 @@ const moduleItems = (dir: string) => {
 };
 
 export default defineConfig({
+  site: "https://visiolab.github.io",
+  base: "/effect-firebase",
   integrations: [
     starlight({
       title: "Effect Firebase",
