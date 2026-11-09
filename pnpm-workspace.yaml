@@ -24,7 +24,7 @@ catalog:
   firebase-tools: 15.34.0
   # The version vite-plus formats the repo with, which the website also
   # formats API signatures with.
-  oxfmt: 0.74.0
+  oxfmt: 0.77.0
   tstyche: ^7.2.5
   typescript: ^7.0.2
   # TSTyche 7 cannot load the native TypeScript 7 package, so type tests run on
