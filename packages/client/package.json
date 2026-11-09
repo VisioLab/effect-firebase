@@ -53,7 +53,7 @@
       "./functions/ClientFunctions": "./dist/functions/ClientFunctions.mjs",
       "./package.json": "./package.json"
     },
-    "registry": "https://npm.pkg.github.com"
+    "access": "public"
   },
   "scripts": {
     "build": "vp pack",
