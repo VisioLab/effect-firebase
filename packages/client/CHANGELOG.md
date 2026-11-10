@@ -1,5 +1,12 @@
 # @visiolab/effect-firebase-client
 
+## 0.4.0
+
+### Patch Changes
+
+- Updated dependencies [[`c1a602b`](https://github.com/VisioLab/effect-firebase/commit/c1a602b5d082bf501de6cb6f1da21431d9c69a89)]:
+  - @visiolab/effect-firebase@0.4.0
+
 ## 0.3.1
 
 ### Patch Changes

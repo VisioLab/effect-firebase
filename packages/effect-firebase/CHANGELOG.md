@@ -1,5 +1,11 @@
 # @visiolab/effect-firebase
 
+## 0.4.0
+
+### Minor Changes
+
+- [#198](https://github.com/VisioLab/effect-firebase/pull/198) [`c1a602b`](https://github.com/VisioLab/effect-firebase/commit/c1a602b5d082bf501de6cb6f1da21431d9c69a89) Thanks [@Kaeldehta](https://github.com/Kaeldehta)! - A model can hold a typed `FirestoreSchema.DocumentReference` into its own collection, into a subcollection of it, or into a collection whose model references it back. Name the target with a `Collection.Key` (`interface UsersKey extends Collection.Key<typeof Users> {}`) and write the field as `Schema.suspend((): FirestoreSchema.DocumentReference<UsersKey> => FirestoreSchema.DocumentReference(Users))`. The reference reads back as `Collection.DocumentReference<typeof Users>`. Fields that close no cycle are unchanged.
+
 ## 0.3.1
 
 ### Patch Changes
