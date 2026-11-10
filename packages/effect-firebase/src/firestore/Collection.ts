@@ -288,6 +288,62 @@ export interface Collection<L extends Levels> extends Inspectable.Inspectable {
 export type Any = Collection<any>;
 
 /**
+ * A name for a collection that a model's own fields can use before the
+ * collection is defined.
+ *
+ * **When to use**
+ *
+ * Use only for a {@link FirestoreSchema.DocumentReference} field that closes a
+ * cycle: a model referencing its own collection, a subcollection of it, or a
+ * collection whose model references it back. Extend it once per such
+ * collection, as `interface UsersKey extends Collection.Key<typeof Users> {}`.
+ * Every other reference field names the collection directly.
+ *
+ * **Details**
+ *
+ * A model's fields cannot name `typeof Users` while `Users` is still being
+ * built from the model. An interface that extends this one only holds the
+ * collection in a member, which TypeScript reads once the reference is used,
+ * so the key can be named inside the model. A
+ * {@link FirestoreSchema.DocumentReference} typed by the key reads back as
+ * the same {@link DocumentReference} the collection gives.
+ *
+ * A model that backs several collections, such as `users` and
+ * `archivedUsers`, needs one key per collection, and references through them
+ * stay distinct types.
+ *
+ * @example Referencing a document of the model's own collection
+ * ```ts
+ * import { Schema } from "effect";
+ * import { Collection, FirestoreModel, FirestoreSchema } from "@visiolab/effect-firebase/firestore";
+ *
+ * interface UsersKey extends Collection.Key<typeof Users> {}
+ *
+ * class User extends FirestoreModel.Class<User>("User")({
+ *   name: Schema.String,
+ *   bestFriend: Schema.NullOr(
+ *     Schema.suspend(
+ *       (): FirestoreSchema.DocumentReference<UsersKey> => FirestoreSchema.DocumentReference(Users),
+ *     ),
+ *   ),
+ * }) {}
+ * const Users = Collection.make("users", User);
+ * ```
+ *
+ * @see {@link FirestoreSchema.DocumentReference} for the schema typed by a key or a collection
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.4.0
+ */
+export interface Key<C extends Any> {
+  // Held in a member, not checked against `Collection`, so naming a key does
+  // not ask for the collection's type until a reference through it is used.
+  /** The collection this key names. Only read at the type level. */
+  readonly "~collection": C;
+}
+
+/**
  * The id of a document in `C`, branded with `C`'s path.
  *
  * @see {@link IdSchema} for how to make one

@@ -49,7 +49,9 @@ export const DocumentReference = <C extends Collection.Any>(
   collection: C,
 ): FirestoreSchema.DocumentReference<C> => {
   const pattern = collection_.pattern(collection);
-  return Schema.declare<Collection.DocumentReference<C>>(
+  // The public type resolves a Collection Key to its collection, which the
+  // compiler cannot follow for a generic `C`; for a collection it is the same.
+  const schema = Schema.declare<Collection.DocumentReference<C>>(
     (u): u is Collection.DocumentReference<C> =>
       collection_.isDocumentReference(u) && u.collection === collection,
     {
@@ -84,6 +86,7 @@ export const DocumentReference = <C extends Collection.Any>(
         ),
     },
   );
+  return schema as unknown as FirestoreSchema.DocumentReference<C>;
 };
 
 /** @internal */

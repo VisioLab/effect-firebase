@@ -222,6 +222,45 @@ describe("a model of the sentinels", () => {
   );
 });
 
+describe("DocumentReference through a Collection Key", () => {
+  interface PeopleKey extends Collection.Key<typeof People> {}
+  interface DiariesKey extends Collection.Key<typeof Diaries> {}
+
+  class Person extends FirestoreModel.Class<Person>("Person")({
+    name: Schema.String,
+    bestFriend: Schema.suspend((): FirestoreSchema.DocumentReference<PeopleKey> =>
+      FirestoreSchema.DocumentReference(People),
+    ),
+    pinned: Schema.suspend((): FirestoreSchema.DocumentReference<DiariesKey> =>
+      FirestoreSchema.DocumentReference(Diaries),
+    ),
+  }) {}
+  class Diary extends FirestoreModel.Class<Diary>("Diary")({ title: Schema.String }) {}
+  const People = Collection.make("people", Person);
+  const Diaries = People.subcollection("diaries", Diary);
+
+  it.effect("is stored as the documents' paths, and reads back equal", () =>
+    Effect.gen(function* () {
+      const alice = People.id.make("alice");
+      const bob = People.doc(People.id.make("bob"));
+      const monday = Diaries.doc(alice, Diaries.id.make("monday"));
+      const encoded = yield* toFirestore(Person)(
+        new Person({ name: "Alice", bestFriend: bob, pinned: monday }),
+      );
+      expect(encoded).toStrictEqual({
+        name: "Alice",
+        bestFriend: DocumentPath.makeUnsafe("people/bob"),
+        pinned: DocumentPath.makeUnsafe("people/alice/diaries/monday"),
+      });
+      const decoded = yield* fromFirestore(Person)(encoded);
+      expect(decoded.bestFriend.collection).toBe(People);
+      expect(Equal.equals(decoded.bestFriend, bob)).toBe(true);
+      expect(decoded.pinned.collection).toBe(Diaries);
+      expect(Equal.equals(decoded.pinned, monday)).toBe(true);
+    }),
+  );
+});
+
 describe("ServerTimestamp", () => {
   it.effect("is stored as the portable sentinel, with no layer", () =>
     Effect.gen(function* () {
