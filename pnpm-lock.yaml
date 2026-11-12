@@ -227,14 +227,14 @@ catalogs:
       specifier: 0.63.0
       version: 0.63.0
     '@effect/vitest':
-      specifier: ^4.1.0
-      version: 4.1.0
+      specifier: ^4.1.2
+      version: 4.1.2
     astro:
       specifier: ^7.4.5
       version: 7.4.5
     effect:
-      specifier: 4.1.0
-      version: 4.1.0
+      specifier: 4.1.2
+      version: 4.1.2
     firebase:
       specifier: ^13.0.0
       version: 13.0.0
@@ -341,13 +341,13 @@ importers:
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
-        version: 4.1.0(effect@4.1.0)(vitest@5.0.5)
+        version: 4.1.2(effect@4.1.2)(vitest@5.0.5)
       '@visiolab/effect-firebase':
         specifier: workspace:^
         version: link:../effect-firebase
       effect:
         specifier: 'catalog:'
-        version: 4.1.0
+        version: 4.1.2
       firebase-admin:
         specifier: 'catalog:'
         version: 14.5.0(@firebase/app-compat@0.5.19)(@firebase/app@0.16.3)(supports-color@7.2.0)
@@ -368,13 +368,13 @@ importers:
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
-        version: 4.1.0(effect@4.1.0)(vitest@5.0.5)
+        version: 4.1.2(effect@4.1.2)(vitest@5.0.5)
       '@visiolab/effect-firebase':
         specifier: workspace:^
         version: link:../effect-firebase
       effect:
         specifier: 'catalog:'
-        version: 4.1.0
+        version: 4.1.2
       firebase:
         specifier: 'catalog:'
         version: 13.0.0
@@ -395,10 +395,10 @@ importers:
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
-        version: 4.1.0(effect@4.1.0)(vitest@5.0.5)
+        version: 4.1.2(effect@4.1.2)(vitest@5.0.5)
       effect:
         specifier: 'catalog:'
-        version: 4.1.0
+        version: 4.1.2
       typescript:
         specifier: ^7.0.2
         version: 7.0.2
@@ -416,7 +416,7 @@ importers:
     devDependencies:
       '@effect/vitest':
         specifier: 'catalog:'
-        version: 4.1.0(effect@4.1.0)(vitest@5.0.5)
+        version: 4.1.2(effect@4.1.2)(vitest@5.0.5)
       '@visiolab/effect-firebase':
         specifier: workspace:^
         version: link:../effect-firebase
@@ -425,7 +425,7 @@ importers:
         version: link:../admin
       effect:
         specifier: 'catalog:'
-        version: 4.1.0
+        version: 4.1.2
       firebase:
         specifier: 'catalog:'
         version: 13.0.0
@@ -811,10 +811,10 @@ packages:
     resolution: {integrity: sha512-bRbvVj+YLE/nBmcBWGAwsul3mjEYlqqOmWMxvwSVKq/oNnJEuZYgi2OFDeUf7q49E2g3w+oMHMWyN2QayZ77RQ==}
     hasBin: true
 
-  '@effect/vitest@4.1.0':
-    resolution: {integrity: sha512-+APF69oTYgGj5WCewowk1/udepH74xz4ONyH7d+UfcK0SrF3osiSwsWEyODUpJvWd6MIk5F5PcFJiE4evMuG2A==}
+  '@effect/vitest@4.1.2':
+    resolution: {integrity: sha512-JJPwAHkJHxvM/woW9mMW/khjasAHcmwWdOMAgMy16rfqsxcVhFDnrRsvN9VI2+kMv8zDCCyBE2q1n5hzZlfE0w==}
     peerDependencies:
-      effect: ^4.1.0
+      effect: ^4.1.2
       vitest: 5.0.5
 
   '@electric-sql/pglite-tools@0.2.21':
@@ -3313,8 +3313,8 @@ packages:
   ee-first@1.1.1:
     resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
 
-  effect@4.1.0:
-    resolution: {integrity: sha512-lGx2MJJyrXA8RZb2UpQ/0Nkb5Utaimby7oD92+18noBxLPE85IFOvptdzau8dvcxAOwfwHo9iqapbKeFzqQM/Q==}
+  effect@4.1.2:
+    resolution: {integrity: sha512-d3Oah1WyKxFLFh19yWheS5IXIVaITzxZ71JkE1rkUozq/6EcJSU5nPk5bF2QrSygZ3SQoiNQB8TsxFriyMeMaQ==}
 
   emmet@2.4.11:
     resolution: {integrity: sha512-23QPJB3moh/U9sT4rQzGgeyyGIrcM+GH5uVYg2C6wZIxAIJq7Ng3QLT79tl8FUwDXhyq9SusfknOrofAKqvgyQ==}
@@ -6625,9 +6625,9 @@ snapshots:
       '@effect/tsgo-win32-arm64': 0.63.0
       '@effect/tsgo-win32-x64': 0.63.0
 
-  '@effect/vitest@4.1.0(effect@4.1.0)(vitest@5.0.5)':
+  '@effect/vitest@4.1.2(effect@4.1.2)(vitest@5.0.5)':
     dependencies:
-      effect: 4.1.0
+      effect: 4.1.2
       vitest: 5.0.5(@opentelemetry/api@1.9.1)(@types/node@26.2.0)(@vitest/browser-preview@5.0.5)(@vitest/ui@5.0.5(vitest@5.0.5))(@voidzero-dev/vite-plus-core@1.4.0(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@7.0.2))(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1))
 
   '@electric-sql/pglite-tools@0.2.21(@electric-sql/pglite@0.3.16)':
@@ -9086,7 +9086,7 @@ snapshots:
 
   ee-first@1.1.1: {}
 
-  effect@4.1.0: {}
+  effect@4.1.2: {}
 
   emmet@2.4.11:
     dependencies:
