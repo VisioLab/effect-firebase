@@ -1,16 +1,17 @@
 import { assert, describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
-import { Cause, Context, Effect, Layer, Option, Queue, Schema } from "effect";
+import { Cause, Context, Duration, Effect, Layer, Option, Queue, Schema } from "effect";
 import { FirebaseError } from "firebase/app";
 import * as Sdk from "firebase/firestore";
 import { AsyncResult, AtomRegistry } from "effect/reactivity";
+import type { Atom } from "effect/reactivity";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import { FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as App from "../../src/app/App.ts";
 import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
 import * as FirestoreAtom from "../../src/firestore/FirestoreAtom.ts";
-import { clear, emulator, listening } from "./emulator.ts";
+import { clear, emulator, listening, otherClient } from "./emulator.ts";
 import { listeners } from "./listeners.ts";
 
 vi.mock("firebase/firestore", async (importOriginal) =>
@@ -43,17 +44,20 @@ class Db extends FirestoreAtom.Service<Db>()("test/Db", {
  * Client Firestore that runtime holds, for writing through the same client the
  * atoms listen with.
  */
-const fresh = Effect.gen(function* () {
-  yield* clear(projectId);
-  listeners.reset();
-  const registry = yield* Effect.acquireRelease(
-    Effect.sync(() => AtomRegistry.make()),
-    (registry) => Effect.sync(() => registry.dispose()),
-  );
-  yield* AtomRegistry.mount(registry, Db.runtime);
-  const context = yield* AtomRegistry.getResult(registry, Db.runtime);
-  return { registry, firestore: Context.get(context, Db) };
-});
+const freshWith = (options?: Parameters<typeof AtomRegistry.make>[0]) =>
+  Effect.gen(function* () {
+    yield* clear(projectId);
+    listeners.reset();
+    const registry = yield* Effect.acquireRelease(
+      Effect.sync(() => AtomRegistry.make(options)),
+      (registry) => Effect.sync(() => registry.dispose()),
+    );
+    yield* AtomRegistry.mount(registry, Db.runtime);
+    const context = yield* AtomRegistry.getResult(registry, Db.runtime);
+    return { registry, firestore: Context.get(context, Db) };
+  });
+
+const fresh = freshWith();
 
 /** The next result in `results` that is not `Initial`, as a `Success`. */
 const next = <A, E, Done>(results: Queue.Dequeue<AsyncResult.AsyncResult<A, E>, Done>) =>
@@ -111,6 +115,210 @@ describe("FirestoreAtom.Service doc", () => {
       assert(result.value._tag === "Existing");
       expect(result.value.data).toMatchObject({ title: "Hello", views: 1 });
       expect(result.value.metadata.hasPendingWrites).toBe(true);
+    }).pipe(Effect.scoped),
+  );
+});
+
+describe("FirestoreAtom.Service doc listen options", () => {
+  it.live("with includeMetadataChanges, updates once a write is acknowledged", () =>
+    Effect.gen(function* () {
+      const { registry, firestore } = yield* fresh;
+      const results = yield* listening(
+        AtomRegistry.toStream(registry, Db.doc(hello, { includeMetadataChanges: true })),
+      );
+      yield* next(results);
+
+      yield* firestore.setDoc(hello, { title: "Hello", views: 1 });
+
+      const pending = yield* next(results);
+      const acknowledged = yield* next(results);
+      expect(pending.value).toMatchObject({
+        _tag: "Existing",
+        metadata: { hasPendingWrites: true },
+      });
+      expect(acknowledged.value).toMatchObject({
+        _tag: "Existing",
+        data: { title: "Hello", views: 1 },
+        metadata: { hasPendingWrites: false },
+      });
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("without includeMetadataChanges, does not update when only the metadata changes", () =>
+    Effect.gen(function* () {
+      const { registry, firestore } = yield* fresh;
+      const plain = yield* listening(AtomRegistry.toStream(registry, Db.doc(hello)));
+      // Listens to the same document, and so hears of the acknowledgement in
+      // the same pass as the plain atom would.
+      const witness = yield* listening(
+        AtomRegistry.toStream(registry, Db.doc(hello, { includeMetadataChanges: true })),
+      );
+      yield* next(plain);
+      yield* next(witness);
+
+      yield* firestore.setDoc(hello, { title: "Hello", views: 1 });
+      yield* next(witness).pipe(
+        Effect.repeat({
+          until: (result) =>
+            result.value._tag === "Existing" && !result.value.metadata.hasPendingWrites,
+        }),
+      );
+      yield* firestore.updateDoc(hello, { views: 2 });
+
+      // Had the acknowledgement reached the atom, it would come between the two.
+      const first = yield* next(plain);
+      const second = yield* next(plain);
+      expect(first.value).toMatchObject({
+        data: { views: 1 },
+        metadata: { hasPendingWrites: true },
+      });
+      expect(second.value).toMatchObject({
+        data: { views: 2 },
+        metadata: { hasPendingWrites: true },
+      });
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("with source cache, reads the local cache without reaching the server", () =>
+    Effect.gen(function* () {
+      const { registry } = yield* fresh;
+      // Written by another client, so only the server knows of it.
+      yield* ClientFirestore.ClientFirestore.use((elsewhere) =>
+        elsewhere.setDoc(hello, { title: "Hello", views: 1 }),
+      ).pipe(Effect.provide(otherClient(projectId, `firestore-atom-other-${apps}`)));
+
+      const cached = yield* next(
+        yield* listening(AtomRegistry.toStream(registry, Db.doc(hello, { source: "cache" }))),
+      );
+      const server = yield* next(yield* listening(AtomRegistry.toStream(registry, Db.doc(hello))));
+
+      expect(cached.value).toMatchObject({ _tag: "Missing", metadata: { fromCache: true } });
+      expect(server.value).toMatchObject({ _tag: "Existing", data: { title: "Hello" } });
+    }).pipe(Effect.scoped),
+  );
+});
+
+describe("FirestoreAtom.Service doc sharing", () => {
+  it.live("gives the same atom and one listener for equal keys", () =>
+    Effect.gen(function* () {
+      const { registry } = yield* fresh;
+      const atom = Db.doc(hello);
+      const equal = [
+        Db.doc(hello, {}),
+        Db.doc(hello, { source: "default", includeMetadataChanges: false }),
+        Db.doc(hello, {
+          source: undefined,
+          includeMetadataChanges: undefined,
+          timeToLive: undefined,
+        }),
+        Db.doc(Posts.doc(Posts.id.make("hello"))),
+      ];
+      for (const other of equal) {
+        expect(other).toBe(atom);
+      }
+      expect(Db.doc(hello, { timeToLive: "1 minute" })).toBe(
+        Db.doc(hello, { timeToLive: Duration.minutes(1) }),
+      );
+
+      const results = yield* listening(AtomRegistry.toStream(registry, atom));
+      for (const other of equal) {
+        yield* AtomRegistry.mount(registry, other);
+      }
+      yield* next(results);
+
+      expect(listeners.attached).toBe(1);
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("gives a different atom and listener for different options or timeToLive", () =>
+    Effect.gen(function* () {
+      const { registry } = yield* fresh;
+      const atoms = [
+        Db.doc(hello),
+        Db.doc(hello, { source: "cache" }),
+        Db.doc(hello, { includeMetadataChanges: true }),
+        Db.doc(hello, { timeToLive: "1 minute" }),
+        Db.doc(hello, { timeToLive: "2 minutes" }),
+        Db.doc(hello, { timeToLive: Infinity }),
+        Db.doc(Posts.doc(Posts.id.make("other"))),
+      ];
+      expect(new Set(atoms).size).toBe(atoms.length);
+
+      for (const atom of atoms) {
+        yield* next(yield* listening(AtomRegistry.toStream(registry, atom)));
+      }
+
+      expect(listeners.active).toBe(atoms.length);
+    }).pipe(Effect.scoped),
+  );
+});
+
+describe("FirestoreAtom.Service doc lifetime", () => {
+  // TTLs are rounded up to the registry's timeout resolution, a second by
+  // default.
+  const timeoutResolution = 10;
+
+  /** Reads `atom` until its first snapshot, then stops reading it. */
+  const readOnce = <A>(
+    registry: AtomRegistry.AtomRegistry,
+    atom: Atom.Atom<AsyncResult.AsyncResult<A, unknown>>,
+  ) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* next(yield* listening(AtomRegistry.toStream(registry, atom)));
+      }),
+    );
+
+  it.live("detaches the listener once nothing reads the atom", () =>
+    Effect.gen(function* () {
+      const { registry } = yield* freshWith({ timeoutResolution });
+      yield* readOnce(registry, Db.doc(hello));
+      expect(listeners.attached).toBe(1);
+
+      yield* Effect.sleep("100 millis");
+
+      expect(listeners.active).toBe(0);
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("keeps the listener for a finite timeToLive, then detaches it", () =>
+    Effect.gen(function* () {
+      const { registry } = yield* freshWith({ timeoutResolution });
+      yield* readOnce(registry, Db.doc(hello, { timeToLive: "400 millis" }));
+
+      yield* Effect.sleep("100 millis");
+      expect(listeners.active).toBe(1);
+
+      yield* Effect.sleep("600 millis");
+      expect(listeners.active).toBe(0);
+      expect(listeners.attached).toBe(1);
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("keeps the listener attached with an infinite timeToLive", () =>
+    Effect.gen(function* () {
+      const { registry } = yield* freshWith({ timeoutResolution });
+      const atom = Db.doc(hello, { timeToLive: Infinity });
+      yield* readOnce(registry, atom);
+
+      yield* Effect.sleep("500 millis");
+      expect(listeners.active).toBe(1);
+
+      yield* readOnce(registry, atom);
+      expect(listeners.attached).toBe(1);
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("uses the registry's defaultIdleTTL without a timeToLive", () =>
+    Effect.gen(function* () {
+      const { registry } = yield* freshWith({ timeoutResolution, defaultIdleTTL: 400 });
+      yield* readOnce(registry, Db.doc(hello));
+
+      yield* Effect.sleep("100 millis");
+      expect(listeners.active).toBe(1);
+
+      yield* Effect.sleep("600 millis");
+      expect(listeners.active).toBe(0);
     }).pipe(Effect.scoped),
   );
 });
