@@ -1,6 +1,7 @@
 import { assert, describe, expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as ClientDocumentSnapshot from "../../src/firestore/ClientDocumentSnapshot.ts";
 import * as ClientQuerySnapshot from "../../src/firestore/ClientQuerySnapshot.ts";
@@ -32,6 +33,21 @@ describe("ClientDocumentSnapshot.decode", () => {
       );
       assert(decoded._tag === "Missing");
       expect(decoded.metadata).toEqual(fromServer);
+    }),
+  );
+
+  it.effect("builds a decoded missing snapshot that is not a lazy one", () =>
+    Effect.gen(function* () {
+      const decoded = yield* ClientDocumentSnapshot.decode(
+        ClientDocumentSnapshot.missing(alice, fromServer),
+      );
+      expect(DocumentSnapshot.isDocumentSnapshot(decoded)).toBe(false);
+      expect(decoded.toJSON()).toEqual({
+        _id: "DecodedDocumentSnapshot",
+        _tag: "Missing",
+        ref: "users/alice",
+        metadata: fromServer,
+      });
     }),
   );
 });

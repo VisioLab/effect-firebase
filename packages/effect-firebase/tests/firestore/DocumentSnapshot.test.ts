@@ -224,10 +224,42 @@ describe("decode", () => {
         ),
       );
       expect(decoded.toJSON()).toMatchObject({
-        _id: "DocumentSnapshot",
+        _id: "DecodedDocumentSnapshot",
         _tag: "Existing",
         ref: "users/alice",
         data: { name: "Alice" },
+        metadata: { fromCache: true, hasPendingWrites: false },
+      });
+    }),
+  );
+
+  it.effect("builds snapshots that are not lazy Document Snapshots, existing or missing", () =>
+    Effect.gen(function* () {
+      const existing = yield* DocumentSnapshot.decode(
+        DocumentSnapshot.existing(Users.doc(alice), {
+          name: "Alice",
+          createdAt: Timestamp.makeUnsafe(1, 2),
+        }),
+      );
+      const lazyMissing = DocumentSnapshot.missing(Users.doc(alice));
+      const missing = yield* DocumentSnapshot.decode(lazyMissing);
+      expect(DocumentSnapshot.isDocumentSnapshot(existing)).toBe(false);
+      expect(DocumentSnapshot.isDocumentSnapshot(missing)).toBe(false);
+      expect(missing).not.toBe(lazyMissing);
+    }),
+  );
+
+  it.effect("shows a decoded missing snapshot as decoded when it prints", () =>
+    Effect.gen(function* () {
+      const decoded = yield* DocumentSnapshot.decode(
+        DocumentSnapshot.missing(Users.doc(alice), {
+          metadata: { fromCache: true, hasPendingWrites: false },
+        }),
+      );
+      expect(decoded.toJSON()).toEqual({
+        _id: "DecodedDocumentSnapshot",
+        _tag: "Missing",
+        ref: "users/alice",
         metadata: { fromCache: true, hasPendingWrites: false },
       });
     }),

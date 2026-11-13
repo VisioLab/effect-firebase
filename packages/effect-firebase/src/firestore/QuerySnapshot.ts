@@ -179,7 +179,8 @@ export type DecodedExisting<C extends Collection.Any> = C extends Collection.Any
  *
  * {@link decode} builds one. It holds every document of the read, in the same
  * order, each with the `DocumentExtra` of the read. A read of a Collection
- * Group holds a union of its members' decoded documents.
+ * Group holds a union of its members' decoded documents. It is not a
+ * {@link QuerySnapshot}, so {@link isQuerySnapshot} is `false` for it.
  *
  * @see {@link QuerySnapshot} for the snapshot that decodes its documents lazily
  * @see {@link DocumentSnapshot.DecodedDocumentSnapshot} for a decoded read of one document

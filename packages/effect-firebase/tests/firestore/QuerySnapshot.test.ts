@@ -141,10 +141,10 @@ describe("decode", () => {
       expect(decoded).toHaveProperty("metadata", { fromCache: true, hasPendingWrites: false });
       expect(decoded.docs[0]?.metadata).toEqual({ fromCache: false, hasPendingWrites: true });
       expect(decoded.toJSON()).toEqual({
-        _id: "QuerySnapshot",
+        _id: "DecodedQuerySnapshot",
         docs: [
           {
-            _id: "DocumentSnapshot",
+            _id: "DecodedDocumentSnapshot",
             _tag: "Existing",
             ref: "users/carol",
             data: { name: "Carol" },
@@ -153,6 +153,13 @@ describe("decode", () => {
         ],
         metadata: { fromCache: true, hasPendingWrites: false },
       });
+    }),
+  );
+
+  it.effect("builds a snapshot that is not a lazy Query Snapshot", () =>
+    Effect.gen(function* () {
+      const decoded = yield* QuerySnapshot.decode(QuerySnapshot.make([alice]));
+      expect(QuerySnapshot.isQuerySnapshot(decoded)).toBe(false);
     }),
   );
 });

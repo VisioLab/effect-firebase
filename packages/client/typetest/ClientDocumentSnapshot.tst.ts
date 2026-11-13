@@ -58,9 +58,9 @@ describe("decode", () => {
     >();
   });
 
-  test("keeps a missing snapshot missing, with its metadata", () => {
+  test("decodes a missing snapshot into a decoded missing one, with its metadata", () => {
     expect(ClientDocumentSnapshot.decode(missing)).type.toBe<
-      Effect.Effect<ClientDocumentSnapshot.Missing<typeof Posts>>
+      Effect.Effect<ClientDocumentSnapshot.DecodedMissing<typeof Posts>>
     >();
   });
 
@@ -92,6 +92,23 @@ describe("DecodedExisting", () => {
   test("is a decoded existing Document Snapshot as well", () => {
     expect<ClientDocumentSnapshot.DecodedExisting<typeof Posts>>().type.toBeAssignableTo<
       DocumentSnapshot.DecodedExisting<typeof Posts>
+    >();
+  });
+});
+
+describe("DecodedMissing", () => {
+  test("is a decoded missing Document Snapshot with the metadata of the read", () => {
+    expect<ClientDocumentSnapshot.DecodedMissing<typeof Posts>>().type.toBeAssignableTo<
+      DocumentSnapshot.DecodedMissing<typeof Posts>
+    >();
+    expect<
+      ClientDocumentSnapshot.DecodedMissing<typeof Posts>["metadata"]
+    >().type.toBe<ClientDocumentSnapshot.SnapshotMetadata>();
+  });
+
+  test("is not a missing client snapshot", () => {
+    expect<ClientDocumentSnapshot.DecodedMissing<typeof Posts>>().type.not.toBeAssignableTo<
+      ClientDocumentSnapshot.Missing<typeof Posts>
     >();
   });
 });

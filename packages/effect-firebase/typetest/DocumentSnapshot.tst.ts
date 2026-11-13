@@ -74,9 +74,9 @@ describe("decode", () => {
     >();
   });
 
-  test("keeps a missing snapshot missing, and cannot fail on it", () => {
+  test("decodes a missing snapshot into a decoded missing one, and cannot fail on it", () => {
     expect(DocumentSnapshot.decode(missing)).type.toBe<
-      Effect.Effect<DocumentSnapshot.Missing<typeof Users>>
+      Effect.Effect<DocumentSnapshot.DecodedMissing<typeof Users>>
     >();
   });
 
@@ -116,6 +116,17 @@ describe("DecodedExisting", () => {
   test("is not a Document Snapshot, whose data is still to be decoded", () => {
     expect<DocumentSnapshot.DecodedExisting<typeof Users>>().type.not.toBeAssignableTo<
       DocumentSnapshot.Existing<typeof Users>
+    >();
+  });
+});
+
+describe("DecodedMissing", () => {
+  test("is not a Document Snapshot either", () => {
+    expect<DocumentSnapshot.DecodedMissing<typeof Users>>().type.not.toBeAssignableTo<
+      DocumentSnapshot.Missing<typeof Users>
+    >();
+    expect<DocumentSnapshot.Missing<typeof Users>>().type.not.toBeAssignableTo<
+      DocumentSnapshot.DecodedMissing<typeof Users>
     >();
   });
 });

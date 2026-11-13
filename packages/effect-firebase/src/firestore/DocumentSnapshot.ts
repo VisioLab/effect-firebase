@@ -323,6 +323,7 @@ export const missing: {
  * {@link isDocumentSnapshot} is `false` for it.
  *
  * @see {@link Existing} for the snapshot it was decoded from
+ * @see {@link DecodedMissing} for a document that was not there
  * @see {@link decode} for building one
  *
  * @stability unstable
@@ -350,16 +351,27 @@ export interface DecodedExisting<C extends Collection.Any> extends Inspectable.I
  *
  * **Details**
  *
- * A missing document holds no data, so there is nothing to decode: it is the
- * same {@link Missing} snapshot, with its `ref`, `id` and any extra it carried.
+ * Its tag is `"Missing"`. A missing document holds no data, so there is
+ * nothing to decode: it keeps the snapshot's `ref`, `id` and any extra the
+ * snapshot carried. It is a value of its own rather than the {@link Missing}
+ * snapshot it came from, so, like a {@link DecodedExisting}, it is not a
+ * {@link DocumentSnapshot}, and {@link isDocumentSnapshot} is `false` for it.
  *
+ * @see {@link Missing} for the snapshot it was decoded from
  * @see {@link DecodedExisting} for a document that was there
  *
  * @stability unstable
  * @category models
  * @since 0.4.0
  */
-export type DecodedMissing<C extends Collection.Any> = Missing<C>;
+export interface DecodedMissing<C extends Collection.Any> extends Inspectable.Inspectable {
+  readonly [DecodedTypeId]: typeof DecodedTypeId;
+  readonly _tag: "Missing";
+  /** The reference the document was read at. */
+  readonly ref: Collection.DocumentReference<C>;
+  /** The document's own id, the same as `ref.id`. */
+  readonly id: Collection.Id<C>;
+}
 
 /**
  * A {@link DocumentSnapshot} whose data has already been read through the
@@ -394,7 +406,8 @@ export type DecodedDocumentSnapshot<C extends Collection.Any> =
  * **Details**
  *
  * An {@link Existing} snapshot decodes into a {@link DecodedExisting}, and a
- * {@link Missing} one is returned as it is. Fails with a `Schema.SchemaError`
+ * {@link Missing} one into a {@link DecodedMissing}. Neither is a
+ * {@link DocumentSnapshot}. Fails with a `Schema.SchemaError`
  * when the stored data does not match the model, and requires the model's
  * {@link DecodingServices}. Any extra the snapshot carries, such as the
  * client's `metadata`, is kept at runtime. The client's own
@@ -441,7 +454,8 @@ export const decode: <S extends DocumentSnapshot<Collection.Any>>(
 
 /**
  * What {@link decode} turns the snapshot `S` into: a {@link DecodedExisting}
- * for an {@link Existing} one, and the same {@link Missing} for a missing one.
+ * for an {@link Existing} one, and a {@link DecodedMissing} for a
+ * {@link Missing} one.
  *
  * @stability unstable
  * @category type-level

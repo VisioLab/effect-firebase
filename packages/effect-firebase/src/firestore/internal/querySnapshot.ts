@@ -51,7 +51,7 @@ const DecodedQuerySnapshotProto = {
   [DecodedTypeId]: DecodedTypeId,
   toJSON(this: DecodedQuerySnapshotImpl) {
     return {
-      _id: "QuerySnapshot",
+      _id: "DecodedQuerySnapshot",
       docs: this.docs.map((doc) => doc.toJSON()),
       ...extraToJson(this),
     };

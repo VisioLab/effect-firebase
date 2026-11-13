@@ -130,7 +130,7 @@ const DecodedExistingProto = {
   _tag: "Existing" as const,
   toJSON(this: DecodedExistingImpl) {
     return {
-      _id: "DocumentSnapshot",
+      _id: "DecodedDocumentSnapshot",
       _tag: "Existing",
       ref: this.ref.path,
       data: Inspectable.toJson(this.data),
@@ -159,6 +159,35 @@ export const decodeExisting = <C extends Collection.Any>(
     return attach(decoded, extraOf(self)) as unknown as DocumentSnapshot.DecodedExisting<C>;
   });
 
+const DecodedMissingProto = {
+  ...Inspectable.BaseProto,
+  [DecodedTypeId]: DecodedTypeId,
+  _tag: "Missing" as const,
+  toJSON(this: MissingImpl) {
+    return {
+      _id: "DecodedDocumentSnapshot",
+      _tag: "Missing",
+      ref: this.ref.path,
+      ...extraToJson(this),
+    };
+  },
+};
+
+/**
+ * Builds the decoded form of a missing snapshot, carrying the same extra. There
+ * is no data to decode, but it is a value of its own, so a decoded snapshot is
+ * never mistaken for a lazy one.
+ */
+const decodeMissing = <C extends Collection.Any>(
+  self: DocumentSnapshot.Missing<C>,
+): DocumentSnapshot.DecodedMissing<C> => {
+  const decoded = Object.assign(Object.create(DecodedMissingProto) as typeof DecodedMissingProto, {
+    ref: self.ref,
+    id: self.id,
+  });
+  return attach(decoded, extraOf(self)) as unknown as DocumentSnapshot.DecodedMissing<C>;
+};
+
 /** @internal */
 export const decode = <C extends Collection.Any>(
   self: DocumentSnapshot.DocumentSnapshot<C>,
@@ -166,4 +195,4 @@ export const decode = <C extends Collection.Any>(
   DocumentSnapshot.DecodedDocumentSnapshot<C>,
   Schema.SchemaError,
   DocumentSnapshot.DecodingServices<C>
-> => (isExisting(self) ? decodeExisting(self) : Effect.succeed(self));
+> => (isExisting(self) ? decodeExisting(self) : Effect.succeed(decodeMissing(self)));

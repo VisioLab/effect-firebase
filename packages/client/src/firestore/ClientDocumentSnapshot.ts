@@ -163,6 +163,7 @@ export const missing = <C extends Collection.Any>(
  *
  * @see {@link DocumentSnapshot.DecodedExisting} for the portable decoded snapshot it extends
  * @see {@link Existing} for the snapshot it was decoded from
+ * @see {@link DecodedMissing} for a document that was not there
  *
  * @stability unstable
  * @category models
@@ -176,15 +177,27 @@ export interface DecodedExisting<
 
 /**
  * A client snapshot of a document that was not there, as {@link decode}
- * returns it: the same {@link Missing} snapshot, with its metadata.
+ * returns it, with the {@link SnapshotMetadata} of the read.
  *
- * @see {@link DocumentSnapshot.DecodedMissing} for the portable type
+ * **Details**
+ *
+ * It is a value of its own rather than the {@link Missing} snapshot it came
+ * from, so, like a {@link DecodedExisting}, it is not a
+ * {@link ClientDocumentSnapshot}.
+ *
+ * @see {@link DocumentSnapshot.DecodedMissing} for the portable decoded snapshot it extends
+ * @see {@link Missing} for the snapshot it was decoded from
+ * @see {@link DecodedExisting} for a document that was there
  *
  * @stability unstable
  * @category models
  * @since 0.4.0
  */
-export type DecodedMissing<C extends Collection.Any> = Missing<C>;
+export interface DecodedMissing<
+  C extends Collection.Any,
+> extends DocumentSnapshot.DecodedMissing<C> {
+  readonly metadata: SnapshotMetadata;
+}
 
 /**
  * A {@link ClientDocumentSnapshot} whose data has already been read through
@@ -204,8 +217,8 @@ export type DecodedClientDocumentSnapshot<C extends Collection.Any> =
 
 /**
  * What {@link decode} turns the client snapshot `S` into: a
- * {@link DecodedExisting} for an {@link Existing} one, and the same
- * {@link Missing} for a missing one.
+ * {@link DecodedExisting} for an {@link Existing} one, and a
+ * {@link DecodedMissing} for a {@link Missing} one.
  *
  * @stability unstable
  * @category type-level
@@ -231,7 +244,8 @@ export type Decoded<S extends ClientDocumentSnapshot<Collection.Any>> =
  * **Details**
  *
  * An {@link Existing} snapshot decodes into a {@link DecodedExisting}, and a
- * {@link Missing} one is returned as it is. Fails with a `Schema.SchemaError`
+ * {@link Missing} one into a {@link DecodedMissing}, each with the read's
+ * metadata. Fails with a `Schema.SchemaError`
  * when the stored data does not match the model, and requires the model's
  * {@link DocumentSnapshot.DecodingServices}.
  *
