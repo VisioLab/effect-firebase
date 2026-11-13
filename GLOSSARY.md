@@ -50,6 +50,10 @@ _Avoid_: document list, docs array
 **Snapshot Metadata**:
 What the client SDK reports about where a snapshot came from: whether it was served from the local cache, and whether it reflects writes not yet acknowledged by the server.
 
+**Decoded Snapshot**:
+A **Document Snapshot** or **Query Snapshot** whose documents' data has already been read through the model.
+_Avoid_: parsed snapshot, document value, typed snapshot
+
 ### Values
 
 **Firestore Value**:
