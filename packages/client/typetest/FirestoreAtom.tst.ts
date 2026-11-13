@@ -4,7 +4,7 @@ import * as FirestoreAtom from "@visiolab/effect-firebase-client/firestore/Fires
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import type { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
-import { Context, Effect, Layer, Schema, SchemaGetter } from "effect";
+import { Context, Duration, Effect, Layer, Schema, SchemaGetter } from "effect";
 import type { AsyncResult, Atom } from "effect/reactivity";
 import type * as ClientSdk from "firebase/firestore";
 import { describe, expect, test } from "tstyche";
@@ -91,5 +91,35 @@ describe("FirestoreAtom.Service doc", () => {
     expect(SecretDb.doc(sealed)).type.toBe<Atom.Atom<FirestoreAtom.DocResult<typeof Secret>>>();
     // @ts-expect-error the service's layer does not provide
     Db.doc(sealed);
+  });
+});
+
+describe("FirestoreAtom.Service doc options", () => {
+  test("takes the listen options and timeToLive in one flat object", () => {
+    expect(
+      Db.doc(hello, { source: "cache", includeMetadataChanges: true, timeToLive: "1 minute" }),
+    ).type.toBe<Atom.Atom<FirestoreAtom.DocResult<typeof Posts>>>();
+    expect(Db.doc(hello, { timeToLive: Infinity })).type.toBe<
+      Atom.Atom<FirestoreAtom.DocResult<typeof Posts>>
+    >();
+    expect(Db.doc(hello, { timeToLive: Duration.minutes(1) })).type.toBe<
+      Atom.Atom<FirestoreAtom.DocResult<typeof Posts>>
+    >();
+    expect(Db.doc(hello, {})).type.toBe<Atom.Atom<FirestoreAtom.DocResult<typeof Posts>>>();
+  });
+
+  test("accepts exactly source, includeMetadataChanges and timeToLive", () => {
+    expect<FirestoreAtom.ReadAtomOptions>().type.toBe<{
+      readonly source?: "default" | "cache" | undefined;
+      readonly includeMetadataChanges?: boolean | undefined;
+      readonly timeToLive?: Duration.Input | undefined;
+    }>();
+  });
+
+  test("rejects other sources and unknown options", () => {
+    // @ts-expect-error is not assignable
+    Db.doc(hello, { source: "server" });
+    // @ts-expect-error does not exist in type
+    Db.doc(hello, { reactivityKeys: ["posts"] });
   });
 });

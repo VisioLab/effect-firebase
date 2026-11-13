@@ -9,7 +9,7 @@
  * @stability unstable
  * @since 0.4.0
  */
-import { Cause, Context, Effect, Exit, Layer, Stream } from "effect";
+import { Cause, Context, Duration, Effect, Exit, Layer, Stream } from "effect";
 import type { Schema } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
@@ -43,6 +43,73 @@ export type DocResult<C extends Collection.Any> = AsyncResult.AsyncResult<
   ClientDocumentSnapshot.DecodedClientDocumentSnapshot<C>,
   FirestoreError | Schema.SchemaError
 >;
+
+/**
+ * How a read atom listens, and how long it lives once nothing reads it: the
+ * listen options of {@link ClientFirestore.ListenOptions} and the atom option
+ * `timeToLive`, in one flat object.
+ *
+ * **Details**
+ *
+ * Read atoms are shared: equal refs with equal options give the same atom,
+ * with one SDK listener and one decode per snapshot, however many readers it
+ * has. Options are compared once the defaults are filled in, so leaving the
+ * options out, passing `{}` and passing the defaults (`source: "default"`,
+ * `includeMetadataChanges: false`) give the same atom. Different listen
+ * options or a different `timeToLive` give a different atom, with a listener
+ * of its own.
+ *
+ * - `source: "cache"` listens to the local cache alone, so the atom only sees
+ *   what this client has written or already read.
+ * - `includeMetadataChanges: true` also updates the atom when only the
+ *   snapshot's metadata changes, such as when the server acknowledges a
+ *   pending write. Without it, the atom only updates when the data changes.
+ * - `timeToLive` is how long the atom keeps listening after its last reader
+ *   leaves. A finite duration sets the atom's idle TTL, and `Infinity` keeps
+ *   the atom, and its listener, alive for as long as the registry lives.
+ *   Without it, the registry's `defaultIdleTTL` applies, and without that the
+ *   atom stops listening as soon as nothing reads it. `"1 minute"` and
+ *   `Duration.minutes(1)` give the same atom.
+ *
+ * @example Keeping a read alive for a minute after it is left
+ * ```ts
+ * import { Layer, Schema } from "effect";
+ * import { Collection, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ * import { App } from "@visiolab/effect-firebase-client/app";
+ * import { ClientFirestore, FirestoreAtom } from "@visiolab/effect-firebase-client/firestore";
+ *
+ * class Post extends FirestoreModel.Class<Post>("Post")({
+ *   title: Schema.String,
+ * }) {}
+ *
+ * const Posts = Collection.make("posts", Post);
+ * const hello = Posts.doc(Posts.id.make("hello"));
+ *
+ * const FirestoreLive = ClientFirestore.layer().pipe(
+ *   Layer.provide(App.layer({ apiKey: "<api key>", projectId: "my-project", appId: "<app id>" })),
+ * );
+ *
+ * class Db extends FirestoreAtom.Service<Db>()("app/Db", { layer: FirestoreLive }) {}
+ *
+ * const post = Db.doc(hello, { includeMetadataChanges: true, timeToLive: "1 minute" });
+ * const cached = Db.doc(hello, { source: "cache", timeToLive: Infinity });
+ * ```
+ *
+ * @see {@link Service.doc} for the read atom that takes them
+ * @see {@link ClientFirestore.ListenOptions} for the same listen options on a stream
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.4.0
+ */
+export interface ReadAtomOptions extends ClientFirestore.ListenOptions {
+  /**
+   * How long the atom keeps listening after its last reader leaves. A finite
+   * duration sets the atom's idle TTL, and `Infinity` keeps it alive. Left
+   * out, the registry's `defaultIdleTTL` applies.
+   */
+  readonly timeToLive?: Duration.Input | undefined;
+}
 
 /**
  * The ref that `doc` takes when the service's layer provides everything the
@@ -146,7 +213,9 @@ export interface Service<Self, Id extends string, R> extends Context.Service<
    * **Details**
    *
    * The atom listens while something reads it, and stops listening once it is
-   * disposed. It is `Initial` until the first snapshot, then `Success`, and a
+   * disposed: as soon as nothing reads it, or after `options.timeToLive` (see
+   * {@link ReadAtomOptions}). Equal refs with equal options give the same
+   * atom, so every reader shares one listener and one decode. It is `Initial` until the first snapshot, then `Success`, and a
    * missing document is a `Success` holding a `Missing` snapshot. `waiting` is
    * `false` after the first snapshot, whether it came from the cache or the
    * server, except while a refresh waits for its next snapshot.
@@ -207,9 +276,13 @@ export interface Service<Self, Id extends string, R> extends Context.Service<
    * ```
    *
    * @see {@link ClientDocumentSnapshot.decode} for decoding a live read without atoms
+   * @see {@link ReadAtomOptions} for how it listens, how long it lives and when it is shared
    * @see {@link Service.runtime} for building atoms of your own
    */
-  readonly doc: <C extends Collection.Any>(ref: DecodableRef<C, R>) => Atom.Atom<DocResult<C>>;
+  readonly doc: <C extends Collection.Any>(
+    ref: DecodableRef<C, R>,
+    options?: ReadAtomOptions,
+  ) => Atom.Atom<DocResult<C>>;
 }
 
 /**
@@ -223,6 +296,89 @@ const decodeDoc: (
   ClientDocumentSnapshot.DecodedClientDocumentSnapshot<Collection.Any>,
   Schema.SchemaError
 > = ClientDocumentSnapshot.decode as any;
+
+/**
+ * The family key of a read atom: what it reads, its listen options with every
+ * default filled in, and its `timeToLive` as a `Duration`. Keys are compared
+ * with `Equal`, so every field is always present, and `undefined`, `{}` and
+ * explicit defaults give equal keys.
+ *
+ * `target` is the ref, or whatever else tells reads apart: it must be `Equal`
+ * by what it reads, and never equal between kinds of read, such as a
+ * Collection Reference and a Collection Group with the same collection id.
+ */
+interface ReadKey<Target> {
+  readonly target: Target;
+  readonly source: "default" | "cache";
+  readonly includeMetadataChanges: boolean;
+  readonly timeToLive: Duration.Duration | undefined;
+}
+
+/** The {@link ReadKey} for reading `target` with `options`. */
+const readKey = <Target>(
+  target: Target,
+  options: ReadAtomOptions | undefined,
+): ReadKey<Target> => ({
+  target,
+  source: options?.source ?? "default",
+  includeMetadataChanges: options?.includeMetadataChanges ?? false,
+  timeToLive:
+    options?.timeToLive === undefined ? undefined : Duration.fromInputUnsafe(options.timeToLive),
+});
+
+/**
+ * A read atom that listens with `key`'s listen options while it is read, and
+ * stays alive after its last reader for `key.timeToLive`: as `AtomRpc` and
+ * `AtomHttpApi` do, a finite one sets the atom's idle TTL, `Infinity` keeps it
+ * alive, and none leaves it to the registry's `defaultIdleTTL`.
+ *
+ * `listen` gives one decode per snapshot. A decode that fails fails the atom
+ * but not the listen, so the next snapshot that decodes brings it back.
+ */
+const liveRead = <Target, A, E>(
+  key: ReadKey<Target>,
+  runtime: Atom.AtomRuntime<any>,
+  listen: (
+    firestore: ClientFirestore.ClientFirestore,
+    options: ClientFirestore.ListenOptions,
+  ) => Stream.Stream<Effect.Effect<A, E>, E | FirestoreError>,
+): Atom.Atom<AsyncResult.AsyncResult<A, E | FirestoreError>> => {
+  type Result = AsyncResult.AsyncResult<A, E | FirestoreError>;
+  const options: ClientFirestore.ListenOptions = {
+    source: key.source,
+    includeMetadataChanges: key.includeMetadataChanges,
+  };
+  const atom = Atom.readable((get): Result => {
+    const previous = get.self<Result>();
+    const services = get(runtime);
+    if (services._tag !== "Success") {
+      return AsyncResult.replacePrevious(services, previous) as Result;
+    }
+    const firestore = Context.get(services.value, ClientFirestore.ClientFirestore);
+    const fail = (cause: Cause.Cause<E | FirestoreError>) =>
+      get.setSelf(AsyncResult.failureWithPrevious(cause, { previous: get.self<Result>() }));
+    const run = listen(firestore, options).pipe(
+      Stream.runForEach((decode) =>
+        Effect.map(Effect.exit(decode), (exit) =>
+          Exit.isSuccess(exit) ? get.setSelf(AsyncResult.success(exit.value)) : fail(exit.cause),
+        ),
+      ),
+      // The SDK has dropped the listener; it stays dropped until a refresh.
+      Effect.catchCause((cause) =>
+        Effect.sync(() => (Cause.hasInterruptsOnly(cause) ? undefined : fail(cause))),
+      ),
+    );
+    const fiber = Effect.runForkWith(services.value)(run);
+    get.addFinalizer(() => fiber.interruptUnsafe());
+    return AsyncResult.waitingFrom(previous);
+  });
+  if (key.timeToLive === undefined) {
+    return atom;
+  }
+  return Duration.isFinite(key.timeToLive)
+    ? Atom.setIdleTTL(atom, key.timeToLive)
+    : Atom.keepAlive(atom);
+};
 
 type LayerInput<ROut, E> = Layer.Layer<ROut, E> | ((get: Atom.AtomContext) => Layer.Layer<ROut, E>);
 
@@ -283,42 +439,14 @@ export const Service =
       typeof layer === "function" ? (get) => withSelf(layer(get)) : withSelf(layer),
     );
 
-    const docFamily = Atom.family((ref: Collection.DocumentReference<Collection.Any>) =>
-      Atom.readable((get): DocResult<Collection.Any> => {
-        const previous = get.self<DocResult<Collection.Any>>();
-        const services = get(runtime);
-        if (services._tag !== "Success") {
-          return AsyncResult.replacePrevious(services, previous) as DocResult<Collection.Any>;
-        }
-        const firestore = Context.get(services.value, ClientFirestore.ClientFirestore);
-        const fail = (cause: Cause.Cause<FirestoreError | Schema.SchemaError>) =>
-          get.setSelf(
-            AsyncResult.failureWithPrevious(cause, {
-              previous: get.self<DocResult<Collection.Any>>(),
-            }),
-          );
-        const listen = firestore.streamDoc(ref).pipe(
-          // A snapshot that does not decode fails the atom, but not the
-          // listen, so the next snapshot can bring the atom back.
-          Stream.runForEach((snapshot) =>
-            Effect.map(Effect.exit(decodeDoc(snapshot)), (exit) =>
-              Exit.isSuccess(exit)
-                ? get.setSelf(AsyncResult.success(exit.value))
-                : fail(exit.cause),
-            ),
-          ),
-          // The SDK has dropped the listener; it stays dropped until a refresh.
-          Effect.catchCause((cause) =>
-            Effect.sync(() => (Cause.hasInterruptsOnly(cause) ? undefined : fail(cause))),
-          ),
-        );
-        const fiber = Effect.runForkWith(services.value)(listen);
-        get.addFinalizer(() => fiber.interruptUnsafe());
-        return AsyncResult.waitingFrom(previous);
-      }),
+    const docFamily = Atom.family((key: ReadKey<Collection.DocumentReference<Collection.Any>>) =>
+      liveRead(key, runtime, (firestore, options) =>
+        firestore.streamDoc(key.target, options).pipe(Stream.map(decodeDoc)),
+      ),
     );
 
     self.runtime = runtime;
-    self.doc = docFamily;
+    self.doc = (ref: Collection.DocumentReference<Collection.Any>, options?: ReadAtomOptions) =>
+      docFamily(readKey(ref, options));
     return self;
   };
