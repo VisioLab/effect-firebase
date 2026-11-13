@@ -9,14 +9,20 @@
  * @stability unstable
  * @since 0.4.0
  */
-import { Cause, Context, Duration, Effect, Exit, Layer, Stream } from "effect";
+import { Cause, Context, Duration, Effect, Equal, Exit, Hash, Layer, Stream } from "effect";
 import type { Schema } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
+import * as CollectionGroup from "@visiolab/effect-firebase/firestore/CollectionGroup";
 import type * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
-import type { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
+import type {
+  Firestore,
+  FirestoreError,
+  UndefinedCollectionError,
+} from "@visiolab/effect-firebase/firestore/Firestore";
 import * as ClientDocumentSnapshot from "./ClientDocumentSnapshot.ts";
 import * as ClientFirestore from "./ClientFirestore.ts";
+import * as ClientQuerySnapshot from "./ClientQuerySnapshot.ts";
 
 /**
  * A live read of the document at a ref: the latest Decoded Snapshot, or why
@@ -42,6 +48,59 @@ import * as ClientFirestore from "./ClientFirestore.ts";
 export type DocResult<C extends Collection.Any> = AsyncResult.AsyncResult<
   ClientDocumentSnapshot.DecodedClientDocumentSnapshot<C>,
   FirestoreError | Schema.SchemaError
+>;
+
+/**
+ * A live read of every document in a collection: the latest Decoded Snapshot
+ * of the collection, or why it could not be read.
+ *
+ * **Details**
+ *
+ * It is `Initial` until the first snapshot arrives, then `Success` with a
+ * {@link ClientQuerySnapshot.DecodedClientQuerySnapshot}: every document
+ * decoded, with Snapshot Metadata on each document and on the whole read.
+ *
+ * It fails with a `Schema.SchemaError` when any one document does not match the
+ * model, and with a `FirestoreError` when Firestore drops the listen, such as on
+ * `permission-denied`.
+ *
+ * @see {@link GroupDocsResult} for a live read of a Collection Group
+ * @see {@link DocResult} for a live read of one document
+ * @see {@link Service.docs} for the atom that holds it
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.4.0
+ */
+export type DocsResult<C extends Collection.Any> = AsyncResult.AsyncResult<
+  ClientQuerySnapshot.DecodedClientQuerySnapshot<C>,
+  FirestoreError | Schema.SchemaError
+>;
+
+/**
+ * A live read of every document in a Collection Group: the latest Decoded
+ * Snapshot of the group, or why it could not be read.
+ *
+ * **Details**
+ *
+ * It holds the same {@link ClientQuerySnapshot.DecodedClientQuerySnapshot} as
+ * {@link DocsResult}, over the union of the group's member collections, so each
+ * document is typed by the collection it lives in.
+ *
+ * Beyond the failures of {@link DocsResult}, it fails with an
+ * `UndefinedCollectionError` when a collection with the group's id holds a
+ * document at a path none of the group's members defines.
+ *
+ * @see {@link DocsResult} for a live read of one collection
+ * @see {@link Service.docs} for the atom that holds it
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.4.0
+ */
+export type GroupDocsResult<G extends CollectionGroup.Any> = AsyncResult.AsyncResult<
+  ClientQuerySnapshot.DecodedClientQuerySnapshot<CollectionGroup.Members<G>>,
+  FirestoreError | Schema.SchemaError | UndefinedCollectionError
 >;
 
 /**
@@ -121,14 +180,43 @@ export interface ReadAtomOptions extends ClientFirestore.ListenOptions {
  * @since 0.4.0
  */
 export type DecodableRef<C extends Collection.Any, R> = Collection.DocumentReference<C> &
-  ([Exclude<DocumentSnapshot.DecodingServices<C>, R>] extends [never]
-    ? unknown
-    : {
-        readonly "the service's layer does not provide": Exclude<
-          DocumentSnapshot.DecodingServices<C>,
-          R
-        >;
-      });
+  Decodable<C, R>;
+
+/**
+ * The Collection Reference that `docs` takes when the service's layer provides
+ * everything the model in `C` needs to decode, and one that names the missing
+ * services otherwise, so the call does not type-check.
+ *
+ * @stability unstable
+ * @category type-level
+ * @since 0.4.0
+ */
+export type DecodableCollection<C extends Collection.Any, R> = Collection.CollectionReference<C> &
+  Decodable<C, R>;
+
+/**
+ * The Collection Group that `docs` takes when the service's layer provides
+ * everything the models of its members need to decode, and one that names the
+ * missing services otherwise, so the call does not type-check.
+ *
+ * @stability unstable
+ * @category type-level
+ * @since 0.4.0
+ */
+export type DecodableGroup<G extends CollectionGroup.Any, R> = G &
+  Decodable<CollectionGroup.Members<G>, R>;
+
+/** Nothing when `R` holds the Decoding Services of `C`, the missing ones otherwise. */
+type Decodable<C extends Collection.Any, R> = [
+  Exclude<DocumentSnapshot.DecodingServices<C>, R>,
+] extends [never]
+  ? unknown
+  : {
+      readonly "the service's layer does not provide": Exclude<
+        DocumentSnapshot.DecodingServices<C>,
+        R
+      >;
+    };
 
 /**
  * A {@link Service} class: a Context service for Client Firestore under the
@@ -275,6 +363,7 @@ export interface Service<Self, Id extends string, R> extends Context.Service<
    * }
    * ```
    *
+   * @see {@link Service.docs} for a live read of a whole collection or Collection Group
    * @see {@link ClientDocumentSnapshot.decode} for decoding a live read without atoms
    * @see {@link ReadAtomOptions} for how it listens, how long it lives and when it is shared
    * @see {@link Service.runtime} for building atoms of your own
@@ -283,6 +372,124 @@ export interface Service<Self, Id extends string, R> extends Context.Service<
     ref: DecodableRef<C, R>,
     options?: ReadAtomOptions,
   ) => Atom.Atom<DocResult<C>>;
+
+  /**
+   * A live read of every document in a collection or a Collection Group,
+   * holding its latest Decoded Snapshot, `{ docs, metadata }`.
+   *
+   * **When to use**
+   *
+   * Use to render a list that stays up to date: a whole collection, or every
+   * collection of a Collection Group, whose documents are typed by the member
+   * collection each one lives in.
+   *
+   * **Details**
+   *
+   * It follows the same rules as {@link Service.doc}. The atom listens while
+   * something reads it, and stops listening once it is disposed: as soon as
+   * nothing reads it, or after `options.timeToLive` (see
+   * {@link ReadAtomOptions}). Equal collections, or groups of the same
+   * members, with equal options give the same atom, so every reader shares one
+   * listener and one decode. A Collection Reference and a Collection Group
+   * never share an atom, even with the same collection id. It is `Initial`
+   * until the first snapshot, then `Success`. `waiting` is `false` after the
+   * first snapshot, except while a refresh waits for its next snapshot.
+   *
+   * - When any one document does not decode, the atom fails with a
+   *   `Schema.SchemaError` and keeps listening, so the next snapshot whose
+   *   documents all decode brings it back to `Success`.
+   * - When Firestore drops the listen, such as on `permission-denied`, the
+   *   atom fails with a `FirestoreError` and does not listen again by itself.
+   *   Refresh the atom, or let it be disposed and read it again, to retry.
+   * - A group read fails the same way with an `UndefinedCollectionError` when
+   *   a collection with the group's id holds a document at a path none of the
+   *   group's members defines.
+   * - Refreshing the atom detaches its listener and attaches a new one, in any
+   *   state.
+   *
+   * A failed atom keeps the last `Success` as `previousSuccess`. After a
+   * `permission-denied`, that may be data the user is no longer allowed to
+   * see: check the failure before you show it.
+   *
+   * The collection or group only type-checks when the service's layer
+   * provides every Decoding Service its models need.
+   *
+   * @example Rendering every post in React
+   * ```tsx
+   * import { useAtomValue } from "@effect/atom-react";
+   * import { AsyncResult } from "effect/reactivity";
+   * import { Layer, Schema } from "effect";
+   * import { Collection, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+   * import { App } from "@visiolab/effect-firebase-client/app";
+   * import { ClientFirestore, FirestoreAtom } from "@visiolab/effect-firebase-client/firestore";
+   *
+   * class Post extends FirestoreModel.Class<Post>("Post")({
+   *   title: Schema.String,
+   * }) {}
+   *
+   * const Posts = Collection.make("posts", Post);
+   *
+   * const FirestoreLive = ClientFirestore.layer().pipe(
+   *   Layer.provide(App.layer({ apiKey: "<api key>", projectId: "my-project", appId: "<app id>" })),
+   * );
+   *
+   * class Db extends FirestoreAtom.Service<Db>()("app/Db", { layer: FirestoreLive }) {}
+   *
+   * function PostList() {
+   *   const result = useAtomValue(Db.docs(Posts.collection(), { timeToLive: Infinity }));
+   *   return AsyncResult.match(result, {
+   *     onInitial: () => <p>Loading…</p>,
+   *     onFailure: () => <p>Could not load the posts.</p>,
+   *     onSuccess: ({ value }) => (
+   *       <ul>
+   *         {value.docs.map((post) => (
+   *           <li key={post.id}>{post.data.title}</li>
+   *         ))}
+   *       </ul>
+   *     ),
+   *   });
+   * }
+   * ```
+   *
+   * @example Reading a Collection Group
+   * ```ts
+   * import { Layer, Schema } from "effect";
+   * import { Collection, CollectionGroup, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+   * import { App } from "@visiolab/effect-firebase-client/app";
+   * import { ClientFirestore, FirestoreAtom } from "@visiolab/effect-firebase-client/firestore";
+   *
+   * class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
+   * class Comment extends FirestoreModel.Class<Comment>("Comment")({ body: Schema.String }) {}
+   *
+   * const Posts = Collection.make("posts", Post);
+   * const PostComments = Posts.subcollection("comments", Comment);
+   * const Comments = Collection.make("comments", Comment);
+   * const AllComments = CollectionGroup.make(PostComments, Comments);
+   *
+   * const FirestoreLive = ClientFirestore.layer().pipe(
+   *   Layer.provide(App.layer({ apiKey: "<api key>", projectId: "my-project", appId: "<app id>" })),
+   * );
+   *
+   * class Db extends FirestoreAtom.Service<Db>()("app/Db", { layer: FirestoreLive }) {}
+   *
+   * // Fails with FirestoreError | SchemaError | UndefinedCollectionError
+   * const comments = Db.docs(AllComments, { includeMetadataChanges: true });
+   * ```
+   *
+   * @see {@link Service.doc} for a live read of one document
+   * @see {@link ClientQuerySnapshot.decode} for decoding a live read without atoms
+   * @see {@link ReadAtomOptions} for how it listens, how long it lives and when it is shared
+   */
+  readonly docs: {
+    <C extends Collection.Any>(
+      collection: DecodableCollection<C, R>,
+      options?: ReadAtomOptions,
+    ): Atom.Atom<DocsResult<C>>;
+    <G extends CollectionGroup.Any>(
+      group: DecodableGroup<G, R>,
+      options?: ReadAtomOptions,
+    ): Atom.Atom<GroupDocsResult<G>>;
+  };
 }
 
 /**
@@ -296,6 +503,52 @@ const decodeDoc: (
   ClientDocumentSnapshot.DecodedClientDocumentSnapshot<Collection.Any>,
   Schema.SchemaError
 > = ClientDocumentSnapshot.decode as any;
+
+/**
+ * {@link ClientQuerySnapshot.decode} for a read of any collection, whose
+ * Decoding Services the runtime holds: {@link Service.docs} only takes a
+ * collection or group whose models' services the service's layer provides.
+ */
+const decodeDocs: (
+  snapshot: ClientQuerySnapshot.ClientQuerySnapshot<Collection.Any>,
+) => Effect.Effect<
+  ClientQuerySnapshot.DecodedClientQuerySnapshot<Collection.Any>,
+  Schema.SchemaError
+> = ClientQuerySnapshot.decode as any;
+
+/**
+ * What a `docs` atom reads, as a {@link ReadKey} target: a Collection
+ * Reference, which is `Equal` by path, or a Collection Group, compared by its
+ * members whatever their order. A collection and a group are never equal, even
+ * with the same collection id.
+ */
+type DocsTarget = CollectionTarget | GroupTarget;
+
+class CollectionTarget implements Equal.Equal {
+  readonly _tag = "Collection";
+  constructor(readonly collection: Collection.CollectionReference<Collection.Any>) {}
+  [Equal.symbol](that: Equal.Equal): boolean {
+    return that instanceof CollectionTarget && Equal.equals(this.collection, that.collection);
+  }
+  [Hash.symbol](): number {
+    return Hash.combine(Hash.string("Collection"))(Hash.hash(this.collection));
+  }
+}
+
+class GroupTarget implements Equal.Equal {
+  readonly _tag = "Group";
+  constructor(readonly group: CollectionGroup.Any) {}
+  [Equal.symbol](that: Equal.Equal): boolean {
+    if (!(that instanceof GroupTarget)) return false;
+    const members: ReadonlyArray<Collection.Any> = this.group.members;
+    const others: ReadonlyArray<Collection.Any> = that.group.members;
+    return members.length === others.length && members.every((member) => others.includes(member));
+  }
+  [Hash.symbol](): number {
+    // Members are compared by identity, and in any order.
+    return Hash.combine(Hash.string("Group"))(Hash.string(this.group.id));
+  }
+}
 
 /**
  * The family key of a read atom: what it reads, its listen options with every
@@ -400,7 +653,8 @@ type LayerInput<ROut, E> = Layer.Layer<ROut, E> | ((get: Atom.AtomContext) => La
  * an atom for a model whose services it lacks does not type-check. A failure
  * of the layer is a defect in the atoms, not part of their error type.
  *
- * The class's statics are {@link Service.runtime} and {@link Service.doc}.
+ * The class's statics are {@link Service.runtime} and the read atoms
+ * {@link Service.doc} and {@link Service.docs}.
  * `yield* Db` gives Client Firestore in any effect run on `Db.runtime`.
  *
  * @example Declaring the service
@@ -445,8 +699,37 @@ export const Service =
       ),
     );
 
+    const docsFamily = Atom.family((key: ReadKey<DocsTarget>) =>
+      liveRead<
+        DocsTarget,
+        ClientQuerySnapshot.DecodedClientQuerySnapshot<Collection.Any>,
+        Schema.SchemaError | UndefinedCollectionError
+      >(key, runtime, (firestore, options) => {
+        const { target } = key;
+        const snapshots: Stream.Stream<
+          ClientQuerySnapshot.ClientQuerySnapshot<Collection.Any>,
+          FirestoreError | UndefinedCollectionError
+        > = target._tag === "Collection"
+          ? firestore.streamDocs(target.collection, options)
+          : firestore.streamDocs(target.group, options);
+        return snapshots.pipe(Stream.map(decodeDocs));
+      }),
+    );
+
     self.runtime = runtime;
     self.doc = (ref: Collection.DocumentReference<Collection.Any>, options?: ReadAtomOptions) =>
       docFamily(readKey(ref, options));
+    self.docs = (
+      source: Collection.CollectionReference<Collection.Any> | CollectionGroup.Any,
+      options?: ReadAtomOptions,
+    ) =>
+      docsFamily(
+        readKey(
+          CollectionGroup.isCollectionGroup(source)
+            ? new GroupTarget(source)
+            : new CollectionTarget(source),
+          options,
+        ),
+      );
     return self;
   };

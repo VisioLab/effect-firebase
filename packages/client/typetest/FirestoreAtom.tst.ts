@@ -1,8 +1,14 @@
 import type * as ClientDocumentSnapshot from "@visiolab/effect-firebase-client/firestore/ClientDocumentSnapshot";
 import * as ClientFirestore from "@visiolab/effect-firebase-client/firestore/ClientFirestore";
+import type * as ClientQuerySnapshot from "@visiolab/effect-firebase-client/firestore/ClientQuerySnapshot";
 import * as FirestoreAtom from "@visiolab/effect-firebase-client/firestore/FirestoreAtom";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
-import type { Firestore, FirestoreError } from "@visiolab/effect-firebase/firestore/Firestore";
+import * as CollectionGroup from "@visiolab/effect-firebase/firestore/CollectionGroup";
+import type {
+  Firestore,
+  FirestoreError,
+  UndefinedCollectionError,
+} from "@visiolab/effect-firebase/firestore/Firestore";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import { Context, Duration, Effect, Layer, Schema, SchemaGetter } from "effect";
 import type { AsyncResult, Atom } from "effect/reactivity";
@@ -121,5 +127,79 @@ describe("FirestoreAtom.Service doc options", () => {
     Db.doc(hello, { source: "server" });
     // @ts-expect-error does not exist in type
     Db.doc(hello, { reactivityKeys: ["posts"] });
+  });
+});
+
+class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
+class Comment extends FirestoreModel.Class<Comment>("Comment")({ body: Schema.String }) {}
+
+const Users = Collection.make("users", User);
+const PostComments = Posts.subcollection("comments", Comment);
+const UserComments = Users.subcollection("comments", Comment);
+const AllComments = CollectionGroup.make(PostComments, UserComments);
+const SecretGroup = CollectionGroup.make(Secret);
+
+describe("FirestoreAtom.Service docs", () => {
+  test("holds a decoded client query snapshot of a collection, without UndefinedCollectionError", () => {
+    expect(Db.docs(Posts.collection())).type.toBe<
+      Atom.Atom<
+        AsyncResult.AsyncResult<
+          ClientQuerySnapshot.DecodedClientQuerySnapshot<typeof Posts>,
+          FirestoreError | Schema.SchemaError
+        >
+      >
+    >();
+    expect(Db.docs(Posts.collection())).type.toBe<
+      Atom.Atom<FirestoreAtom.DocsResult<typeof Posts>>
+    >();
+  });
+
+  test("holds the union of a group's members, and can fail with UndefinedCollectionError", () => {
+    expect(Db.docs(AllComments)).type.toBe<
+      Atom.Atom<
+        AsyncResult.AsyncResult<
+          ClientQuerySnapshot.DecodedClientQuerySnapshot<typeof PostComments | typeof UserComments>,
+          FirestoreError | Schema.SchemaError | UndefinedCollectionError
+        >
+      >
+    >();
+    expect(Db.docs(AllComments)).type.toBe<
+      Atom.Atom<FirestoreAtom.GroupDocsResult<typeof AllComments>>
+    >();
+  });
+
+  test("types each of a group's documents by the collection it lives in", () => {
+    const result = null as unknown as FirestoreAtom.GroupDocsResult<typeof AllComments>;
+    if (result._tag === "Success") {
+      expect(result.value.docs[0]!.ref).type.toBe<
+        | Collection.DocumentReference<typeof PostComments>
+        | Collection.DocumentReference<typeof UserComments>
+      >();
+      expect(result.value.docs[0]!.data).type.toBe<Comment>();
+    }
+  });
+
+  test("takes the same flat options as doc", () => {
+    expect(Db.docs(Posts.collection(), { source: "cache", timeToLive: Infinity })).type.toBe<
+      Atom.Atom<FirestoreAtom.DocsResult<typeof Posts>>
+    >();
+    expect(
+      Db.docs(AllComments, { includeMetadataChanges: true, timeToLive: "1 minute" }),
+    ).type.toBe<Atom.Atom<FirestoreAtom.GroupDocsResult<typeof AllComments>>>();
+    // @ts-expect-error is not assignable
+    Db.docs(Posts.collection(), { source: "server" });
+  });
+
+  test("takes a collection or group whose models' Decoding Services the layer provides", () => {
+    expect(SecretDb.docs(Secret.collection())).type.toBe<
+      Atom.Atom<FirestoreAtom.DocsResult<typeof Secret>>
+    >();
+    expect(SecretDb.docs(SecretGroup)).type.toBe<
+      Atom.Atom<FirestoreAtom.GroupDocsResult<typeof SecretGroup>>
+    >();
+    // @ts-expect-error the service's layer does not provide
+    Db.docs(Secret.collection());
+    // @ts-expect-error the service's layer does not provide
+    Db.docs(SecretGroup);
   });
 });
