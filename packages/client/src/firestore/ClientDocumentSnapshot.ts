@@ -66,6 +66,7 @@ export interface SnapshotMetadata {
  * {@link SnapshotMetadata} of that read.
  *
  * @see {@link DocumentSnapshot.Existing} for the portable snapshot it extends
+ * @see {@link DecodedExisting} for the same document once decoded
  *
  * @stability unstable
  * @category models
@@ -81,6 +82,7 @@ export interface Existing<C extends Collection.Any> extends DocumentSnapshot.Exi
  * it is gone" from "the server says it is gone".
  *
  * @see {@link DocumentSnapshot.Missing} for the portable snapshot it extends
+ * @see {@link DecodedMissing} for the same document once decoded
  *
  * @stability unstable
  * @category models
@@ -95,6 +97,7 @@ export interface Missing<C extends Collection.Any> extends DocumentSnapshot.Miss
  * found it: {@link Existing} or {@link Missing}.
  *
  * @see {@link DocumentSnapshot.DocumentSnapshot} for the portable snapshot
+ * @see {@link DecodedClientDocumentSnapshot} for the same read once decoded
  *
  * @stability unstable
  * @category models
@@ -205,6 +208,7 @@ export interface DecodedMissing<
  * each with the {@link SnapshotMetadata} of the read.
  *
  * @see {@link DocumentSnapshot.DecodedDocumentSnapshot} for the portable decoded snapshot
+ * @see {@link ClientDocumentSnapshot} for the snapshot that decodes its data lazily
  * @see {@link ClientQuerySnapshot.DecodedClientQuerySnapshot} for a decoded read of many documents
  *
  * @stability unstable

@@ -46,6 +46,8 @@ const DecodedTypeId = querySnapshot.DecodedTypeId;
  * `Existing<A | B>`, so a document's id, ancestors, reference and data all
  * belong to the same collection.
  *
+ * @see {@link DecodedExisting} for the same document once decoded
+ *
  * @stability unstable
  * @category models
  * @since 0.2.0
@@ -70,6 +72,7 @@ export type Existing<C extends Collection.Any> = C extends Collection.Any
  * used, as `QuerySnapshot<C, E> & E`.
  *
  * @see {@link DocumentSnapshot.DocumentSnapshot} for the result of a read of one document
+ * @see {@link DecodedQuerySnapshot} for the same read once decoded
  *
  * @stability unstable
  * @category models

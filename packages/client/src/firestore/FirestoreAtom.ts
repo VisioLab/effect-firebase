@@ -41,6 +41,8 @@ import * as ClientQuerySnapshot from "./ClientQuerySnapshot.ts";
  * model, and with a `FirestoreError` when Firestore drops the listen, such as on
  * `permission-denied`.
  *
+ * @see {@link DocsResult} for a live read of a whole collection
+ * @see {@link GroupDocsResult} for a live read of a Collection Group
  * @see {@link Service.doc} for the atom that holds it
  *
  * @stability unstable
@@ -94,6 +96,7 @@ export type DocsResult<C extends Collection.Any> = AsyncResult.AsyncResult<
  * document at a path none of the group's members defines.
  *
  * @see {@link DocsResult} for a live read of one collection
+ * @see {@link DocResult} for a live read of one document
  * @see {@link Service.docs} for the atom that holds it
  *
  * @stability unstable
@@ -156,7 +159,8 @@ export type GroupDocsResult<G extends CollectionGroup.Any> = AsyncResult.AsyncRe
  * const cached = Db.doc(hello, { source: "cache", timeToLive: Infinity });
  * ```
  *
- * @see {@link Service.doc} for the read atom that takes them
+ * @see {@link Service.doc} for the read atom of a document that takes them
+ * @see {@link Service.docs} for the read atom of a collection or Collection Group that takes them
  * @see {@link ClientFirestore.ListenOptions} for the same listen options on a stream
  *
  * @stability unstable
@@ -177,6 +181,10 @@ export interface ReadAtomOptions extends ClientFirestore.ListenOptions {
  * model in `C` needs to decode, and a ref that names the missing services
  * otherwise, so the call does not type-check.
  *
+ * @see {@link DecodableCollection} for the Collection Reference `docs` takes
+ * @see {@link DecodableGroup} for the Collection Group `docs` takes
+ * @see {@link EncodableRef} for the ref the mutation atoms take, checked for Encoding Services
+ *
  * @stability unstable
  * @category type-level
  * @since 0.4.0
@@ -188,6 +196,10 @@ export type DecodableRef<C extends Collection.Any, R> = Collection.DocumentRefer
  * The Collection Reference that `docs` takes when the service's layer provides
  * everything the model in `C` needs to decode, and one that names the missing
  * services otherwise, so the call does not type-check.
+ *
+ * @see {@link DecodableRef} for the ref `doc` takes
+ * @see {@link DecodableGroup} for the Collection Group `docs` takes
+ * @see {@link EncodableCollection} for the Collection Reference `addDoc` takes, checked for Encoding Services
  *
  * @stability unstable
  * @category type-level
@@ -201,6 +213,9 @@ export type DecodableCollection<C extends Collection.Any, R> = Collection.Collec
  * everything the models of its members need to decode, and one that names the
  * missing services otherwise, so the call does not type-check.
  *
+ * @see {@link DecodableRef} for the ref `doc` takes
+ * @see {@link DecodableCollection} for the Collection Reference `docs` takes
+ *
  * @stability unstable
  * @category type-level
  * @since 0.4.0
@@ -208,17 +223,17 @@ export type DecodableCollection<C extends Collection.Any, R> = Collection.Collec
 export type DecodableGroup<G extends CollectionGroup.Any, R> = G &
   Decodable<CollectionGroup.Members<G>, R>;
 
-/** Nothing when `R` holds the Decoding Services of `C`, the missing ones otherwise. */
-type Decodable<C extends Collection.Any, R> = [
-  Exclude<DocumentSnapshot.DecodingServices<C>, R>,
-] extends [never]
+/**
+ * `unknown` when `R` holds every service in `Needed`, and an object naming the
+ * missing ones otherwise, so that a value intersected with it does not
+ * type-check.
+ */
+type Provides<Needed, R> = [Exclude<Needed, R>] extends [never]
   ? unknown
-  : {
-      readonly "the service's layer does not provide": Exclude<
-        DocumentSnapshot.DecodingServices<C>,
-        R
-      >;
-    };
+  : { readonly "the service's layer does not provide": Exclude<Needed, R> };
+
+/** {@link Provides} for the Decoding Services of `C`. */
+type Decodable<C extends Collection.Any, R> = Provides<DocumentSnapshot.DecodingServices<C>, R>;
 
 /**
  * Which of a model's schemas a write encodes through: `"create"` for
@@ -243,25 +258,19 @@ export type EncodingServices<
   Schema extends WriteSchema,
 > = Collection.DocumentSchema<C>[Schema]["EncodingServices"];
 
-/**
- * `unknown` when `R` holds every Encoding Service a write to a document in `C`
- * through `Schema` needs, and an object naming the missing services otherwise,
- * so that a ref intersected with it does not type-check.
- */
-type Encodable<C extends Collection.Any, R, Schema extends WriteSchema> = [
-  Exclude<EncodingServices<C, Schema>, R>,
-] extends [never]
-  ? unknown
-  : {
-      readonly "the service's layer does not provide": Exclude<EncodingServices<C, Schema>, R>;
-    };
+/** {@link Provides} for the Encoding Services of a write to `C` through `Schema`. */
+type Encodable<C extends Collection.Any, R, Schema extends WriteSchema> = Provides<
+  EncodingServices<C, Schema>,
+  R
+>;
 
 /**
  * The ref that a mutation atom takes when the service's layer provides every
  * Encoding Service the model in `C` needs to write through `Schema`, and a ref
  * that names the missing services otherwise, so the call does not type-check.
  *
- * @see {@link EncodableCollectionRef} for the collection ref `addDoc` takes
+ * @see {@link EncodableCollection} for the Collection Reference `addDoc` takes
+ * @see {@link DecodableRef} for the ref `doc` takes, checked for Decoding Services
  *
  * @stability unstable
  * @category type-level
@@ -274,21 +283,20 @@ export type EncodableRef<
 > = Collection.DocumentReference<C> & Encodable<C, R, Schema>;
 
 /**
- * The collection ref that {@link Service.addDoc} takes when the service's layer
- * provides every Encoding Service the model in `C` needs to create a document,
- * and a ref that names the missing services otherwise, so the call does not
- * type-check.
+ * The Collection Reference that {@link Service.addDoc} takes when the
+ * service's layer provides every Encoding Service the model in `C` needs to
+ * create a document, and one that names the missing services otherwise, so
+ * the call does not type-check.
  *
- * @see {@link EncodableRef} for the document ref the other mutation atoms take
+ * @see {@link EncodableRef} for the ref the other mutation atoms take
+ * @see {@link DecodableCollection} for the Collection Reference `docs` takes, checked for Decoding Services
  *
  * @stability unstable
  * @category type-level
  * @since 0.4.0
  */
-export type EncodableCollectionRef<
-  C extends Collection.Any,
-  R,
-> = Collection.CollectionReference<C> & Encodable<C, R, "create">;
+export type EncodableCollection<C extends Collection.Any, R> = Collection.CollectionReference<C> &
+  Encodable<C, R, "create">;
 
 /**
  * What {@link Service.setDoc} and {@link Service.addDoc} take: the document to
@@ -393,6 +401,9 @@ export interface Service<Self, Id extends string, R> extends Context.Service<
    * ```
    *
    * @see {@link Service.doc} for a live read of a document the service builds for you
+   * @see {@link Service.setDoc} for a mutation atom the service builds for you
+   * @see {@link Service.updateDoc} for a mutation atom that patches a document
+   * @see {@link Service.addDoc} for a mutation atom that adds a document
    */
   readonly runtime: Atom.AtomRuntime<Self | ClientFirestore.ClientFirestore | R>;
 
@@ -471,6 +482,7 @@ export interface Service<Self, Id extends string, R> extends Context.Service<
    * ```
    *
    * @see {@link Service.docs} for a live read of a whole collection or Collection Group
+   * @see {@link DocResult} for what the atom holds
    * @see {@link ClientDocumentSnapshot.decode} for decoding a live read without atoms
    * @see {@link ReadAtomOptions} for how it listens, how long it lives and when it is shared
    * @see {@link Service.runtime} for building atoms of your own
@@ -584,6 +596,8 @@ export interface Service<Self, Id extends string, R> extends Context.Service<
    * ```
    *
    * @see {@link Service.doc} for a live read of one document
+   * @see {@link DocsResult} for what the atom holds for a collection
+   * @see {@link GroupDocsResult} for what the atom holds for a Collection Group
    * @see {@link ClientQuerySnapshot.decode} for decoding a live read without atoms
    * @see {@link ReadAtomOptions} for how it listens, how long it lives and when it is shared
    */
@@ -748,6 +762,7 @@ export interface Service<Self, Id extends string, R> extends Context.Service<
    * ```
    *
    * @see {@link Service.setDoc} for writing a whole document
+   * @see {@link Service.addDoc} for writing a new document under an id Firestore picks
    * @see {@link Service.runtime} for writes whose outcome is your own
    */
   readonly updateDoc: <C extends Collection.Any>(
@@ -770,7 +785,7 @@ export interface Service<Self, Id extends string, R> extends Context.Service<
    * when any of them fails, with the error of
    * {@link ClientFirestore.ClientFirestore}'s `addDoc`.
    *
-   * There is one atom per collection ref, shared by every add into it. With
+   * There is one atom per Collection Reference, shared by every add into it. With
    * several adds in flight, as happens offline, the atom succeeds with the
    * oldest one's ref, not the latest. When you need the ref of your own add,
    * make it yourself with `Posts.doc(...)` and write through
@@ -815,10 +830,11 @@ export interface Service<Self, Id extends string, R> extends Context.Service<
    * ```
    *
    * @see {@link Service.setDoc} for writing under an id you pick
+   * @see {@link Service.updateDoc} for changing some fields of a document that exists
    * @see {@link Service.runtime} for writes whose outcome is your own
    */
   readonly addDoc: <C extends Collection.Any>(
-    ref: EncodableCollectionRef<C, R>,
+    ref: EncodableCollection<C, R>,
   ) => Atom.AtomResultFn<
     CreateArg<C>,
     Collection.DocumentReference<C>,
@@ -896,8 +912,12 @@ class GroupTarget implements Equal.Equal {
  */
 interface ReadKey<Target> {
   readonly target: Target;
-  readonly source: "default" | "cache";
-  readonly includeMetadataChanges: boolean;
+  readonly listen: {
+    readonly [K in keyof ClientFirestore.ListenOptions]-?: Exclude<
+      ClientFirestore.ListenOptions[K],
+      undefined
+    >;
+  };
   readonly timeToLive: Duration.Duration | undefined;
 }
 
@@ -907,8 +927,10 @@ const readKey = <Target>(
   options: ReadAtomOptions | undefined,
 ): ReadKey<Target> => ({
   target,
-  source: options?.source ?? "default",
-  includeMetadataChanges: options?.includeMetadataChanges ?? false,
+  listen: {
+    source: options?.source ?? "default",
+    includeMetadataChanges: options?.includeMetadataChanges ?? false,
+  },
   timeToLive:
     options?.timeToLive === undefined ? undefined : Duration.fromInputUnsafe(options.timeToLive),
 });
@@ -931,10 +953,6 @@ const liveRead = <Target, A, E>(
   ) => Stream.Stream<Effect.Effect<A, E>, E | FirestoreError>,
 ): Atom.Atom<AsyncResult.AsyncResult<A, E | FirestoreError>> => {
   type Result = AsyncResult.AsyncResult<A, E | FirestoreError>;
-  const options: ClientFirestore.ListenOptions = {
-    source: key.source,
-    includeMetadataChanges: key.includeMetadataChanges,
-  };
   const atom = Atom.readable((get): Result => {
     const previous = get.self<Result>();
     const services = get(runtime);
@@ -944,7 +962,7 @@ const liveRead = <Target, A, E>(
     const firestore = Context.get(services.value, ClientFirestore.ClientFirestore);
     const fail = (cause: Cause.Cause<E | FirestoreError>) =>
       get.setSelf(AsyncResult.failureWithPrevious(cause, { previous: get.self<Result>() }));
-    const run = listen(firestore, options).pipe(
+    const run = listen(firestore, key.listen).pipe(
       Stream.runForEach((decode) =>
         Effect.map(Effect.exit(decode), (exit) =>
           Exit.isSuccess(exit) ? get.setSelf(AsyncResult.success(exit.value)) : fail(exit.cause),
@@ -972,7 +990,7 @@ const liveRead = <Target, A, E>(
  * Services the runtime holds: the mutation atoms only take a ref whose model's
  * services the service's layer provides.
  */
-interface AnyWrites {
+interface ErasedClientFirestoreWrites {
   readonly setDoc: (
     ref: Collection.DocumentReference<Collection.Any>,
     data: Create<Collection.Any>,
@@ -1080,14 +1098,14 @@ export const Service =
     // them, and fails when any of them fails.
     const mutation = <Arg, A>(
       write: (
-        firestore: AnyWrites,
+        firestore: ErasedClientFirestoreWrites,
         arg: Arg,
       ) => Effect.Effect<A, FirestoreError | Schema.SchemaError>,
     ) =>
       runtime.fn<Arg>()(
         (arg) =>
           Effect.flatMap(Effect.service(ClientFirestore.ClientFirestore), (firestore) =>
-            write(firestore as any as AnyWrites, arg),
+            write(firestore as any as ErasedClientFirestoreWrites, arg),
           ),
         { concurrent: true },
       );

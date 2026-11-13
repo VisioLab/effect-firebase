@@ -46,6 +46,7 @@ import * as snapshotMetadata from "./internal/snapshotMetadata.ts";
  * whichever of the collections in `C` it is in.
  *
  * @see {@link QuerySnapshot.Existing} for the portable type
+ * @see {@link DecodedExisting} for the same document once decoded
  *
  * @stability unstable
  * @category models
@@ -63,6 +64,7 @@ export type Existing<C extends Collection.Any> = C extends Collection.Any
  * collection in `C` it is in.
  *
  * @see {@link QuerySnapshot.QuerySnapshot} for the portable snapshot it extends
+ * @see {@link DecodedClientQuerySnapshot} for the same read once decoded
  *
  * @stability unstable
  * @category models
@@ -99,6 +101,7 @@ export const make = <C extends Collection.Any>(
  * collections in `C` it is in.
  *
  * @see {@link QuerySnapshot.DecodedExisting} for the portable type
+ * @see {@link Existing} for the document before it was decoded
  *
  * @stability unstable
  * @category models
@@ -119,6 +122,7 @@ export type DecodedExisting<C extends Collection.Any> = C extends Collection.Any
  * collection in `C` it is in.
  *
  * @see {@link QuerySnapshot.DecodedQuerySnapshot} for the portable decoded snapshot it extends
+ * @see {@link ClientQuerySnapshot} for the snapshot that decodes its documents lazily
  * @see {@link ClientDocumentSnapshot.DecodedClientDocumentSnapshot} for a decoded read of one document
  *
  * @stability unstable
@@ -183,6 +187,7 @@ export interface DecodedClientQuerySnapshot<
  *
  * @see {@link QuerySnapshot.decode} for the portable decode, which drops the read's `metadata` from the type
  * @see {@link ClientDocumentSnapshot.decode} for decoding a read of one document
+ * @see {@link FirestoreAtom.Service.docs} for a live, decoded read held in an atom
  *
  * @stability unstable
  * @category decoding

@@ -76,6 +76,7 @@ export type DecodingServices<C extends Collection.Any> =
  *
  * @see {@link Missing} for a document that was not there
  * @see {@link isExisting} for narrowing a {@link DocumentSnapshot} to this
+ * @see {@link DecodedExisting} for the same document once decoded
  *
  * @stability unstable
  * @category models
@@ -109,6 +110,7 @@ export interface Existing<C extends Collection.Any> extends Inspectable.Inspecta
    * Fails with a `Schema.SchemaError` when the data does not match the model.
    *
    * @see {@link decode} for decoding once into a {@link DecodedExisting}
+   * @see {@link QuerySnapshot.decode} for decoding every document of a read of many once
    */
   readonly data: Effect.Effect<Data<C>, Schema.SchemaError, DecodingServices<C>>;
 }
@@ -123,6 +125,7 @@ export interface Existing<C extends Collection.Any> extends Inspectable.Inspecta
  *
  * @see {@link Existing} for a document that was there
  * @see {@link isMissing} for narrowing a {@link DocumentSnapshot} to this
+ * @see {@link DecodedMissing} for the same document once decoded
  *
  * @stability unstable
  * @category models
@@ -147,6 +150,7 @@ export interface Missing<C extends Collection.Any> extends Inspectable.Inspectab
  * {@link isExisting} or {@link isMissing}, or by `_tag`.
  *
  * @see {@link QuerySnapshot.QuerySnapshot} for the result of a read of many documents
+ * @see {@link DecodedDocumentSnapshot} for the same read once decoded
  *
  * @stability unstable
  * @category models
