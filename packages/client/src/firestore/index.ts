@@ -28,3 +28,11 @@ export * as ClientFirestoreValue from "./ClientFirestoreValue.ts";
  * @since 0.1.0
  */
 export * as ClientQuerySnapshot from "./ClientQuerySnapshot.ts";
+/**
+ * Firestore atoms on Client Firestore: live reads that hold Decoded Snapshots,
+ * built on `effect/reactivity`.
+ *
+ * @stability unstable
+ * @since 0.4.0
+ */
+export * as FirestoreAtom from "./FirestoreAtom.ts";

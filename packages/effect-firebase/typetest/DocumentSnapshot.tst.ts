@@ -2,7 +2,7 @@ import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as FirestoreSchema from "@visiolab/effect-firebase/firestore/FirestoreSchema";
-import { type Effect, Schema } from "effect";
+import { Context, Effect, Schema, SchemaGetter, Stream } from "effect";
 import { describe, expect, test } from "tstyche";
 
 class User extends FirestoreModel.Class<User>("User")({
@@ -38,6 +38,105 @@ describe("isMissing", () => {
   test("keeps the id of a missing document typed by its collection", () => {
     if (DocumentSnapshot.isMissing(snapshot)) {
       expect(snapshot.id).type.toBe<Collection.Id<typeof Users>>();
+    }
+  });
+});
+
+/** A service a document schema decodes through. */
+interface Unseal {
+  readonly open: (value: string) => string;
+}
+const Unseal = Context.Service<Unseal>("test/Unseal");
+
+class Sealed extends FirestoreModel.Class<Sealed>("Sealed")({
+  token: Schema.String.pipe(
+    Schema.decodeTo(Schema.String, {
+      decode: SchemaGetter.transformEffect((value: string) =>
+        Effect.map(Unseal, (unseal) => unseal.open(value)),
+      ),
+      encode: SchemaGetter.transform((s: string) => s),
+    }),
+  ),
+}) {}
+
+const Secrets = Collection.make("secrets", Sealed);
+
+declare const existing: DocumentSnapshot.Existing<typeof Users>;
+declare const missing: DocumentSnapshot.Missing<typeof Users>;
+declare const reads: Stream.Stream<DocumentSnapshot.DocumentSnapshot<typeof Users>>;
+declare const decodedExisting: DocumentSnapshot.DecodedExisting<typeof Users>;
+declare const decoded: DocumentSnapshot.DecodedDocumentSnapshot<typeof Users>;
+
+describe("decode", () => {
+  test("decodes an existing snapshot into one holding the model's value", () => {
+    expect(DocumentSnapshot.decode(existing)).type.toBe<
+      Effect.Effect<DocumentSnapshot.DecodedExisting<typeof Users>, Schema.SchemaError>
+    >();
+  });
+
+  test("decodes a missing snapshot into a decoded missing one, and cannot fail on it", () => {
+    expect(DocumentSnapshot.decode(missing)).type.toBe<
+      Effect.Effect<DocumentSnapshot.DecodedMissing<typeof Users>>
+    >();
+  });
+
+  test("decodes a snapshot that may be missing into either decoded kind", () => {
+    expect(DocumentSnapshot.decode(snapshot)).type.toBe<
+      Effect.Effect<DocumentSnapshot.DecodedDocumentSnapshot<typeof Users>, Schema.SchemaError>
+    >();
+  });
+
+  test("requires the services the model decodes through", () => {
+    expect(
+      DocumentSnapshot.decode(DocumentSnapshot.make(Secrets.doc(Secrets.id.make("a")), {})),
+    ).type.toBe<
+      Effect.Effect<
+        DocumentSnapshot.DecodedDocumentSnapshot<typeof Secrets>,
+        Schema.SchemaError,
+        Unseal
+      >
+    >();
+  });
+
+  test("decodes each snapshot of a live read", () => {
+    expect(reads.pipe(Stream.mapEffect(DocumentSnapshot.decode))).type.toBe<
+      Stream.Stream<DocumentSnapshot.DecodedDocumentSnapshot<typeof Users>, Schema.SchemaError>
+    >();
+  });
+});
+
+describe("DecodedExisting", () => {
+  test("holds the decoded data as a value, beside what it was read at", () => {
+    expect(decodedExisting.data).type.toBe<User>();
+    expect(decodedExisting.raw).type.toBe<unknown>();
+    expect(decodedExisting.id).type.toBe<Collection.Id<typeof Users>>();
+    expect(decodedExisting.ref).type.toBe<Collection.DocumentReference<typeof Users>>();
+  });
+
+  test("is not a Document Snapshot, whose data is still to be decoded", () => {
+    expect<DocumentSnapshot.DecodedExisting<typeof Users>>().type.not.toBeAssignableTo<
+      DocumentSnapshot.Existing<typeof Users>
+    >();
+  });
+});
+
+describe("DecodedMissing", () => {
+  test("is not a Document Snapshot either", () => {
+    expect<DocumentSnapshot.DecodedMissing<typeof Users>>().type.not.toBeAssignableTo<
+      DocumentSnapshot.Missing<typeof Users>
+    >();
+    expect<DocumentSnapshot.Missing<typeof Users>>().type.not.toBeAssignableTo<
+      DocumentSnapshot.DecodedMissing<typeof Users>
+    >();
+  });
+});
+
+describe("DecodedDocumentSnapshot", () => {
+  test("narrows by tag to the decoded data", () => {
+    if (decoded._tag === "Existing") {
+      expect(decoded.data).type.toBe<User>();
+    } else {
+      expect(decoded).type.toBe<DocumentSnapshot.DecodedMissing<typeof Users>>();
     }
   });
 });

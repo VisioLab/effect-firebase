@@ -9,40 +9,11 @@ import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreMo
 import * as App from "../../src/app/App.ts";
 import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
 import { clear, emulator, listening } from "./emulator.ts";
+import { listeners } from "./listeners.ts";
 
-/**
- * What the wrapped `onSnapshot` below does besides attaching the listener: it
- * counts the listeners detached, and reports `failWith` to the listener instead
- * of attaching it, where there is one.
- */
-const listeners = vi.hoisted(() => ({
-  detached: 0,
-  failWith: undefined as Error | undefined,
-}));
-
-// The client SDK exports `onSnapshot` as a function of its own rather than as
-// a method, so it is wrapped where it is imported from.
-vi.mock("firebase/firestore", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("firebase/firestore")>();
-  return {
-    ...actual,
-    onSnapshot: (...args: ReadonlyArray<unknown>) => {
-      if (listeners.failWith !== undefined) {
-        // The error callback is the second one, wherever listen options put it.
-        const [, onError] = args.filter((arg) => typeof arg === "function");
-        (onError as (error: Error) => void)(listeners.failWith);
-        return () => {};
-      }
-      const unsubscribe = (actual.onSnapshot as (...args: ReadonlyArray<unknown>) => () => void)(
-        ...args,
-      );
-      return () => {
-        listeners.detached++;
-        unsubscribe();
-      };
-    },
-  };
-});
+vi.mock("firebase/firestore", async (importOriginal) =>
+  (await import("./listeners.ts")).wrapOnSnapshot(await importOriginal()),
+);
 
 const projectId = "demo-client-streams";
 
@@ -60,8 +31,7 @@ const hello = Posts.doc(Posts.id.make("hello"));
 
 const fresh = Effect.gen(function* () {
   yield* clear(projectId);
-  listeners.detached = 0;
-  listeners.failWith = undefined;
+  listeners.reset();
   return yield* Firestore;
 });
 

@@ -33,6 +33,7 @@
  * @stability unstable
  * @since 0.1.0
  */
+import type { Effect, Schema } from "effect";
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
 import type * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as snapshotMetadata from "./internal/snapshotMetadata.ts";
@@ -65,6 +66,7 @@ export interface SnapshotMetadata {
  * {@link SnapshotMetadata} of that read.
  *
  * @see {@link DocumentSnapshot.Existing} for the portable snapshot it extends
+ * @see {@link DecodedExisting} for the same document once decoded
  *
  * @stability unstable
  * @category models
@@ -80,6 +82,7 @@ export interface Existing<C extends Collection.Any> extends DocumentSnapshot.Exi
  * it is gone" from "the server says it is gone".
  *
  * @see {@link DocumentSnapshot.Missing} for the portable snapshot it extends
+ * @see {@link DecodedMissing} for the same document once decoded
  *
  * @stability unstable
  * @category models
@@ -94,6 +97,7 @@ export interface Missing<C extends Collection.Any> extends DocumentSnapshot.Miss
  * found it: {@link Existing} or {@link Missing}.
  *
  * @see {@link DocumentSnapshot.DocumentSnapshot} for the portable snapshot
+ * @see {@link DecodedClientDocumentSnapshot} for the same read once decoded
  *
  * @stability unstable
  * @category models
@@ -154,3 +158,141 @@ export const missing = <C extends Collection.Any>(
   ref: Collection.DocumentReference<C>,
   metadata: SnapshotMetadata,
 ): Missing<C> => DocumentSnapshot.missing(ref, snapshotMetadata.extraOf(metadata));
+
+/**
+ * A client snapshot of a document that was there, whose data has already been
+ * read through the collection's model, with the {@link SnapshotMetadata} of
+ * the read.
+ *
+ * @see {@link DocumentSnapshot.DecodedExisting} for the portable decoded snapshot it extends
+ * @see {@link Existing} for the snapshot it was decoded from
+ * @see {@link DecodedMissing} for a document that was not there
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.4.0
+ */
+export interface DecodedExisting<
+  C extends Collection.Any,
+> extends DocumentSnapshot.DecodedExisting<C> {
+  readonly metadata: SnapshotMetadata;
+}
+
+/**
+ * A client snapshot of a document that was not there, as {@link decode}
+ * returns it, with the {@link SnapshotMetadata} of the read.
+ *
+ * **Details**
+ *
+ * It is a value of its own rather than the {@link Missing} snapshot it came
+ * from, so, like a {@link DecodedExisting}, it is not a
+ * {@link ClientDocumentSnapshot}.
+ *
+ * @see {@link DocumentSnapshot.DecodedMissing} for the portable decoded snapshot it extends
+ * @see {@link Missing} for the snapshot it was decoded from
+ * @see {@link DecodedExisting} for a document that was there
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.4.0
+ */
+export interface DecodedMissing<
+  C extends Collection.Any,
+> extends DocumentSnapshot.DecodedMissing<C> {
+  readonly metadata: SnapshotMetadata;
+}
+
+/**
+ * A {@link ClientDocumentSnapshot} whose data has already been read through
+ * the collection's model: {@link DecodedExisting} or {@link DecodedMissing},
+ * each with the {@link SnapshotMetadata} of the read.
+ *
+ * @see {@link DocumentSnapshot.DecodedDocumentSnapshot} for the portable decoded snapshot
+ * @see {@link ClientDocumentSnapshot} for the snapshot that decodes its data lazily
+ * @see {@link ClientQuerySnapshot.DecodedClientQuerySnapshot} for a decoded read of many documents
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.4.0
+ */
+export type DecodedClientDocumentSnapshot<C extends Collection.Any> =
+  | DecodedExisting<C>
+  | DecodedMissing<C>;
+
+/**
+ * What {@link decode} turns the client snapshot `S` into: a
+ * {@link DecodedExisting} for an {@link Existing} one, and a
+ * {@link DecodedMissing} for a {@link Missing} one.
+ *
+ * @stability unstable
+ * @category type-level
+ * @since 0.4.0
+ */
+export type Decoded<S extends ClientDocumentSnapshot<Collection.Any>> =
+  S extends Existing<infer C>
+    ? DecodedExisting<C>
+    : S extends Missing<infer C>
+      ? DecodedMissing<C>
+      : never;
+
+/**
+ * Reads a {@link ClientDocumentSnapshot}'s data through the collection's model
+ * once, and returns the Decoded Snapshot with its {@link SnapshotMetadata}.
+ *
+ * **When to use**
+ *
+ * Use on snapshots read through {@link ClientFirestore.ClientFirestore}, such
+ * as each snapshot of a live read, to keep `metadata` in the decoded type.
+ * Use {@link DocumentSnapshot.decode} in portable code.
+ *
+ * **Details**
+ *
+ * An {@link Existing} snapshot decodes into a {@link DecodedExisting}, and a
+ * {@link Missing} one into a {@link DecodedMissing}, each with the read's
+ * metadata. Fails with a `Schema.SchemaError`
+ * when the stored data does not match the model, and requires the model's
+ * {@link DocumentSnapshot.DecodingServices}.
+ *
+ * @example Decoding a live read, keeping where it came from
+ * ```ts
+ * import { Effect, Schema, Stream } from "effect";
+ * import { Collection, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ * import {
+ *   ClientDocumentSnapshot,
+ *   ClientFirestore,
+ * } from "@visiolab/effect-firebase-client/firestore";
+ *
+ * class User extends FirestoreModel.Class<User>("User")({
+ *   name: Schema.String,
+ * }) {}
+ *
+ * const Users = Collection.make("users", User);
+ *
+ * const names = Stream.unwrap(
+ *   Effect.map(ClientFirestore.ClientFirestore, (firestore) =>
+ *     firestore.streamDoc(Users.doc(Users.id.make("alice"))).pipe(
+ *       Stream.mapEffect(ClientDocumentSnapshot.decode),
+ *       Stream.map((snapshot) => ({
+ *         name: snapshot._tag === "Existing" ? snapshot.data.name : undefined,
+ *         pending: snapshot.metadata.hasPendingWrites,
+ *       })),
+ *     ),
+ *   ),
+ * );
+ * ```
+ *
+ * @see {@link DocumentSnapshot.decode} for the portable decode, which drops `metadata` from the type
+ * @see {@link ClientQuerySnapshot.decode} for decoding a read of many documents
+ * @see {@link FirestoreAtom.Service.doc} for a live, decoded read held in an atom
+ *
+ * @stability unstable
+ * @category decoding
+ * @since 0.4.0
+ */
+export const decode: <S extends ClientDocumentSnapshot<Collection.Any>>(
+  self: S,
+) => Effect.Effect<
+  Decoded<S>,
+  S extends Existing<Collection.Any> ? Schema.SchemaError : never,
+  S extends Existing<infer C> ? DocumentSnapshot.DecodingServices<C> : never
+> = DocumentSnapshot.decode as any;
