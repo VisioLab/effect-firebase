@@ -43,6 +43,7 @@ import type * as Collection from "./Collection.ts";
 import * as documentSnapshot from "./internal/documentSnapshot.ts";
 
 const TypeId = documentSnapshot.TypeId;
+const DecodedTypeId = documentSnapshot.DecodedTypeId;
 
 /**
  * What a document in `C` decodes into: the `read` variant of its model.
@@ -106,6 +107,8 @@ export interface Existing<C extends Collection.Any> extends Inspectable.Inspecta
    *
    * Nothing is decoded until this runs, and it decodes again on each run.
    * Fails with a `Schema.SchemaError` when the data does not match the model.
+   *
+   * @see {@link decode} for decoding once into a {@link DecodedExisting}
    */
   readonly data: Effect.Effect<Data<C>, Schema.SchemaError, DecodingServices<C>>;
 }
@@ -306,3 +309,147 @@ export const missing: {
     extra: E,
   ): Missing<C> & E;
 } = documentSnapshot.missing;
+
+/**
+ * An {@link Existing} snapshot whose data has already been read through the
+ * collection's model.
+ *
+ * **Details**
+ *
+ * Its tag is `"Existing"`. It keeps the snapshot's `ref`, `id` and `raw`, and
+ * any extra the snapshot carried, such as the client's `metadata`. Its `data`
+ * is the decoded value itself, not an Effect, so reading it never fails and
+ * never decodes again. It is not a {@link DocumentSnapshot}, so
+ * {@link isDocumentSnapshot} is `false` for it.
+ *
+ * @see {@link Existing} for the snapshot it was decoded from
+ * @see {@link decode} for building one
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.4.0
+ */
+export interface DecodedExisting<C extends Collection.Any> extends Inspectable.Inspectable {
+  readonly [DecodedTypeId]: typeof DecodedTypeId;
+  readonly _tag: "Existing";
+  /** The reference the document was read at. */
+  readonly ref: Collection.DocumentReference<C>;
+  /** The document's own id, the same as `ref.id`. */
+  readonly id: Collection.Id<C>;
+  /**
+   * The document's data as the SDK read it, before the collection's model
+   * decoded it into {@link DecodedExisting.data}.
+   */
+  readonly raw: unknown;
+  /** The document's data, decoded through the collection's model. */
+  readonly data: Data<C>;
+}
+
+/**
+ * A {@link Missing} snapshot, as {@link decode} returns it.
+ *
+ * **Details**
+ *
+ * A missing document holds no data, so there is nothing to decode: it is the
+ * same {@link Missing} snapshot, with its `ref`, `id` and any extra it carried.
+ *
+ * @see {@link DecodedExisting} for a document that was there
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.4.0
+ */
+export type DecodedMissing<C extends Collection.Any> = Missing<C>;
+
+/**
+ * A {@link DocumentSnapshot} whose data has already been read through the
+ * collection's model: {@link DecodedExisting} or {@link DecodedMissing}.
+ *
+ * **Details**
+ *
+ * Tell the two apart by `_tag`. A missing document is still a result, not a
+ * failure.
+ *
+ * @see {@link DocumentSnapshot} for the snapshot that decodes its data lazily
+ * @see {@link QuerySnapshot.DecodedQuerySnapshot} for a decoded read of many documents
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.4.0
+ */
+export type DecodedDocumentSnapshot<C extends Collection.Any> =
+  | DecodedExisting<C>
+  | DecodedMissing<C>;
+
+/**
+ * Reads a {@link DocumentSnapshot}'s data through the collection's model once,
+ * and returns the Decoded Snapshot.
+ *
+ * **When to use**
+ *
+ * Use when the data will be read more than once, or by code that cannot run
+ * an Effect, such as a component rendering a live read. Use
+ * {@link Existing.data} instead to decode only on the paths that need it.
+ *
+ * **Details**
+ *
+ * An {@link Existing} snapshot decodes into a {@link DecodedExisting}, and a
+ * {@link Missing} one is returned as it is. Fails with a `Schema.SchemaError`
+ * when the stored data does not match the model, and requires the model's
+ * {@link DecodingServices}. Any extra the snapshot carries, such as the
+ * client's `metadata`, is kept at runtime. The client's own
+ * `ClientDocumentSnapshot.decode` keeps it in the type as well.
+ *
+ * @example Decoding a live read
+ * ```ts
+ * import {
+ *   Collection,
+ *   DocumentSnapshot,
+ *   Firestore,
+ *   FirestoreModel,
+ * } from "@visiolab/effect-firebase/firestore";
+ * import { Effect, Schema, Stream } from "effect";
+ *
+ * class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
+ *
+ * const Users = Collection.make("users", User);
+ *
+ * const names = Stream.unwrap(
+ *   Effect.map(Firestore.Firestore, (firestore) =>
+ *     firestore.streamDoc(Users.doc(Users.id.make("alice"))).pipe(
+ *       Stream.mapEffect(DocumentSnapshot.decode),
+ *       Stream.map((snapshot) => (snapshot._tag === "Existing" ? snapshot.data.name : undefined)),
+ *     ),
+ *   ),
+ * );
+ * ```
+ *
+ * @see {@link Existing.data} for decoding lazily, on each run
+ * @see {@link QuerySnapshot.decode} for decoding every document of a read of many
+ *
+ * @stability unstable
+ * @category decoding
+ * @since 0.4.0
+ */
+export const decode: <S extends DocumentSnapshot<Collection.Any>>(
+  self: S,
+) => Effect.Effect<
+  Decoded<S>,
+  S extends Existing<Collection.Any> ? Schema.SchemaError : never,
+  S extends Existing<infer C> ? DecodingServices<C> : never
+> = documentSnapshot.decode as any;
+
+/**
+ * What {@link decode} turns the snapshot `S` into: a {@link DecodedExisting}
+ * for an {@link Existing} one, and the same {@link Missing} for a missing one.
+ *
+ * @stability unstable
+ * @category type-level
+ * @since 0.4.0
+ */
+export type Decoded<S extends DocumentSnapshot<Collection.Any>> =
+  S extends Existing<infer C>
+    ? DecodedExisting<C>
+    : S extends Missing<infer C>
+      ? DecodedMissing<C>
+      : never;

@@ -1,5 +1,5 @@
-import { describe, expect, it } from "@effect/vitest";
-import { Schema } from "effect";
+import { assert, describe, expect, it } from "@effect/vitest";
+import { Effect, Schema } from "effect";
 import * as Collection from "../../src/firestore/Collection.ts";
 import * as DocumentSnapshot from "../../src/firestore/DocumentSnapshot.ts";
 import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
@@ -76,4 +76,83 @@ describe("extra", () => {
       metadata: { fromCache: true, hasPendingWrites: false },
     });
   });
+});
+
+describe("decode", () => {
+  it.effect("reads every document through its model, in the order the read found them", () =>
+    Effect.gen(function* () {
+      const decoded = yield* QuerySnapshot.decode(QuerySnapshot.make([alice, bob]));
+      expect(decoded.docs.map((doc) => doc.data)).toEqual([
+        new User({ name: "Alice" }),
+        new User({ name: "Bob" }),
+      ]);
+      expect(decoded.docs[0]?.data).toBeInstanceOf(User);
+      expect(decoded.docs[0]?.ref.path).toBe("users/alice");
+      expect(decoded.docs[0]?.raw).toBe(alice.raw);
+    }),
+  );
+
+  it.effect("fails as a whole when any document does not match its model", () =>
+    Effect.gen(function* () {
+      const broken = DocumentSnapshot.existing(Users.doc(Users.id.make("eve")), { name: 42 });
+      const error = yield* Effect.flip(QuerySnapshot.decode(QuerySnapshot.make([alice, broken])));
+      assert(Schema.isSchemaError(error));
+    }),
+  );
+
+  it.effect("decodes each document of a Collection Group through the collection it is in", () =>
+    Effect.gen(function* () {
+      class Org extends FirestoreModel.Class<Org>("Org")({ name: Schema.String }) {}
+      class UserPost extends FirestoreModel.Class<UserPost>("UserPost")({
+        title: Schema.String,
+      }) {}
+      class OrgPost extends FirestoreModel.Class<OrgPost>("OrgPost")({
+        headline: Schema.String,
+      }) {}
+      const UserPosts = Users.subcollection("posts", UserPost);
+      const Orgs = Collection.make("orgs", Org);
+      const OrgPosts = Orgs.subcollection("posts", OrgPost);
+      const userPost = DocumentSnapshot.existing(
+        UserPosts.doc(Users.id.make("alice"), UserPosts.id.make("p1")),
+        { title: "Hello" },
+      );
+      const orgPost = DocumentSnapshot.existing(
+        OrgPosts.doc(Orgs.id.make("acme"), OrgPosts.id.make("p2")),
+        { headline: "News" },
+      );
+      const decoded = yield* QuerySnapshot.decode(
+        QuerySnapshot.make<typeof UserPosts | typeof OrgPosts>([userPost, orgPost]),
+      );
+      expect(decoded.docs[0]?.data).toBeInstanceOf(UserPost);
+      expect(decoded.docs[1]?.data).toBeInstanceOf(OrgPost);
+    }),
+  );
+
+  it.effect("keeps the extra of the read and of each document", () =>
+    Effect.gen(function* () {
+      const carol = DocumentSnapshot.existing(
+        Users.doc(Users.id.make("carol")),
+        { name: "Carol" },
+        { metadata: { fromCache: false, hasPendingWrites: true } },
+      );
+      const decoded = yield* QuerySnapshot.decode(
+        QuerySnapshot.make([carol], { metadata: { fromCache: true, hasPendingWrites: false } }),
+      );
+      expect(decoded).toHaveProperty("metadata", { fromCache: true, hasPendingWrites: false });
+      expect(decoded.docs[0]?.metadata).toEqual({ fromCache: false, hasPendingWrites: true });
+      expect(decoded.toJSON()).toEqual({
+        _id: "QuerySnapshot",
+        docs: [
+          {
+            _id: "DocumentSnapshot",
+            _tag: "Existing",
+            ref: "users/carol",
+            data: { name: "Carol" },
+            metadata: { fromCache: false, hasPendingWrites: true },
+          },
+        ],
+        metadata: { fromCache: true, hasPendingWrites: false },
+      });
+    }),
+  );
 });

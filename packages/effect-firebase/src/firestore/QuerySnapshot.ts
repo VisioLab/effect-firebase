@@ -23,16 +23,18 @@
  * ```
  *
  * @see {@link DocumentSnapshot} for what a read of one document returns
+ * @see {@link decode} for reading every document once, into a Decoded Snapshot
  *
  * @stability unstable
  * @since 0.2.0
  */
-import type { Inspectable } from "effect";
+import type { Effect, Inspectable, Schema } from "effect";
 import type * as Collection from "./Collection.ts";
 import type * as DocumentSnapshot from "./DocumentSnapshot.ts";
 import * as querySnapshot from "./internal/querySnapshot.ts";
 
 const TypeId = querySnapshot.TypeId;
+const DecodedTypeId = querySnapshot.DecodedTypeId;
 
 /**
  * A {@link DocumentSnapshot.Existing} snapshot in whichever of the collections
@@ -148,3 +150,109 @@ export const make: {
     extra: E,
   ): QuerySnapshot<C, ExtraOf<D>> & E;
 } = querySnapshot.make;
+
+/**
+ * A {@link DocumentSnapshot.DecodedExisting} snapshot in whichever of the
+ * collections `C` it is in.
+ *
+ * **Details**
+ *
+ * For a union `C` it is `DecodedExisting<A> | DecodedExisting<B>`, so a
+ * document's reference and decoded data belong to the same collection, and
+ * `Collection.contains` or the data's own tag tells them apart.
+ *
+ * @see {@link Existing} for the document before it was decoded
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.4.0
+ */
+export type DecodedExisting<C extends Collection.Any> = C extends Collection.Any
+  ? DocumentSnapshot.DecodedExisting<C>
+  : never;
+
+/**
+ * A {@link QuerySnapshot} whose documents' data has already been read through
+ * their models.
+ *
+ * **Details**
+ *
+ * {@link decode} builds one. It holds every document of the read, in the same
+ * order, each with the `DocumentExtra` of the read. A read of a Collection
+ * Group holds a union of its members' decoded documents.
+ *
+ * @see {@link QuerySnapshot} for the snapshot that decodes its documents lazily
+ * @see {@link DocumentSnapshot.DecodedDocumentSnapshot} for a decoded read of one document
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.4.0
+ */
+export interface DecodedQuerySnapshot<C extends Collection.Any, DocumentExtra extends object = {}>
+  extends Inspectable.Inspectable {
+  readonly [DecodedTypeId]: typeof DecodedTypeId;
+  /**
+   * Every document the read found, decoded, in the order Firestore returned
+   * them. Empty when there were none.
+   */
+  readonly docs: ReadonlyArray<DecodedExisting<C> & DocumentExtra>;
+}
+
+/**
+ * Reads every document of a {@link QuerySnapshot} through its model once, and
+ * returns the Decoded Snapshot.
+ *
+ * **When to use**
+ *
+ * Use when the documents will be read more than once, or by code that cannot
+ * run an Effect, such as a component rendering a live list. Use each
+ * document's {@link DocumentSnapshot.Existing.data} instead to decode only the
+ * documents that are needed.
+ *
+ * **Details**
+ *
+ * Decodes all documents or fails as a whole with a `Schema.SchemaError` when
+ * any one does not match its model. No document is dropped. Requires the
+ * {@link DocumentSnapshot.DecodingServices} of every collection in `C`. The
+ * extra of the read and of each document, such as the client's `metadata`, is
+ * kept at runtime. The client's own `ClientQuerySnapshot.decode` keeps the
+ * read's in the type as well.
+ *
+ * @example Decoding a live read of a collection
+ * ```ts
+ * import {
+ *   Collection,
+ *   Firestore,
+ *   FirestoreModel,
+ *   QuerySnapshot,
+ * } from "@visiolab/effect-firebase/firestore";
+ * import { Effect, Schema, Stream } from "effect";
+ *
+ * class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
+ *
+ * const Users = Collection.make("users", User);
+ *
+ * const names = Stream.unwrap(
+ *   Effect.map(Firestore.Firestore, (firestore) =>
+ *     firestore.streamDocs(Users.collection()).pipe(
+ *       Stream.mapEffect(QuerySnapshot.decode),
+ *       Stream.map((snapshot) => snapshot.docs.map((user) => user.data.name)),
+ *     ),
+ *   ),
+ * );
+ * ```
+ *
+ * @see {@link DocumentSnapshot.decode} for decoding a read of one document
+ * @see {@link DocumentSnapshot.Existing.data} for decoding one document lazily
+ *
+ * @stability unstable
+ * @category decoding
+ * @since 0.4.0
+ */
+export const decode: <C extends Collection.Any, DocumentExtra extends object = {}>(
+  self: QuerySnapshot<C, DocumentExtra>,
+) => Effect.Effect<
+  DecodedQuerySnapshot<C, DocumentExtra>,
+  Schema.SchemaError,
+  DocumentSnapshot.DecodingServices<C>
+> = querySnapshot.decode;

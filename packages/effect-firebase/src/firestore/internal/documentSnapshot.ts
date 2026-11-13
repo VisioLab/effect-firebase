@@ -2,10 +2,13 @@ import { Effect, Inspectable, Predicate, Schema } from "effect";
 import type * as Collection from "../Collection.ts";
 import type * as DocumentSnapshot from "../DocumentSnapshot.ts";
 import * as firestoreValue from "./firestoreValue.ts";
-import { attach, extraToJson, type WithExtra } from "./snapshotExtra.ts";
+import { attach, extraOf, extraToJson, type WithExtra } from "./snapshotExtra.ts";
 
 /** @internal */
 export const TypeId = "~@visiolab/effect-firebase/firestore/DocumentSnapshot";
+
+/** @internal */
+export const DecodedTypeId = "~@visiolab/effect-firebase/firestore/DocumentSnapshot/Decoded";
 
 /** @internal */
 export const isDocumentSnapshot = (
@@ -115,3 +118,52 @@ export const make = <C extends Collection.Any>(
   extra?: object,
 ): DocumentSnapshot.DocumentSnapshot<C> =>
   data === undefined ? missing(ref, extra) : existing(ref, data, extra);
+
+interface DecodedExistingImpl extends WithExtra {
+  readonly ref: { readonly path: string };
+  readonly data: unknown;
+}
+
+const DecodedExistingProto = {
+  ...Inspectable.BaseProto,
+  [DecodedTypeId]: DecodedTypeId,
+  _tag: "Existing" as const,
+  toJSON(this: DecodedExistingImpl) {
+    return {
+      _id: "DocumentSnapshot",
+      _tag: "Existing",
+      ref: this.ref.path,
+      data: Inspectable.toJson(this.data),
+      ...extraToJson(this),
+    };
+  },
+};
+
+/**
+ * Decodes `self`'s data and builds its decoded form, carrying the same extra.
+ *
+ * @internal
+ */
+export const decodeExisting = <C extends Collection.Any>(
+  self: DocumentSnapshot.Existing<C>,
+): Effect.Effect<
+  DocumentSnapshot.DecodedExisting<C>,
+  Schema.SchemaError,
+  DocumentSnapshot.DecodingServices<C>
+> =>
+  Effect.map(self.data, (data) => {
+    const decoded = Object.assign(
+      Object.create(DecodedExistingProto) as typeof DecodedExistingProto,
+      { ref: self.ref, id: self.id, raw: self.raw, data },
+    );
+    return attach(decoded, extraOf(self)) as unknown as DocumentSnapshot.DecodedExisting<C>;
+  });
+
+/** @internal */
+export const decode = <C extends Collection.Any>(
+  self: DocumentSnapshot.DocumentSnapshot<C>,
+): Effect.Effect<
+  DocumentSnapshot.DecodedDocumentSnapshot<C>,
+  Schema.SchemaError,
+  DocumentSnapshot.DecodingServices<C>
+> => (isExisting(self) ? decodeExisting(self) : Effect.succeed(self));
