@@ -12,8 +12,10 @@ catalog:
   "@catppuccin/starlight": ^2.1.0
   "@changesets/changelog-github": ^1.0.1
   "@changesets/cli": ^3.0.3
+  "@effect/atom-react": 4.1.0
   "@effect/tsgo": 0.63.0
   "@effect/vitest": ^4.1.0
+  "@types/react": ^19.3.0
   astro: ^7.4.5
   # The version the packages are developed and tested against. Consumers get
   # the range in `catalogs.peers` instead.
@@ -25,6 +27,7 @@ catalog:
   # The version vite-plus formats the repo with, which the website also
   # formats API signatures with.
   oxfmt: 0.74.0
+  react: ^19.3.1
   tstyche: ^7.2.5
   typescript: ^7.0.2
   # TSTyche 7 cannot load the native TypeScript 7 package, so type tests run on

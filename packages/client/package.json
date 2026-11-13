@@ -65,10 +65,13 @@
     "prepublishOnly": "vp run build"
   },
   "devDependencies": {
+    "@effect/atom-react": "catalog:",
     "@effect/vitest": "catalog:",
+    "@types/react": "catalog:",
     "@visiolab/effect-firebase": "workspace:^",
     "effect": "catalog:",
     "firebase": "catalog:",
+    "react": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:",
