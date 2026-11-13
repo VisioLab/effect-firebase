@@ -265,6 +265,7 @@ export type Decoded<S extends ClientDocumentSnapshot<Collection.Any>> =
  *
  * @see {@link DocumentSnapshot.decode} for the portable decode, which drops `metadata` from the type
  * @see {@link ClientQuerySnapshot.decode} for decoding a read of many documents
+ * @see {@link FirestoreAtom.Service.doc} for a live, decoded read held in an atom
  *
  * @stability unstable
  * @category decoding
