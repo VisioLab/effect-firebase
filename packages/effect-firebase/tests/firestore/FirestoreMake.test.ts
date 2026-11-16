@@ -34,6 +34,7 @@ const scriptedHooks: Firestore.MakeOptions<unknown, unknown> = {
   getDocs: unscripted("getDocs"),
   setDoc: unscripted("setDoc"),
   updateDoc: unscripted("updateDoc"),
+  deleteDoc: unscripted("deleteDoc"),
   addDoc: unscripted("addDoc"),
   streamDoc: () => Stream.die("The streamDoc hook was not scripted"),
   streamDocs: () => Stream.die("The streamDocs hook was not scripted"),
@@ -398,6 +399,7 @@ describe("writes", () => {
       const firestore = scripted({
         setDoc: () => Effect.fail(failure),
         updateDoc: () => Effect.fail(failure),
+        deleteDoc: () => Effect.fail(failure),
         addDoc: () => Effect.fail(failure),
       });
 
@@ -410,6 +412,22 @@ describe("writes", () => {
       expect(yield* Effect.flip(firestore.addDoc(Shops.collection(), new Shop({ openedAt })))).toBe(
         failure,
       );
+      expect(yield* Effect.flip(firestore.deleteDoc(Shops.doc(corner)))).toBe(failure);
+    }),
+  );
+
+  it.effect("deleteDoc hands the hook the document's path", () =>
+    Effect.gen(function* () {
+      const deleted: Array<string> = [];
+      const firestore = scripted({
+        deleteDoc: (path) => Effect.sync(() => void deleted.push(path)),
+      });
+
+      const Branches = Shops.subcollection("branches", Shop);
+
+      yield* firestore.deleteDoc(Branches.doc(corner, Branches.id.make("north")));
+
+      expect(deleted).toEqual(["shops/corner/branches/north"]);
     }),
   );
 });
@@ -572,6 +590,7 @@ describe("runTransaction", () => {
       },
       setDoc: (path, data) => Effect.sync(() => void calls.push(["setDoc", path, data])),
       updateDoc: (path, data) => Effect.sync(() => void calls.push(["updateDoc", path, data])),
+      deleteDoc: (path) => Effect.sync(() => void calls.push(["deleteDoc", path])),
     };
     const runTransaction: Firestore.RunTransaction<BaseOperations & More, TransactionServices> = {
       run: (body, options) => {
@@ -600,6 +619,7 @@ describe("runTransaction", () => {
           const user = yield* snapshot.data;
           yield* tx.setDoc(Users.doc(Users.id.make("bob")), new User({ name: "Bob" }));
           yield* tx.updateDoc(Users.doc(alice), { name: "Alicia" });
+          yield* tx.deleteDoc(Users.doc(Users.id.make("carol")));
           return user.name;
         }),
       );
@@ -609,6 +629,7 @@ describe("runTransaction", () => {
         ["getDoc", "users/alice"],
         ["setDoc", "users/bob", { name: "Bob" }],
         ["updateDoc", "users/alice", { name: "Alicia" }],
+        ["deleteDoc", "users/carol"],
       ]);
     }),
   );
@@ -740,6 +761,7 @@ describe("runTransaction", () => {
           }),
         setDoc: () => Effect.map(currentSpan, (span) => void spans.push(span.name)),
         updateDoc: () => Effect.map(currentSpan, (span) => void spans.push(span.name)),
+        deleteDoc: () => Effect.map(currentSpan, (span) => void spans.push(span.name)),
       });
 
       yield* firestore.runTransaction(
@@ -749,6 +771,7 @@ describe("runTransaction", () => {
           yield* tx.getDoc(Users.doc(alice));
           yield* tx.setDoc(Users.doc(alice), new User({ name: "Alice" }));
           yield* tx.updateDoc(Users.doc(alice), { name: "Alicia" });
+          yield* tx.deleteDoc(Users.doc(alice));
         }),
       );
 
@@ -757,6 +780,7 @@ describe("runTransaction", () => {
         "Firestore.Transaction.getDoc < Firestore.runTransaction",
         "Firestore.Transaction.setDoc",
         "Firestore.Transaction.updateDoc",
+        "Firestore.Transaction.deleteDoc",
       ]);
     }),
   );
@@ -781,6 +805,7 @@ describe("spans", () => {
         getDocs: () => Effect.as(spanOf(spans), { docs: [] }),
         setDoc: () => spanOf(spans),
         updateDoc: () => spanOf(spans),
+        deleteDoc: () => spanOf(spans),
         addDoc: () => Effect.as(spanOf(spans), "new-id"),
         streamDoc: () => Stream.fromEffect(Effect.as(spanOf(spans), { data: undefined })),
         streamDocs: () => Stream.fromEffect(Effect.as(spanOf(spans), { docs: [] })),
@@ -790,6 +815,7 @@ describe("spans", () => {
       yield* firestore.getDocs(Posts);
       yield* firestore.setDoc(Users.doc(alice), new User({ name: "Alice" }));
       yield* firestore.updateDoc(Users.doc(alice), { name: "Alicia" });
+      yield* firestore.deleteDoc(Users.doc(alice));
       yield* firestore.addDoc(Users.collection(), new User({ name: "Bob" }));
       yield* Stream.runDrain(firestore.streamDoc(Users.doc(alice)));
       yield* Stream.runDrain(firestore.streamDocs(UserPosts.collection(alice)));
@@ -799,6 +825,7 @@ describe("spans", () => {
         "Firestore.getDocs",
         "Firestore.setDoc",
         "Firestore.updateDoc",
+        "Firestore.deleteDoc",
         "Firestore.addDoc",
         "Firestore.streamDoc",
         "Firestore.streamDocs",

@@ -228,6 +228,27 @@ describe("Firestore, against the emulator", () => {
       expect(error).toBeInstanceOf(FirestoreError);
     }).pipe(Effect.provide(layer)),
   );
+
+  it.effect("deletes a document, so that a read finds it missing", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh;
+
+      yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
+      yield* firestore.deleteDoc(Posts.doc(hello));
+
+      expect((yield* firestore.getDoc(Posts.doc(hello)))._tag).toBe("Missing");
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("deletes a document that is not there without failing", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh;
+
+      yield* firestore.deleteDoc(Posts.doc(hello));
+
+      expect((yield* firestore.getDoc(Posts.doc(hello)))._tag).toBe("Missing");
+    }).pipe(Effect.provide(layer)),
+  );
 });
 
 describe("Firestore, against the emulator, on a collection of a union", () => {

@@ -264,6 +264,27 @@ describe("ClientFirestore, against the emulator", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.effect("deletes a document, so that a read finds it missing", () =>
+    Effect.gen(function* () {
+      const firestore = yield* freshFirestore;
+
+      yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
+      yield* firestore.deleteDoc(Posts.doc(hello));
+
+      expect((yield* firestore.getDoc(Posts.doc(hello)))._tag).toBe("Missing");
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("deletes a document that is not there without failing", () =>
+    Effect.gen(function* () {
+      const firestore = yield* freshFirestore;
+
+      yield* firestore.deleteDoc(Posts.doc(hello));
+
+      expect((yield* firestore.getDoc(Posts.doc(hello)))._tag).toBe("Missing");
+    }).pipe(Effect.provide(layer)),
+  );
+
   // Live, because the write waits on the SDK's own connection rather than on
   // the test clock.
   // The network is toggled through `instance`, the SDK's own object, since this

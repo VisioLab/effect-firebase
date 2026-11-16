@@ -147,6 +147,10 @@ const transactionOperations = (
         firestoreValue.toAdmin(data, firestore) as Admin.UpdateData<Admin.DocumentData>,
       );
     }),
+  deleteDoc: (path) =>
+    call(`Failed to delete the document "${path}"`, () => {
+      tx.delete(firestore.doc(path));
+    }),
 });
 
 /**
@@ -186,6 +190,11 @@ export const fromDatabase = (
         call(`Failed to update the document "${path}"`, () =>
           firestore.doc(path).update(toAdmin(data) as Admin.UpdateData<Admin.DocumentData>),
         ),
+      ),
+
+    deleteDoc: (path) =>
+      Effect.asVoid(
+        call(`Failed to delete the document "${path}"`, () => firestore.doc(path).delete()),
       ),
 
     addDoc: (path, data) =>

@@ -271,6 +271,34 @@ describe("updateDoc", () => {
   });
 });
 
+describe("deleteDoc", () => {
+  test("fails with a Firestore error alone, asking the caller for nothing", () => {
+    expect(firestore.deleteDoc(hello)).type.toBe<
+      Effect.Effect<void, Firestore.FirestoreError, never>
+    >();
+  });
+
+  test("asks for nothing where the model encodes through a service", () => {
+    expect(firestore.deleteDoc(Secret.doc(Secret.id.make("a")))).type.toBe<
+      Effect.Effect<void, Firestore.FirestoreError, never>
+    >();
+  });
+
+  test("refuses a collection reference", () => {
+    // @ts-expect-error is not assignable to parameter of type 'DocumentReference<
+    void firestore.deleteDoc(Posts.collection());
+  });
+
+  test("refuses a document path", () => {
+    // @ts-expect-error is not assignable to parameter of type 'DocumentReference<
+    void firestore.deleteDoc("posts/hello");
+  });
+
+  test("works the same way in a transaction", () => {
+    expect<Firestore.Transaction["deleteDoc"]>().type.toBe<Firestore.Firestore["deleteDoc"]>();
+  });
+});
+
 describe("runTransaction", () => {
   test("hands the body the services of the caller, and asks for no Transaction", () => {
     expect(portableRun).type.toBe<

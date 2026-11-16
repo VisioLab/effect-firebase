@@ -140,7 +140,10 @@ const encodeUpdate = <C extends Collection.Any, Mode extends FirestoreModel.Upda
  */
 interface Target<ReadOptions, Extra extends object>
   extends
-    Pick<Firestore.MakeOptions<ReadOptions, never, Extra>, "getDoc" | "setDoc" | "updateDoc">,
+    Pick<
+      Firestore.MakeOptions<ReadOptions, never, Extra>,
+      "getDoc" | "setDoc" | "updateDoc" | "deleteDoc"
+    >,
     Partial<Pick<Firestore.MakeOptions<ReadOptions, never, Extra>, "getDocs">> {
   readonly name: string;
 }
@@ -190,6 +193,9 @@ const operations = <ReadOptions, Extra extends object>(target: Target<ReadOption
       Effect.flatMap(encodeUpdate(ref.collection, data, options?.mode), (encoded) =>
         target.updateDoc(ref.path, encoded),
       ).pipe(span("updateDoc")),
+
+    deleteDoc: <C extends Collection.Any>(ref: Collection.DocumentReference<C>) =>
+      target.deleteDoc(ref.path).pipe(span("deleteDoc")),
   };
 };
 
@@ -201,17 +207,24 @@ const transactionOf = <Operations extends Firestore.TransactionOperations>(
   transaction: Operations,
 ): Firestore.BuiltTransaction<Operations> => {
   const readMany = transaction.getDocs;
-  const { getDoc, getDocs, setDoc, updateDoc } = operations<never, {}>({
+  const { getDoc, getDocs, setDoc, updateDoc, deleteDoc } = operations<never, {}>({
     name: "Firestore.Transaction",
     getDoc: (path) => transaction.getDoc(path),
     getDocs: readMany === undefined ? undefined : (selector) => readMany(selector),
     setDoc: transaction.setDoc,
     updateDoc: transaction.updateDoc,
+    deleteDoc: transaction.deleteDoc,
   });
   // `getDocs` is there exactly where `Operations` has one, which is what
   // `BuiltTransaction` says, though the compiler cannot follow it into the
   // conditional type.
-  const portable = { [TransactionTypeId]: TransactionTypeId, getDoc, setDoc, updateDoc } as const;
+  const portable = {
+    [TransactionTypeId]: TransactionTypeId,
+    getDoc,
+    setDoc,
+    updateDoc,
+    deleteDoc,
+  } as const;
   return (
     getDocs === undefined ? portable : { ...portable, getDocs }
   ) as Firestore.BuiltTransaction<Operations>;
@@ -240,12 +253,13 @@ export const make = <
   >,
   Transaction: typeof Firestore.Transaction,
 ): Firestore.With<ReadOptions, ListenOptions, Extra, TransactionServices> & Firestore.Firestore => {
-  const { getDoc, getDocs, setDoc, updateDoc } = operations<ReadOptions, Extra>({
+  const { getDoc, getDocs, setDoc, updateDoc, deleteDoc } = operations<ReadOptions, Extra>({
     name: "Firestore",
     getDoc: options.getDoc,
     getDocs: options.getDocs,
     setDoc: options.setDoc,
     updateDoc: options.updateDoc,
+    deleteDoc: options.deleteDoc,
   });
 
   const addDoc = <C extends Collection.Any>(
@@ -309,6 +323,7 @@ export const make = <
     getDocs: getDocs as Firestore.With<ReadOptions, never, Extra>["getDocs"],
     setDoc,
     updateDoc,
+    deleteDoc,
     addDoc,
     streamDoc,
     streamDocs: streamDocs as Firestore.With<never, ListenOptions, Extra>["streamDocs"],

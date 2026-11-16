@@ -77,6 +77,7 @@ const firestoreOver = (
     getDocs: unscripted("getDocs"),
     setDoc: unscripted("setDoc"),
     updateDoc: unscripted("updateDoc"),
+    deleteDoc: unscripted("deleteDoc"),
     addDoc: unscripted("addDoc"),
     streamDoc: () => Stream.die("The streamDoc hook was not scripted"),
     streamDocs: () => Stream.die("The streamDocs hook was not scripted"),
@@ -86,6 +87,7 @@ const firestoreOver = (
         getDoc: () => Effect.succeed({ data: { name: "Alice" } }),
         setDoc: () => Effect.void,
         updateDoc: () => Effect.void,
+        deleteDoc: () => Effect.void,
         ...operations(transaction),
       }),
       onError: (cause) =>
