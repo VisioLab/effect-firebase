@@ -107,6 +107,9 @@ describe("AdminTransaction", () => {
     expect<AdminFirestore.AdminTransaction["updateDoc"]>().type.toBe<
       Firestore.Transaction["updateDoc"]
     >();
+    expect<AdminFirestore.AdminTransaction["deleteDoc"]>().type.toBe<
+      Firestore.Transaction["deleteDoc"]
+    >();
   });
 
   test("is not a Transaction", () => {

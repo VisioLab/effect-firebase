@@ -197,6 +197,9 @@ export const fromDatabase = (
         Client.updateDoc(docOf(path), toClient(data)),
       ),
 
+    deleteDoc: (path) =>
+      call(`Failed to delete the document "${path}"`, () => Client.deleteDoc(docOf(path))),
+
     addDoc: (path, data) =>
       Effect.map(
         call(`Failed to add a document to "${path}"`, () =>
@@ -247,6 +250,10 @@ export const fromDatabase = (
         updateDoc: (path, data) =>
           call(`Failed to update the document "${path}"`, () => {
             tx.update(docOf(path), toClient(data));
+          }),
+        deleteDoc: (path) =>
+          call(`Failed to delete the document "${path}"`, () => {
+            tx.delete(docOf(path));
           }),
       }),
       onError: firestoreError("Failed to run a transaction"),

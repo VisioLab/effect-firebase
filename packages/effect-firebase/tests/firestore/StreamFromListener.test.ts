@@ -84,6 +84,7 @@ const listeningTo = (source: ReturnType<typeof listenable>) =>
     getDocs: () => Effect.die("unscripted"),
     setDoc: () => Effect.die("unscripted"),
     updateDoc: () => Effect.die("unscripted"),
+    deleteDoc: () => Effect.die("unscripted"),
     addDoc: () => Effect.die("unscripted"),
     runTransaction: { run: () => Effect.die("unscripted") },
     streamDoc: () =>

@@ -217,6 +217,7 @@ export interface DeleteField extends Inspectable.Inspectable {
  *
  * @see {@link FirestoreModel.Optional} for a model field that accepts it
  * @see {@link FirestoreSchema.DeleteFieldOr} for a schema that accepts it
+ * @see {@link Firestore.With.deleteDoc} to remove the whole document rather than a field
  *
  * @stability unstable
  * @category constructors

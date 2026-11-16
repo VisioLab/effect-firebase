@@ -1,8 +1,9 @@
 /**
  * Reading and writing Firestore documents as an Effect service.
  *
- * {@link Firestore} is the portable service: it reads, listens to, writes and
- * updates documents, and runs transactions, the same way on every backend.
+ * {@link Firestore} is the portable service: it reads, listens to, writes,
+ * updates and deletes documents, and runs transactions, the same way on every
+ * backend.
  * Every call is addressed by a reference built from a
  * {@link Collection.Collection}, whose {@link FirestoreModel} encodes what is
  * written and decodes what is read.
@@ -290,6 +291,15 @@ export interface TransactionBase {
     FirestoreError | Schema.SchemaError,
     Collection.DocumentSchema<C>["update"]["EncodingServices"]
   >;
+
+  /**
+   * Queues a delete of one document. Works like {@link With.deleteDoc}.
+   *
+   * @since 0.4.0
+   */
+  readonly deleteDoc: <C extends Collection.Any>(
+    ref: Collection.DocumentReference<C>,
+  ) => Effect.Effect<void, FirestoreError>;
 }
 
 /**
@@ -567,6 +577,7 @@ export interface With<
    *
    * @see {@link With.addDoc} to write under an id Firestore picks
    * @see {@link With.updateDoc} to change some fields and keep the rest
+   * @see {@link With.deleteDoc} to remove the document
    *
    * @example Writing a document
    * ```ts
@@ -655,6 +666,7 @@ export interface With<
    * same services.
    *
    * @see {@link With.setDoc} to write a whole document, existing or not
+   * @see {@link With.deleteDoc} to remove the whole document rather than some fields
    * @see {@link UpdateOptions.mode} for when to use `"unchecked"`
    *
    * @example Updating a field
@@ -689,6 +701,49 @@ export interface With<
     FirestoreError | Schema.SchemaError,
     Collection.DocumentSchema<C>["update"]["EncodingServices"]
   >;
+
+  /**
+   * Deletes the document `ref` points to.
+   *
+   * **When to use**
+   *
+   * Use to remove a whole document. To remove some of its fields and keep the
+   * rest, update it with {@link FieldValue.deleteField} instead.
+   *
+   * **Details**
+   *
+   * Deleting a document that is not there succeeds and does nothing.
+   *
+   * Only the document itself is deleted. Documents in its subcollections stay
+   * where they are.
+   *
+   * Nothing is encoded, so it fails with a {@link FirestoreError} alone and
+   * asks the caller for no services.
+   *
+   * @see {@link With.setDoc} to write a whole document instead
+   * @see {@link With.updateDoc} to change some fields and keep the rest
+   * @see {@link FieldValue.deleteField} to remove a field rather than the document
+   *
+   * @example Deleting a document
+   * ```ts
+   * import { Effect, Schema } from "effect";
+   * import { Collection, Firestore, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+   *
+   * class Post extends FirestoreModel.Class<Post>("Post")({ title: Schema.String }) {}
+   *
+   * const Posts = Collection.make("posts", Post);
+   *
+   * const program = Effect.gen(function* () {
+   *   const firestore = yield* Firestore.Firestore;
+   *   yield* firestore.deleteDoc(Posts.doc(Posts.id.make("hello")));
+   * });
+   * ```
+   *
+   * @since 0.4.0
+   */
+  readonly deleteDoc: <C extends Collection.Any>(
+    ref: Collection.DocumentReference<C>,
+  ) => Effect.Effect<void, FirestoreError>;
 
   /**
    * Runs `effect` in a transaction, providing the {@link Transaction} it reads
@@ -934,7 +989,7 @@ export type QueryRead<Extra extends object = {}> = {
  * **Details**
  *
  * Writes in a transaction are queued until it commits, so a backend may
- * complete `setDoc` and `updateDoc` straight away.
+ * complete `setDoc`, `updateDoc` and `deleteDoc` straight away.
  *
  * @stability unstable
  * @category models
@@ -947,6 +1002,8 @@ export interface TransactionOperations {
   readonly setDoc: (path: string, data: DocumentData) => Effect.Effect<void, FirestoreError>;
   /** Queues an update of the document at `path`, with `data` keyed by field path. */
   readonly updateDoc: (path: string, data: DocumentData) => Effect.Effect<void, FirestoreError>;
+  /** Queues a delete of the document at `path`. */
+  readonly deleteDoc: (path: string) => Effect.Effect<void, FirestoreError>;
   /**
    * Reads many documents as part of the transaction, for a backend that can.
    *
@@ -1098,6 +1155,12 @@ export interface MakeOptions<
   readonly updateDoc: (path: string, data: DocumentData) => Effect.Effect<void, FirestoreError>;
 
   /**
+   * Deletes the document at `path`, succeeding where there is none. Backs
+   * {@link With.deleteDoc}.
+   */
+  readonly deleteDoc: (path: string) => Effect.Effect<void, FirestoreError>;
+
+  /**
    * Writes a document under a new id in the collection at `path`, and returns
    * that id. Backs {@link With.addDoc}.
    */
@@ -1184,6 +1247,7 @@ export interface MakeOptions<
  *   Effect.sync(() => void documents.set(path, data));
  * const updateDoc = (path: string, data: Firestore.DocumentData) =>
  *   Effect.sync(() => void documents.set(path, { ...documents.get(path), ...data }));
+ * const deleteDoc = (path: string) => Effect.sync(() => void documents.delete(path));
  * const getDocs = (selector: Firestore.CollectionSelector) =>
  *   Effect.sync(() => ({
  *     docs: [...documents]
@@ -1196,13 +1260,14 @@ export interface MakeOptions<
  *   getDocs,
  *   setDoc,
  *   updateDoc,
+ *   deleteDoc,
  *   addDoc: (path, data) => {
  *     const id = crypto.randomUUID();
  *     return Effect.as(setDoc(`${path}/${id}`, data), id);
  *   },
  *   streamDoc: (path) => Stream.fromEffect(getDoc(path)),
  *   streamDocs: (selector) => Stream.fromEffect(getDocs(selector)),
- *   runTransaction: { run: (body) => body({ getDoc, setDoc, updateDoc }) },
+ *   runTransaction: { run: (body) => body({ getDoc, setDoc, updateDoc, deleteDoc }) },
  * });
  *
  * const FirestoreInMemory = Layer.succeed(Firestore.Firestore, firestore);
@@ -1320,6 +1385,7 @@ export interface TransactionFromCallbackOptions<
  *   get(path: string): Promise<Firestore.DocumentData | undefined>;
  *   set(path: string, data: Firestore.DocumentData): void;
  *   update(path: string, data: Firestore.DocumentData): void;
+ *   delete(path: string): void;
  * }
  *
  * declare const db: {
@@ -1338,6 +1404,7 @@ export interface TransactionFromCallbackOptions<
  *     setDoc: (path: string, data: Firestore.DocumentData) => Effect.sync(() => tx.set(path, data)),
  *     updateDoc: (path: string, data: Firestore.DocumentData) =>
  *       Effect.sync(() => tx.update(path, data)),
+ *     deleteDoc: (path: string) => Effect.sync(() => tx.delete(path)),
  *   }),
  *   onError: fail,
  * });

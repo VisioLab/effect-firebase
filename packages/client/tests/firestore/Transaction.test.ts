@@ -181,6 +181,58 @@ describe("Firestore.runTransaction", () => {
     }).pipe(Effect.provide(layer)),
   );
 
+  it.effect("deletes a document when it commits", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh(1);
+
+      yield* firestore.runTransaction(
+        Effect.gen(function* () {
+          const tx = yield* Transaction;
+          yield* tx.getDoc(counter);
+          yield* tx.deleteDoc(counter);
+        }),
+      );
+
+      expect(yield* valueOf(counter)).toBeUndefined();
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("deletes a document that is not there without failing", () =>
+    Effect.gen(function* () {
+      yield* fresh(1);
+      const firestore = yield* Firestore;
+
+      yield* firestore.runTransaction(
+        Effect.gen(function* () {
+          const tx = yield* Transaction;
+          yield* tx.deleteDoc(other);
+        }),
+      );
+
+      expect(yield* valueOf(other)).toBeUndefined();
+      expect(yield* valueOf(counter)).toBe(1);
+    }).pipe(Effect.provide(layer)),
+  );
+
+  it.effect("keeps a document it deleted when the body fails afterwards", () =>
+    Effect.gen(function* () {
+      const firestore = yield* fresh(1);
+
+      const error = yield* Effect.flip(
+        firestore.runTransaction(
+          Effect.gen(function* () {
+            const tx = yield* Transaction;
+            yield* tx.deleteDoc(counter);
+            return yield* Effect.fail("Changed my mind" as const);
+          }),
+        ),
+      );
+
+      expect(error).toBe("Changed my mind");
+      expect(yield* valueOf(counter)).toBe(1);
+    }).pipe(Effect.provide(layer)),
+  );
+
   it.effect("fails a read after a write with the body's own error", () =>
     Effect.gen(function* () {
       const firestore = yield* fresh(1);
