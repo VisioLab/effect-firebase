@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@effect/vitest";
+import { assert, describe, expect, it } from "@effect/vitest";
 import { Effect, Layer, Schema } from "effect";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
@@ -151,11 +151,11 @@ describe("CallableClient", () => {
     Effect.gen(function* () {
       const { greet } = yield* CallableClient.make(Greet);
       const reason = yield* reasonOf(greet({ name: "Ada", at: new Date() }));
-      expect(reason).toBeInstanceOf(CallableError.TransportError);
+      assert.instanceOf(reason, CallableError.TransportError);
       // The client tells a network failure from a server's `internal` only by
       // the HTTP status 0 the SDK appends to the message. This pins that, so a
       // change in the SDK fails here.
-      const { cause } = reason as CallableError.TransportError;
+      const { cause } = reason;
       expect(cause).toBeInstanceOf(FunctionsError);
       expect(cause).toMatchObject({
         code: "functions/internal",

@@ -170,9 +170,7 @@ describe("Callable.handler", () => {
         Effect.provide(
           Layer.merge(
             Callable.toLayer(Lookup, () => Effect.fail(new CallableError.NotFound())),
-            Layer.succeed(Recorder, (effect) =>
-              Effect.catch(effect, () => Effect.succeed("fallback")),
-            ),
+            Layer.succeed(Recorder, (effect) => Effect.orElseSucceed(effect, () => "fallback")),
           ),
         ),
       );

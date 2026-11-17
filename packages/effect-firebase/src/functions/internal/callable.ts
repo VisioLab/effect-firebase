@@ -1,6 +1,7 @@
 /** @internal */
 import { Context, Effect, Layer, Pipeable, Schema } from "effect";
 import * as HttpServerRequest from "effect/http/HttpServerRequest";
+import type { unhandled } from "effect/Types";
 import * as CallableError from "../CallableError.ts";
 import type * as CallableRequest from "../CallableRequest.ts";
 import type * as CallableMiddleware from "./callableMiddleware.ts";
@@ -45,11 +46,12 @@ export const make = (fields: Fields): Fields => Object.assign(Object.create(Prot
 
 /**
  * A handler as it sits in the context: the services it was built with are
- * already provided, so it needs only those of the call.
+ * already provided, so it needs only those of the call. It fails with the
+ * Callable's declared errors, which the chain doesn't know the types of.
  *
  * @internal
  */
-export type HandlerService = (payload: unknown) => Effect.Effect<unknown, unknown>;
+export type HandlerService = (payload: unknown) => Effect.Effect<unknown, unhandled>;
 
 /**
  * What `toLayer` takes, with the types its signature has already checked
@@ -177,8 +179,12 @@ export const chain = (group: FirebaseFunction.Group | undefined, callable: Field
     // Innermost first: a middleware attached later wraps the ones before it.
     const implementations = [...callable.middlewares].map((key) => Context.getUnsafe(context, key));
     const decode = Schema.decodeUnknownEffect(codec(callable.payload));
-    return (request: CallableRequest.CallableRequest): Effect.Effect<unknown, unknown> => {
-      let effect: Effect.Effect<unknown, unknown> = decode(request.data).pipe(
+    return (
+      request: CallableRequest.CallableRequest,
+    ): Effect.Effect<unknown, PayloadDecodeError | unhandled> => {
+      let effect: Effect.Effect<unknown, PayloadDecodeError | unhandled> = decode(
+        request.data,
+      ).pipe(
         Effect.mapError((cause) => new PayloadDecodeError(cause)),
         Effect.flatMap(handler),
       );

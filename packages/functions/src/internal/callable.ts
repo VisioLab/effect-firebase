@@ -102,15 +102,10 @@ const toHttpsError = (cause: Cause.Cause<unknown>, aborted: boolean) => {
   return internalError();
 };
 
-/**
- * `Callable.serve` of one Callable, with its requirements erased, since the
- * public signatures check that `live` meets them.
- */
-type Serve = Effect.Effect<
-  (request: CallableRequest.CallableRequest) => Effect.Effect<unknown, CallableError.CallableError>,
-  never,
-  unknown
->;
+/** What `Callable.serve` of one Callable serves each call with. */
+type Serve = (
+  request: CallableRequest.CallableRequest,
+) => Effect.Effect<unknown, CallableError.CallableError>;
 
 /**
  * What `onCall` returns for a Callable.
@@ -133,7 +128,7 @@ export const deploy = <R, E>(
   options: Https.CallableOptions = {},
 ): Export => {
   const deployment = Member.call(group, callable, Callable.deployment);
-  const serve = Member.call<Serve>(group, callable, Callable.serve);
+  const serve = Member.serve<Serve, R>(group, callable, Callable.serve);
   const run = Runtime.make(live, {
     span: `CallableFunction.${deployment.name}`,
     attributes: deployment.attributes,

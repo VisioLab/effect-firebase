@@ -79,10 +79,10 @@ export interface Options {
 export const make = <R, E>(live: Layer.Layer<R, E>, options: Options) => {
   const context = lazyContext(live);
   const spanOptions = { kind: "server", attributes: options.attributes } as const;
-  return <A>(
-    body: Effect.Effect<A, unknown, unknown>,
+  return <A, EB>(
+    body: Effect.Effect<A, EB, R>,
     signal?: AbortSignal,
-  ): Promise<Exit.Exit<A, unknown>> => {
+  ): Promise<Exit.Exit<A, E | EB>> => {
     const parent = externalParent();
     const deferred = new DeferredTracer();
     return Effect.runPromiseExit(
@@ -91,11 +91,10 @@ export const make = <R, E>(live: Layer.Layer<R, E>, options: Options) => {
           // With no services to take a Tracer from, the run's spans and held
           // logs go to the native Tracer, so the failure is logged in one trace.
           Effect.onError(() => Effect.sync(() => deferred.attach(Context.empty()))),
-          Effect.onError(options.onBuildFailure),
+          Effect.onError((cause) => options.onBuildFailure(cause)),
         );
         deferred.attach(services as Context.Context<never>);
-        // The public signatures check that `live` provides what `body` needs.
-        return yield* Effect.provideContext(body, services as Context.Context<any>);
+        return yield* Effect.provideContext(body, services);
       }).pipe(
         Effect.withSpan(options.span, { ...spanOptions, parent }),
         // Logs from before `live` is built wait for the spans' real ids.

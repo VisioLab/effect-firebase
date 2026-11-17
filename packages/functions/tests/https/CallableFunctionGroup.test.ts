@@ -86,10 +86,8 @@ describe("CallableFunction.group", () => {
   it.effect("sends a member's declared error with its code and encoded details", () =>
     Effect.gen(function* () {
       const fail = httpsCallable(yield* functionsIn(), "failing-fail");
-      const error = yield* Effect.flip(
-        Effect.tryPromise(() => fail({ with: "NameTaken" })).pipe(
-          Effect.mapError((error) => error.cause),
-        ),
+      const { cause: error } = yield* Effect.flip(
+        Effect.tryPromise(() => fail({ with: "NameTaken" })),
       );
       expect(error).toMatchObject({
         code: "functions/already-exists",
