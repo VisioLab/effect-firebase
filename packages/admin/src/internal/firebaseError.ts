@@ -2,15 +2,13 @@
  * The `service/string-code` of an error the Admin SDK raised, or `undefined`
  * for anything else.
  *
- * firebase-admin 14 exports `FirebaseError` as a class, but 13 only declares it
- * as an interface, so an `instanceof` check throws there. The check is
- * structural instead: every Firebase error carries a string `code` prefixed
- * with its service on both majors, which also tells it apart from Node's own
- * codes such as `ECONNREFUSED`.
- *
  * @internal
  */
 export const codeOf = (cause: unknown): string | undefined =>
+  // firebase-admin 13 declares `FirebaseError` only as an interface, so
+  // `instanceof` throws there. Every Firebase error on 13 and 14 carries a
+  // string code prefixed with its service, which also tells it apart from
+  // Node's own codes such as `ECONNREFUSED`.
   typeof cause === "object" &&
   cause !== null &&
   "code" in cause &&

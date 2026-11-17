@@ -71,7 +71,7 @@ jobs:
 
       # Swaps the dev versions in the default catalog, indented two spaces, for
       # the floors. The peer ranges sit four spaces deep, so they stay as they
-      # are.
+      # are. The step fails unless exactly those three lines changed.
       - name: Install the floor SDKs
         if: matrix.sdk == 'floor'
         run: |
@@ -80,6 +80,7 @@ jobs:
             -e 's/^  firebase-admin: .*/  firebase-admin: ${{ matrix.firebase-admin }}/' \
             -e 's/^  firebase-functions: .*/  firebase-functions: ${{ matrix.firebase-functions }}/' \
             pnpm-workspace.yaml
+          test "$(git diff --numstat pnpm-workspace.yaml | cut -f1)" = 3
           vp install --no-frozen-lockfile
           vp why firebase firebase-admin firebase-functions --depth 0
 

@@ -47,7 +47,8 @@ catalogs:
     # releases to leave them alone.
     effect: ~4.1.0
     # Each floor is the oldest release CI runs the emulator tests on, in the
-    # `test-floor` job, which pins the dev versions above to these floors.
+    # `floor` entry of the `test` job's matrix, which pins the dev versions
+    # above to these floors.
     # The Client package reads the HTTP status the SDK appends to a Callable
     # error's message, which firebase 12.18 is the first 12.x to send.
     firebase: ^12.18.0 || ^13
