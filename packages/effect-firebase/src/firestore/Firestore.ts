@@ -1593,8 +1593,13 @@ export const MemoryDriver = Context.Service<MemoryDriver>(
  * - `updateDoc` writes each dotted key as a field path, and fails with a
  *   {@link FirestoreError} whose `code` is `"not-found"` on a missing document.
  * - `deleteDoc` succeeds on a missing document.
+ * - `getDocs` on a collection reads only the documents directly in it, not
+ *   those in its subcollections. On a Collection Group it reads every
+ *   document under the group's collection id, and fails with an
+ *   {@link UndefinedCollectionError} on one at a path the group doesn't
+ *   define, as the SDK backends do.
  *
- * Sentinels, Collection Group reads, listeners and transactions are not yet
+ * Sentinels, listeners and transactions are not yet
  * supported: they die with a defect saying so.
  *
  * @see {@link layerMemory} for the same as a layer

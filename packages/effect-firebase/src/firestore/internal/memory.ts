@@ -4,8 +4,7 @@
  *
  * Every write goes through {@link commit}, which applies a batch of writes at
  * once, resolving their sentinels, bumps the version of each path it touches
- * and wakes the listeners. Collection Group reads, listeners and transactions
- * build on it.
+ * and wakes the listeners. Listeners and transactions build on it.
  */
 import { Clock, Effect, Random, Stream } from "effect";
 import type * as Firestore from "../Firestore.ts";
@@ -249,6 +248,16 @@ const inCollection = (store: Store, path: string): ReadonlyArray<Firestore.Query
 };
 
 /**
+ * The documents of every collection whose last segment is `id`, under any
+ * parent document. Matching each one to a collection the group defines is
+ * left to {@link Firestore.make}, which fails on one it doesn't.
+ */
+const inCollectionGroup = (store: Store, id: string): ReadonlyArray<Firestore.QueryDocumentRead> =>
+  Array.from(store.documents)
+    .filter(([doc]) => doc.split("/").at(-2) === id)
+    .map(([doc, data]) => ({ path: doc, data }));
+
+/**
  * The hooks of the In-memory Firestore over `store`.
  *
  * @internal
@@ -260,7 +269,7 @@ export const hooks = (store: Store): Firestore.MakeOptions => {
     getDocs: (selector) =>
       selector._tag === "Collection"
         ? Effect.sync(() => ({ docs: inCollection(store, selector.path) }))
-        : Effect.die(notYetSupported("Collection Group reads")),
+        : Effect.sync(() => ({ docs: inCollectionGroup(store, selector.id) })),
     setDoc: (path, data) => write({ _tag: "Set", path, data }),
     updateDoc: (path, data) => write({ _tag: "Update", path, data }),
     deleteDoc: (path) => write({ _tag: "Delete", path }),
