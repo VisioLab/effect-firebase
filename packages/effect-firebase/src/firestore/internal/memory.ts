@@ -6,11 +6,12 @@
  * once, bumps the version of each path it touches and wakes the listeners.
  * Sentinels, listeners and transactions build on it.
  */
-import { Effect, Random, Stream } from "effect";
+import { Effect, Random, Result, Stream } from "effect";
 import type * as Firestore from "../Firestore.ts";
 import * as fieldValue from "./fieldValue.ts";
 import { FirestoreError } from "./firestoreError.ts";
 import * as firestoreValueWalk from "./firestoreValueWalk.ts";
+import { streamFromListener } from "./streamFromListener.ts";
 
 type DocumentData = Firestore.DocumentData;
 
@@ -186,12 +187,26 @@ const newId: Effect.Effect<string> = Effect.map(
   (indexes) => indexes.map((i) => alphabet[i]).join(""),
 );
 
+/**
+ * Orders documents by path, segment by segment, as Firestore orders the
+ * results of a query with no order of its own.
+ */
+const byPath = (a: Firestore.QueryDocumentRead, b: Firestore.QueryDocumentRead): number => {
+  const as = a.path.split("/");
+  const bs = b.path.split("/");
+  for (let i = 0; i < Math.min(as.length, bs.length); i++) {
+    if (as[i] !== bs[i]) return as[i]! < bs[i]! ? -1 : 1;
+  }
+  return as.length - bs.length;
+};
+
 /** The documents directly in the collection at `path`, not in its subcollections. */
 const inCollection = (store: Store, path: string): ReadonlyArray<Firestore.QueryDocumentRead> => {
   const prefix = `${path}/`;
   return Array.from(store.documents)
     .filter(([doc]) => doc.startsWith(prefix) && !doc.slice(prefix.length).includes("/"))
-    .map(([doc, data]) => ({ path: doc, data }));
+    .map(([doc, data]) => ({ path: doc, data }))
+    .toSorted(byPath);
 };
 
 /**
@@ -202,7 +217,46 @@ const inCollection = (store: Store, path: string): ReadonlyArray<Firestore.Query
 const inCollectionGroup = (store: Store, id: string): ReadonlyArray<Firestore.QueryDocumentRead> =>
   Array.from(store.documents)
     .filter(([doc]) => doc.split("/").at(-2) === id)
-    .map(([doc, data]) => ({ path: doc, data }));
+    .map(([doc, data]) => ({ path: doc, data }))
+    .toSorted(byPath);
+
+/**
+ * A live listener on what `read` covers: it emits that state when it starts,
+ * and again after each commit that changes it, by `same`.
+ *
+ * **Details**
+ *
+ * Each run registers a callback in `store.listeners`, which every commit calls
+ * once after applying all of its writes, so a listener never sees half of
+ * one. The callback reads the state again and emits it only when it isn't
+ * `same` as the last one emitted. The stream never completes on its own, and
+ * interrupting it removes the callback. A reader that falls behind only sees
+ * the latest state, as with an SDK listener.
+ */
+const listen = <A>(
+  store: Store,
+  read: () => A,
+  same: (self: A, that: A) => boolean,
+): Stream.Stream<A, FirestoreError> =>
+  streamFromListener<A, A>({
+    subscribe: (onNext) => {
+      let last = read();
+      onNext(last);
+      const listener = () => {
+        const next = read();
+        if (same(last, next)) return;
+        last = next;
+        onNext(next);
+      };
+      store.listeners.add(listener);
+      return () => {
+        store.listeners.delete(listener);
+      };
+    },
+    // An In-memory listener has nothing that could fail it.
+    onError: (cause) => new FirestoreError({ message: "Failed to listen", cause }),
+    map: Result.succeed,
+  });
 
 /**
  * The hooks of the In-memory Firestore over `store`.
@@ -222,8 +276,28 @@ export const hooks = (store: Store): Firestore.MakeOptions => {
     deleteDoc: (path) => write({ _tag: "Delete", path }),
     addDoc: (path, data) =>
       Effect.tap(newId, (id) => write({ _tag: "Set", path: `${path}/${id}`, data })),
-    streamDoc: () => Stream.die(notYetSupported("Listeners")),
-    streamDocs: () => Stream.die(notYetSupported("Listeners")),
+    streamDoc: (path) =>
+      listen(
+        store,
+        () => ({ data: store.documents.get(path) }),
+        (a, b) => firestoreValueWalk.equals(a.data, b.data),
+      ),
+    streamDocs: (selector) =>
+      listen(
+        store,
+        () => ({
+          docs:
+            selector._tag === "Collection"
+              ? inCollection(store, selector.path)
+              : inCollectionGroup(store, selector.id),
+        }),
+        (a, b) =>
+          a.docs.length === b.docs.length &&
+          a.docs.every(
+            (doc, i) =>
+              doc.path === b.docs[i]!.path && firestoreValueWalk.equals(doc.data, b.docs[i]!.data),
+          ),
+      ),
     runTransaction: { run: () => Effect.die(notYetSupported("Transactions")) },
   };
 };

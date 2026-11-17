@@ -1513,7 +1513,8 @@ export const streamFromListener: <S, A>(
  *
  * {@link layerMemory} provides it next to {@link Firestore}, over the same
  * documents. Each write through it is a commit of its own, as a write through
- * {@link Firestore} is.
+ * {@link Firestore} is, so it wakes live listeners as a write from another
+ * client would.
  *
  * @see {@link layerMemory} for the layer that provides it
  * @see {@link makeMemory} for building it together with its {@link Firestore}
@@ -1598,8 +1599,13 @@ export const MemoryDriver = Context.Service<MemoryDriver>(
  *   document under the group's collection id, and fails with an
  *   {@link UndefinedCollectionError} on one at a path the group doesn't
  *   define, as the SDK backends do.
+ * - `streamDoc` and `streamDocs` emit what they cover when they start, and
+ *   again after each commit that changes it, but not after one that leaves
+ *   it unchanged. They never complete on their own, and detach when
+ *   interrupted. A commit is one write through {@link Firestore} or
+ *   {@link MemoryDriver}.
  *
- * Sentinels, listeners and transactions are not yet
+ * Sentinels and transactions are not yet
  * supported: they die with a defect saying so.
  *
  * @see {@link layerMemory} for the same as a layer

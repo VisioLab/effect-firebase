@@ -8,7 +8,7 @@
  * @packageDocumentation
  */
 import { assert, describe, expect, it } from "@effect/vitest";
-import { Effect, Equal, Layer, Schema, Stream } from "effect";
+import { Effect, Equal, Layer, Queue, Schema, Stream } from "effect";
 import {
   Collection,
   CollectionGroup,
@@ -38,8 +38,7 @@ export interface Options {
    * What the backend can't do yet, whose tests the suite skips.
    *
    * Only the In-memory Firestore sets it while it is being built: its
-   * listeners land with #248 and its transactions with #249, which drop them
-   * from here.
+   * transactions land with #249, which drops them from here.
    */
   readonly unsupported?: ReadonlyArray<Capability> | undefined;
 }
@@ -47,7 +46,7 @@ export interface Options {
 /**
  * Something a shared test needs that a backend may not offer yet.
  */
-export type Capability = "listeners" | "transactions";
+export type Capability = "transactions";
 
 /**
  * Registers the conformance tests against `layer`, inside the caller's
@@ -297,7 +296,7 @@ export const testFirestore = <E>(layer: Layer.Layer<Firestore, E>, options: Opti
       ),
     );
 
-    needing("listeners")("streams the document and the collection, each read as its member", () =>
+    it.effect("streams the document and the collection, each read as its member", () =>
       run(
         Effect.gen(function* () {
           const firestore = yield* Firestore;
@@ -479,7 +478,190 @@ export const testFirestore = <E>(layer: Layer.Layer<Firestore, E>, options: Opti
         ),
     );
   });
+
+  // Each test asserts that a listener eventually emits a snapshot holding what
+  // it expects, not an exact sequence: the client emits an extra snapshot for
+  // a write that hasn't reached the server yet.
+  describe("listeners", () => {
+    it.effect("streamDoc starts with the document as it is, and follows each change to it", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+          const snapshots = yield* listening(firestore.streamDoc(Posts.doc(hello)));
+
+          yield* eventually(snapshots, (snapshot) =>
+            Effect.succeed(DocumentSnapshot.isMissing(snapshot)),
+          );
+
+          yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
+          yield* eventually(snapshots, holdsPost({ title: "Hello", views: 1 }));
+
+          yield* firestore.updateDoc(Posts.doc(hello), { views: 2 });
+          yield* eventually(snapshots, holdsPost({ title: "Hello", views: 2 }));
+        }).pipe(Effect.scoped),
+      ),
+    );
+
+    it.effect("streamDocs starts with the collection as it is, and follows each change to it", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+          const snapshots = yield* listening(firestore.streamDocs(Posts.collection()));
+
+          yield* eventually(snapshots, holdsPaths([]));
+
+          yield* firestore.setDoc(Posts.doc(hello), { title: "Hello", views: 1 });
+          yield* eventually(snapshots, holdsPaths(["posts/hello"]));
+
+          const added = yield* firestore.addDoc(Posts.collection(), { title: "Added", views: 2 });
+          yield* eventually(snapshots, holdsPaths(["posts/hello", added.path]));
+        }).pipe(Effect.scoped),
+      ),
+    );
+
+    it.effect("streams a Collection Group, and follows a change under any parent", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+          yield* firestore.setDoc(UserPosts.doc(alice, greeting), { title: "Hello", views: 1 });
+
+          const snapshots = yield* listening(firestore.streamDocs(AllUserPosts));
+
+          const first = yield* eventually(snapshots, holdsPaths(["users/alice/posts/hello"]));
+          expect(first.docs.map((doc) => doc.ref.ancestors)).toEqual([[alice]]);
+          expect(yield* Effect.forEach(first.docs, (doc) => doc.data)).toEqual([
+            { title: "Hello", views: 1 },
+          ]);
+
+          yield* firestore.setDoc(UserPosts.doc(bob, intro), { title: "Intro", views: 2 });
+          yield* eventually(
+            snapshots,
+            holdsPaths(["users/alice/posts/hello", "users/bob/posts/intro"]),
+          );
+
+          yield* firestore.updateDoc(UserPosts.doc(alice, greeting), { views: 3 });
+          const updated = yield* eventually(snapshots, (snapshot) =>
+            Effect.map(viewsByPath(snapshot), (views) => views.join() === "3,2"),
+          );
+          expect(updated.docs.map((doc) => doc.ref.path).toSorted()).toEqual([
+            "users/alice/posts/hello",
+            "users/bob/posts/intro",
+          ]);
+        }).pipe(Effect.scoped),
+      ),
+    );
+
+    it.effect("streams a Collection Group of several collections, and follows each of them", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+          yield* firestore.setDoc(UserPosts.doc(alice, greeting), { title: "Hello", views: 1 });
+
+          const snapshots = yield* listening(firestore.streamDocs(AllPosts));
+          yield* eventually(snapshots, holdsPaths(["users/alice/posts/hello"]));
+
+          yield* firestore.setDoc(OrgPosts.doc(acme, launch), {
+            headline: "Launch",
+            pinned: false,
+          });
+          const added = yield* eventually(
+            snapshots,
+            holdsPaths(["orgs/acme/posts/launch", "users/alice/posts/hello"]),
+          );
+          const orgPost = added.docs.find(OrgPosts.contains);
+          assert(orgPost !== undefined);
+          expect(orgPost.ref.ancestors).toEqual([acme]);
+          expect(yield* orgPost.data).toEqual({ headline: "Launch", pinned: false });
+
+          yield* firestore.updateDoc(UserPosts.doc(alice, greeting), { views: 2 });
+          const updated = yield* eventually(snapshots, (snapshot) =>
+            Effect.gen(function* () {
+              const userPost = snapshot.docs.find(UserPosts.contains);
+              return userPost !== undefined && (yield* userPost.data).views === 2;
+            }),
+          );
+          expect(updated.docs.filter(OrgPosts.contains)).toHaveLength(1);
+        }).pipe(Effect.scoped),
+      ),
+    );
+
+    it.effect("fails a Collection Group stream once a document appears at an undefined path", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+          yield* firestore.setDoc(UserPosts.doc(alice, greeting), { title: "Hello", views: 1 });
+
+          const snapshots = yield* listening(firestore.streamDocs(AllUserPosts));
+          yield* eventually(snapshots, holdsPaths(["users/alice/posts/hello"]));
+
+          yield* firestore.setDoc(Posts.doc(Posts.id.make("stray")), { title: "Stray", views: 0 });
+
+          const error = yield* Effect.flip(eventually(snapshots, () => Effect.succeed(false)));
+
+          expect(error).toBeInstanceOf(UndefinedCollectionError);
+          expect(error).toMatchObject({ path: "posts/stray", collectionId: "posts" });
+        }).pipe(Effect.scoped),
+      ),
+    );
+  });
 };
+
+/**
+ * Runs `stream` into a queue for the rest of the scope, so no snapshot is
+ * dropped for arriving while the test was busy writing.
+ */
+const listening = <A, E>(stream: Stream.Stream<A, E>) =>
+  Stream.toQueue(stream, { capacity: "unbounded" });
+
+/**
+ * Takes snapshots off `snapshots` until one `holds`, and returns it. Fails
+ * when the stream does.
+ */
+const eventually = <A, E, E2>(
+  snapshots: Queue.Dequeue<A, E>,
+  holds: (snapshot: A) => Effect.Effect<boolean, E2>,
+): Effect.Effect<A, E | E2> =>
+  Effect.flatMap(Queue.take(snapshots), (snapshot) =>
+    Effect.flatMap(holds(snapshot), (held) =>
+      held ? Effect.succeed(snapshot) : eventually(snapshots, holds),
+    ),
+  );
+
+/** Whether a document snapshot holds a post with the `expected` fields. */
+const holdsPost =
+  (expected: { readonly title: string; readonly views: number }) =>
+  (snapshot: DocumentSnapshot.DocumentSnapshot<typeof Posts>) =>
+    DocumentSnapshot.isExisting(snapshot)
+      ? Effect.map(
+          snapshot.data,
+          (post) => post.title === expected.title && post.views === expected.views,
+        )
+      : Effect.succeed(false);
+
+interface Listed {
+  readonly docs: ReadonlyArray<{ readonly ref: { readonly path: string } }>;
+}
+
+/** Whether a query snapshot holds exactly the documents at `paths`, in any order. */
+const holdsPaths = (paths: ReadonlyArray<string>) => (snapshot: Listed) =>
+  Effect.succeed(
+    snapshot.docs
+      .map((doc) => doc.ref.path)
+      .toSorted()
+      .join() === paths.toSorted().join(),
+  );
+
+/** The views of each post in a query snapshot, in the order of their paths. */
+const viewsByPath = <E>(snapshot: {
+  readonly docs: ReadonlyArray<{
+    readonly ref: { readonly path: string };
+    readonly data: Effect.Effect<Post, E>;
+  }>;
+}) =>
+  Effect.forEach(
+    snapshot.docs.toSorted((a, b) => a.ref.path.localeCompare(b.ref.path)),
+    (doc) => Effect.map(doc.data, (post) => post.views),
+  );
 
 const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnapshot<C>) =>
   DocumentSnapshot.isExisting(snapshot) ? snapshot.data : Effect.die("missing");

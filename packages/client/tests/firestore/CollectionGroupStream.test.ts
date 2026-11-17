@@ -1,10 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer, Queue, Schema } from "effect";
-import { Firestore, UndefinedCollectionError } from "@visiolab/effect-firebase/firestore/Firestore";
 import { Collection, CollectionGroup, FirestoreModel } from "@visiolab/effect-firebase/firestore";
 import * as App from "../../src/app/App.ts";
 import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
-import { clear, emulator, fresh, listening } from "./emulator.ts";
+import { emulator, fresh, listening } from "./emulator.ts";
+
+// How a Collection Group listener follows changes is in the conformance suite;
+// these tests cover the Snapshot Metadata only the client has.
 
 const projectId = "demo-client-collection-group-stream";
 
@@ -22,97 +24,10 @@ const Users = Collection.make("users", User);
 const UserPosts = Users.subcollection("posts", Post);
 const AllUserPosts = CollectionGroup.make(UserPosts);
 
-/** A `posts` at the root, which the group does not define. */
-const RootPosts = Collection.make("posts", Post);
-
 const alice = Users.id.make("alice");
-const bob = Users.id.make("bob");
 const hello = UserPosts.id.make("hello");
-const intro = UserPosts.id.make("intro");
-
-class Org extends FirestoreModel.Class<Org>("Org")({ name: Schema.String }) {}
-class OrgPost extends FirestoreModel.Class<OrgPost>("OrgPost")({
-  headline: Schema.String,
-  pinned: Schema.Boolean,
-}) {}
-
-const Orgs = Collection.make("orgs", Org);
-const OrgPosts = Orgs.subcollection("posts", OrgPost);
-const AllPosts = CollectionGroup.make(UserPosts, OrgPosts);
-
-const acme = Orgs.id.make("acme");
-const launch = OrgPosts.id.make("launch");
-
-const freshFirestore = clear(projectId).pipe(Effect.andThen(Firestore));
 
 describe("streamDocs of a Collection Group", () => {
-  it.effect("starts with the group as it is, and follows a change under any parent", () =>
-    Effect.gen(function* () {
-      const firestore = yield* freshFirestore;
-      const snapshots = yield* listening(firestore.streamDocs(AllUserPosts));
-
-      expect((yield* Queue.take(snapshots)).docs).toEqual([]);
-
-      yield* firestore.setDoc(UserPosts.doc(alice, hello), { title: "Hello", views: 1 });
-      const first = yield* Queue.take(snapshots);
-      expect(first.docs.map((doc) => doc.ref.path)).toEqual(["users/alice/posts/hello"]);
-      expect(first.docs.map((doc) => doc.ref.ancestors)).toEqual([[alice]]);
-      expect(yield* Effect.forEach(first.docs, (doc) => doc.data)).toEqual([
-        { title: "Hello", views: 1 },
-      ]);
-
-      yield* firestore.setDoc(UserPosts.doc(bob, intro), { title: "Intro", views: 2 });
-      const added = yield* Queue.take(snapshots);
-      expect(added.docs.map((doc) => doc.ref.path).toSorted()).toEqual([
-        "users/alice/posts/hello",
-        "users/bob/posts/intro",
-      ]);
-    }).pipe(Effect.scoped, Effect.provide(layer)),
-  );
-
-  it.effect("follows a change in any collection of a group of several", () =>
-    Effect.gen(function* () {
-      const firestore = yield* freshFirestore;
-      const snapshots = yield* listening(firestore.streamDocs(AllPosts));
-      expect((yield* Queue.take(snapshots)).docs).toEqual([]);
-
-      yield* firestore.setDoc(UserPosts.doc(alice, hello), { title: "Hello", views: 1 });
-      expect((yield* Queue.take(snapshots)).docs.map((doc) => doc.ref.path)).toEqual([
-        "users/alice/posts/hello",
-      ]);
-
-      yield* firestore.setDoc(OrgPosts.doc(acme, launch), { headline: "Launch", pinned: false });
-      const added = yield* Queue.take(snapshots);
-      const orgPost = added.docs.find(OrgPosts.contains);
-      expect(orgPost?.ref.ancestors).toEqual([acme]);
-      expect(yield* orgPost!.data).toEqual({ headline: "Launch", pinned: false });
-
-      yield* firestore.updateDoc(UserPosts.doc(alice, hello), { views: 2 });
-      const updated = yield* Queue.take(snapshots);
-      const userPost = updated.docs.find(UserPosts.contains);
-      expect(yield* userPost!.data).toEqual({ title: "Hello", views: 2 });
-      expect(updated.docs.filter(OrgPosts.contains)).toHaveLength(1);
-    }).pipe(Effect.scoped, Effect.provide(layer)),
-  );
-
-  it.effect("fails once a document under the collection id appears at an undefined path", () =>
-    Effect.gen(function* () {
-      const firestore = yield* freshFirestore;
-      const snapshots = yield* listening(firestore.streamDocs(AllUserPosts));
-      expect((yield* Queue.take(snapshots)).docs).toEqual([]);
-
-      yield* firestore.setDoc(RootPosts.doc(RootPosts.id.make("stray")), {
-        title: "Stray",
-        views: 0,
-      });
-
-      const error = yield* Effect.flip(Queue.take(snapshots));
-
-      expect(error).toBeInstanceOf(UndefinedCollectionError);
-      expect(error).toMatchObject({ path: "posts/stray", collectionId: "posts" });
-    }).pipe(Effect.scoped, Effect.provide(layer)),
-  );
-
   it.effect("emits each snapshot with the metadata of the read and its documents", () =>
     Effect.gen(function* () {
       const firestore = yield* fresh(projectId);

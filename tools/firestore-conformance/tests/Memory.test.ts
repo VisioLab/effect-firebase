@@ -1,16 +1,17 @@
 import { assert, describe, expect, it } from "@effect/vitest";
-import { Effect, Exit, Random, Schema } from "effect";
+import { Effect, Exit, Queue, Random, Schema, Stream } from "effect";
 import {
   Collection,
   DocumentSnapshot,
   FieldValue,
   Firestore,
   FirestoreModel,
+  type QuerySnapshot,
 } from "@visiolab/effect-firebase/firestore";
 import { testFirestore } from "@visiolab/firestore-conformance";
 
 describe("Firestore.layerMemory, conformance", () => {
-  testFirestore(Firestore.layerMemory, { unsupported: ["listeners", "transactions"] });
+  testFirestore(Firestore.layerMemory, { unsupported: ["transactions"] });
 });
 
 class Address extends FirestoreModel.Class<Address>("Address")({
@@ -31,6 +32,35 @@ const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnaps
 
 const memory = <A, E>(effect: Effect.Effect<A, E, Firestore.Firestore | Firestore.MemoryDriver>) =>
   Effect.provide(effect, Firestore.layerMemory);
+
+const Contacts = Users.subcollection("contacts", User);
+
+const berlin = { name: "Alice", address: { city: "Berlin", street: "Main" } };
+
+/** Runs `stream` into a queue for the rest of the scope. */
+const listening = <A, E>(stream: Stream.Stream<A, E>) =>
+  Stream.toQueue(stream, { capacity: "unbounded" });
+
+/**
+ * Lets every other fiber run, so a snapshot a commit emitted reaches its
+ * queue before the next commit could take its place in the listener's
+ * buffer of one.
+ */
+const settle = Effect.repeat(Effect.yieldNow, { times: 10 });
+
+/** The next city `doc` emits, and the next cities `docs` emits. */
+const readAll = <E1, E2>(
+  doc: Queue.Dequeue<DocumentSnapshot.DocumentSnapshot<typeof Users>, E1>,
+  docs: Queue.Dequeue<QuerySnapshot.QuerySnapshot<typeof Users>, E2>,
+) =>
+  Effect.all([
+    Effect.flatMap(Queue.take(doc), (snapshot) =>
+      Effect.map(read(snapshot), (user) => user.address.city),
+    ),
+    Effect.flatMap(Queue.take(docs), (snapshot) =>
+      Effect.forEach(snapshot.docs, (user) => Effect.map(user.data, (data) => data.address.city)),
+    ),
+  ]);
 
 describe("Firestore.layerMemory", () => {
   it.effect("reads raw data seeded through the driver", () =>
@@ -171,6 +201,54 @@ describe("Firestore.layerMemory", () => {
       }),
     ),
   );
+
+  describe("listeners", () => {
+    it.effect("emits nothing for a commit that leaves what it covers unchanged", () =>
+      memory(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore.Firestore;
+          yield* firestore.setDoc(alice, berlin);
+          const doc = yield* listening(firestore.streamDoc(alice));
+          const docs = yield* listening(firestore.streamDocs(Users.collection()));
+          expect(yield* readAll(doc, docs)).toStrictEqual(["Berlin", ["Berlin"]]);
+
+          yield* firestore.setDoc(alice, berlin);
+          yield* settle;
+          yield* firestore.deleteDoc(Users.doc(Users.id.make("bob")));
+          yield* settle;
+          // In a subcollection, so outside the collection the listener covers.
+          yield* firestore.setDoc(Contacts.doc(Users.id.make("alice"), Contacts.id.make("carol")), {
+            name: "Carol",
+            address: { city: "Rome", street: "Via" },
+          });
+          yield* settle;
+          yield* firestore.updateDoc(alice, { address: { city: "Paris" } });
+
+          expect(yield* readAll(doc, docs)).toStrictEqual(["Paris", ["Paris"]]);
+        }).pipe(Effect.scoped),
+      ),
+    );
+
+    it.effect("wakes on a write through the driver, as from another client", () =>
+      memory(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore.Firestore;
+          const driver = yield* Firestore.MemoryDriver;
+          const doc = yield* listening(firestore.streamDoc(alice));
+          const docs = yield* listening(firestore.streamDocs(Users.collection()));
+          expect(DocumentSnapshot.isMissing(yield* Queue.take(doc))).toBe(true);
+          expect((yield* Queue.take(docs)).docs).toEqual([]);
+
+          yield* driver.set("users/alice", berlin);
+          expect(yield* readAll(doc, docs)).toStrictEqual(["Berlin", ["Berlin"]]);
+
+          yield* driver.delete("users/alice");
+          expect(DocumentSnapshot.isMissing(yield* Queue.take(doc))).toBe(true);
+          expect((yield* Queue.take(docs)).docs).toEqual([]);
+        }).pipe(Effect.scoped),
+      ),
+    );
+  });
 
   it.effect("adds documents under ids in Firestore's format, the same for the same seed", () =>
     Effect.gen(function* () {
