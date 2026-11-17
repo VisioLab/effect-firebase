@@ -4,7 +4,7 @@ import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import { deleteApp, initializeApp } from "firebase/app";
 import { connectFunctionsEmulator, getFunctions, httpsCallable } from "firebase/functions";
 import * as Functions from "../../src/Functions.ts";
-import { Users } from "../fixture/src/contract.ts";
+import { Users } from "@visiolab/functions-fixture/contract";
 
 const [host = "127.0.0.1", port = "5001"] = (process.env["FUNCTIONS_EMULATOR_HOST"] ?? "").split(
   ":",

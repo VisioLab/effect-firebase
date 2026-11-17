@@ -1,7 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { vi } from "vite-plus/test";
 import { randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { Data, Effect, Schema } from "effect";
 import { getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
@@ -10,15 +9,9 @@ import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreMo
 import * as DocumentTrigger from "@visiolab/effect-firebase/functions/DocumentTrigger";
 import * as Functions from "../../src/Functions.ts";
 import { readLines, waitForLine } from "../records.ts";
+import { consoleLog, spansLog, triggersLog } from "@visiolab/functions-fixture/records";
 
 const project = "demo-effect-firebase";
-
-/** Where the fixture's triggers record each event they receive, one JSON line each. */
-const triggersLog = fileURLToPath(new URL("../triggers.log", import.meta.url));
-/** Where the fixture's test Tracer writes the spans it ends, one JSON line each. */
-const spansLog = fileURLToPath(new URL("../spans.log", import.meta.url));
-/** Where the fixture copies what the functions write to the console, one JSON line per write. */
-const consoleLog = fileURLToPath(new URL("../console.log", import.meta.url));
 
 interface TaskAttempt {
   readonly trigger: string;

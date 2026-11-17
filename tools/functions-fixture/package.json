@@ -1,0 +1,34 @@
+{
+  "name": "@visiolab/functions-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The functions the Functions emulator serves to the tests, and the contract they share.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/index.mjs",
+  "exports": {
+    "./contract": "./src/contract.ts",
+    "./records": "./src/records.ts",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "check": "vp check"
+  },
+  "dependencies": {
+    "firebase-admin": "catalog:",
+    "firebase-functions": "catalog:"
+  },
+  "devDependencies": {
+    "@visiolab/effect-firebase": "workspace:^",
+    "@visiolab/effect-firebase-admin": "workspace:^",
+    "@visiolab/effect-firebase-functions": "workspace:^",
+    "effect": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  },
+  "engines": {
+    "node": "22"
+  }
+}

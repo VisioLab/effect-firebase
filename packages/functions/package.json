@@ -46,7 +46,6 @@
   },
   "scripts": {
     "build": "vp pack",
-    "build-fixture": "vp -C tests/fixture pack",
     "dev": "vp pack --watch",
     "test": "vp test",
     "check": "vp check",
@@ -56,6 +55,7 @@
     "@effect/vitest": "catalog:",
     "@visiolab/effect-firebase": "workspace:^",
     "@visiolab/effect-firebase-admin": "workspace:^",
+    "@visiolab/functions-fixture": "workspace:*",
     "effect": "catalog:",
     "firebase": "catalog:",
     "firebase-admin": "catalog:",

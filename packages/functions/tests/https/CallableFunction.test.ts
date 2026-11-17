@@ -9,11 +9,8 @@ import {
   httpsCallable,
 } from "firebase/functions";
 import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import * as Functions from "../../src/Functions.ts";
-
-/** Where the fixture's logger writes what the server logs, one JSON line per entry. */
-const serverLog = fileURLToPath(new URL("../server.log", import.meta.url));
+import { serverLog } from "@visiolab/functions-fixture/records";
 
 const [host = "127.0.0.1", port = "5001"] = (process.env["FUNCTIONS_EMULATOR_HOST"] ?? "").split(
   ":",

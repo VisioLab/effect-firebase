@@ -1,19 +1,16 @@
 import { describe, expect, it } from "@effect/vitest";
 import { randomUUID } from "node:crypto";
-import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
 import { getApps as getAdminApps, initializeApp as initializeAdminApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { deleteApp, initializeApp } from "firebase/app";
 import { connectFunctionsEmulator, getFunctions, httpsCallable } from "firebase/functions";
 import { waitForLine } from "./records.ts";
+import { triggersLog } from "@visiolab/functions-fixture/records";
 
 const [host = "127.0.0.1", port = "5001"] = (process.env["FUNCTIONS_EMULATOR_HOST"] ?? "").split(
   ":",
 );
-
-/** Where the fixture's triggers record each event they receive, one JSON line each. */
-const triggersLog = fileURLToPath(new URL("triggers.log", import.meta.url));
 
 interface RecordedEvent {
   readonly trigger: string;

@@ -1,12 +1,9 @@
 import { describe, expect, it } from "@effect/vitest";
 import { existsSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
+import { spansLog } from "@visiolab/functions-fixture/records";
 
 const emulatorHost = process.env["FUNCTIONS_EMULATOR_HOST"] ?? "127.0.0.1:5001";
-
-/** Where the fixture's test Tracer writes the spans it ends, one JSON line each. */
-const spansLog = fileURLToPath(new URL("../spans.log", import.meta.url));
 
 interface RecordedSpan {
   readonly name: string;

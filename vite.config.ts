@@ -18,8 +18,9 @@ export default defineConfig({
       {
         // Test helpers are exported between test files, not published, so
         // they have no stability of their own to guard.
-        // The conformance suite is a test helper of the same kind.
-        files: ["packages/*/tests/**", "packages/*/typetest/**", "tools/firestore-conformance/**"],
+        // The conformance suite and the Functions fixture are test helpers of
+        // the same kind.
+        files: ["packages/*/tests/**", "packages/*/typetest/**", "tools/*/**"],
         rules: { "effecttsgo/api-stability-leak": "off" },
       },
     ],

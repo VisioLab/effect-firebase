@@ -1,11 +1,10 @@
 /**
  * The functions module the Functions emulator serves to the tests.
  *
- * The root `firebase.json` points its `functions` source at this fixture, and
+ * The root `firebase.json` points its `functions` source at this package, and
  * `vp run emulator` bundles it into `dist` before it starts the emulator.
  */
 import { appendFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import {
   Cause,
   Context,
@@ -24,7 +23,7 @@ import * as Caller from "@visiolab/effect-firebase/functions/Caller";
 import * as CallableRequest from "@visiolab/effect-firebase/functions/CallableRequest";
 import * as DocumentTrigger from "@visiolab/effect-firebase/functions/DocumentTrigger";
 import * as DocumentSnapshot from "@visiolab/effect-firebase/firestore/DocumentSnapshot";
-import * as Functions from "../../../src/Functions.ts";
+import * as Functions from "@visiolab/effect-firebase-functions/Functions";
 import { onCall } from "firebase-functions/v2/https";
 import {
   Accounts,
@@ -58,6 +57,7 @@ import {
   WhoAmI,
   Workers,
 } from "./contract.ts";
+import { consoleLog, serverLog, spansLog, triggersLog } from "./records.ts";
 
 /** Answers with the message it was sent. */
 export const echo = onCall<{ readonly message: string }>((request) => ({
@@ -133,13 +133,6 @@ const WorkersLive = Layer.unwrap(
 
 export const { workers } = Functions.group(Workers, WorkersLive);
 
-/**
- * Where {@link SpanRecorder} writes the spans it ends, one JSON line each:
- * `packages/functions/tests/spans.log`, outside the fixture source the
- * emulator watches. The tests read it back.
- */
-const spansLog = fileURLToPath(new URL("../../spans.log", import.meta.url));
-
 /** A span that writes itself to {@link spansLog} when it ends. */
 class RecordedSpan extends Tracer.NativeSpan {
   override end(endTime: bigint, exit: Exit.Exit<unknown, unknown>) {
@@ -190,13 +183,6 @@ export const { tracing } = Functions.group(
     SpanRecorder,
   ),
 );
-
-/**
- * Where the fixture's own logger writes, one JSON line per entry, so the tests
- * can read what the server logged. It lies outside the functions source, next
- * to the tests.
- */
-const serverLog = fileURLToPath(new URL("../../server.log", import.meta.url));
 
 const ServerLogLive = Logger.layer([
   Logger.make(({ cause, logLevel, message }) => {
@@ -283,13 +269,8 @@ export const { whoAmI } = Functions.make(
   ),
 );
 
-/**
- * Where the fixture copies every `console.log` and `console.error` line, as
- * JSON `{ method, line }`, so the tests can read what the Cloud Logging logger
- * wrote. It lies outside the functions source, next to the tests.
- */
-const consoleLog = fileURLToPath(new URL("../../console.log", import.meta.url));
-
+// Copies every console line to `consoleLog`, so the tests can read what the
+// Cloud Logging logger wrote.
 for (const method of ["log", "error"] as const) {
   const write = console[method].bind(console);
   console[method] = (...args: Array<unknown>) => {
@@ -372,13 +353,6 @@ export const { sleep } = Functions.make(
   Sleep,
   Callable.toLayer(Sleep, ({ millis }) => Effect.sleep(millis)),
 );
-
-/**
- * Where the fixture's triggers record each event they receive, one JSON line
- * each: `packages/functions/tests/triggers.log`, next to the tests, which wait
- * for their own document's line.
- */
-const triggersLog = fileURLToPath(new URL("../../triggers.log", import.meta.url));
 
 /** A decoded post as the triggers record it, with `publishedAt` as ISO. */
 const recordedPost = (post: Post) => ({
