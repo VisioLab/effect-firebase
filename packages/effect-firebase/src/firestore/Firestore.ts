@@ -1605,8 +1605,7 @@ export const MemoryDriver = Context.Service<MemoryDriver>(
  *   interrupted. A commit is one write through {@link Firestore} or
  *   {@link MemoryDriver}.
  *
- * Sentinels and transactions are not yet
- * supported: they die with a defect saying so.
+ * Transactions are not yet supported: they die with a defect saying so.
  *
  * @see {@link layerMemory} for the same as a layer
  * @see {@link make} for building a backend of your own from hooks

@@ -8,16 +8,21 @@
  * @packageDocumentation
  */
 import { assert, describe, expect, it } from "@effect/vitest";
-import { Effect, Equal, Layer, Queue, Schema, Stream } from "effect";
+import { Clock, DateTime, Effect, Equal, Layer, Option, Queue, Schema, Stream } from "effect";
 import {
   Collection,
   CollectionGroup,
   DocumentSnapshot,
+  FieldValue,
   FirestoreModel,
+  FirestoreSchema,
+  GeoPoint,
   Patch,
   QuerySnapshot,
+  Timestamp,
 } from "@visiolab/effect-firebase/firestore";
 import {
+  type DocumentData,
   Firestore,
   FirestoreError,
   Transaction,
@@ -33,7 +38,15 @@ import {
  * Add an option only when a shared test genuinely can't hold for one backend,
  * the way Effect's `testLayer` suites take their options.
  */
-export interface Options {
+export interface Options<R> {
+  /**
+   * Stores `data` at `path` as it is, past every model, for the tests that
+   * seed data no model would write.
+   *
+   * The emulator backends write through the raw SDK; the In-memory Firestore
+   * through `MemoryDriver.set`. It may need any service `layer` provides.
+   */
+  readonly seedRaw: (path: string, data: DocumentData) => Effect.Effect<void, never, R>;
   /**
    * What the backend can't do yet, whose tests the suite skips.
    *
@@ -56,7 +69,8 @@ export type Capability = "transactions";
  *
  * `layer` is built for each test, and must start with an empty database each
  * time it is. The emulator backends clear their project as they build it; an
- * in-memory one is empty by construction.
+ * in-memory one is empty by construction. Besides `Firestore`, it provides
+ * whatever `options.seedRaw` needs.
  *
  * @example Running the suite against a backend
  * ```ts
@@ -64,12 +78,15 @@ export type Capability = "transactions";
  * import { testFirestore } from "@visiolab/firestore-conformance";
  *
  * describe("MyFirestore, conformance", () => {
- *   testFirestore(layer);
+ *   testFirestore(layer, { seedRaw });
  * });
  * ```
  */
-export const testFirestore = <E>(layer: Layer.Layer<Firestore, E>, options: Options = {}): void => {
-  const run = <A, E2>(effect: Effect.Effect<A, E2, Firestore>) =>
+export const testFirestore = <E, R = never>(
+  layer: Layer.Layer<Firestore | R, E>,
+  options: Options<R>,
+): void => {
+  const run = <A, E2>(effect: Effect.Effect<A, E2, Firestore | R>) =>
     effect.pipe(Effect.provide(layer));
 
   /** `it.effect`, skipped on a backend that can't do all of `needs` yet. */
@@ -604,6 +621,198 @@ export const testFirestore = <E>(layer: Layer.Layer<Firestore, E>, options: Opti
       ),
     );
   });
+
+  describe("codec and sentinels", () => {
+    it.effect("reads back a plain model equal to what was written", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+
+          yield* firestore.setDoc(launchEvent, event);
+          const data = yield* read(yield* firestore.getDoc(launchEvent));
+
+          expect(data.title).toBe("Launch");
+          expect(DateTime.toEpochMillis(data.at)).toBe(DateTime.toEpochMillis(event.at));
+          expect(data.day.getTime()).toBe(event.day.getTime());
+          expect([...data.payload]).toEqual([1, 2, 3]);
+          expect(data.note).toEqual(Option.some("on time"));
+        }),
+      ),
+    );
+
+    it.effect("reads back FirestoreSchema values equal to what was written", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+
+          yield* firestore.setDoc(hall, venue);
+          const data = yield* read(yield* firestore.getDoc(hall));
+
+          expect(Equal.equals(data.openedAt, venue.openedAt)).toBe(true);
+          expect(Equal.equals(data.where, venue.where)).toBe(true);
+          expect(Equal.equals(data.owner, ada)).toBe(true);
+          expect(data.owner.collection).toBe(Members);
+          expect(DateTime.toEpochMillis(data.createdAt)).toBe(
+            DateTime.toEpochMillis(venue.createdAt),
+          );
+          expect(data.checkedAt.getTime()).toBe(venue.checkedAt.getTime());
+        }),
+      ),
+    );
+
+    // `before` comes from `Clock`, which `it.effect` pins to 0 with `TestClock`,
+    // so the bound holds for the server's time and for the In-memory one alike.
+    it.effect("takes a server timestamp on create, read back as the schema holds it", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+
+          const before = yield* Clock.currentTimeMillis;
+          yield* firestore.setDoc(hall, {
+            ...venue,
+            createdAt: FieldValue.serverTimestamp,
+            checkedAt: FieldValue.serverTimestamp,
+          });
+          const data = yield* read(yield* firestore.getDoc(hall));
+
+          expect(DateTime.isDateTime(data.createdAt)).toBe(true);
+          expect(DateTime.toEpochMillis(data.createdAt)).toBeGreaterThanOrEqual(before - 60_000);
+          expect(data.checkedAt).toBeInstanceOf(Date);
+          expect(data.checkedAt.getTime()).toBeGreaterThanOrEqual(before - 60_000);
+        }),
+      ),
+    );
+
+    it.effect("takes a server timestamp on update", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+          yield* firestore.setDoc(poll, tally);
+
+          const before = yield* Clock.currentTimeMillis;
+          yield* firestore.updateDoc(poll, { updatedAt: FieldValue.serverTimestamp });
+          const data = yield* read(yield* firestore.getDoc(poll));
+
+          expect(DateTime.toEpochMillis(data.updatedAt)).toBeGreaterThanOrEqual(before - 60_000);
+          expect(DateTime.toEpochMillis(data.updatedAt)).not.toBe(
+            DateTime.toEpochMillis(tally.updatedAt),
+          );
+        }),
+      ),
+    );
+
+    it.effect("moves a number up by an increment and down by a decrement", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+          yield* firestore.setDoc(poll, tally);
+
+          yield* firestore.updateDoc(poll, { views: FieldValue.increment(3) });
+          yield* firestore.updateDoc(poll, { views: FieldValue.decrement(2) });
+
+          expect((yield* read(yield* firestore.getDoc(poll))).views).toBe(6);
+        }),
+      ),
+    );
+
+    it.effect("replaces a missing field, or one holding no number, with the increment", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+          yield* options.seedRaw("counters/missing", { tags: ["a"] });
+          yield* options.seedRaw("counters/text", { count: "many", tags: ["a"] });
+
+          yield* firestore.updateDoc(missing, { count: FieldValue.increment(3) });
+          yield* firestore.updateDoc(text, { count: FieldValue.decrement(2) });
+
+          expect((yield* read(yield* firestore.getDoc(missing))).count).toBe(3);
+          expect((yield* read(yield* firestore.getDoc(text))).count).toBe(-2);
+        }),
+      ),
+    );
+
+    it.effect("deletes a field, at the top level and inside a struct", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+          yield* firestore.setDoc(poll, tally);
+
+          yield* firestore.updateDoc(poll, {
+            nickname: FieldValue.deleteField,
+            address: { note: FieldValue.deleteField },
+          });
+          const data = yield* read(yield* firestore.getDoc(poll));
+
+          expect(data.nickname).toBeUndefined();
+          expect(data.address).toEqual({ city: "Berlin" });
+        }),
+      ),
+    );
+
+    it.effect("grows an array by a union and shrinks it by a removal", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+          yield* firestore.setDoc(poll, tally);
+
+          yield* firestore.updateDoc(poll, { tags: FieldValue.arrayUnion("b", "a") });
+          expect((yield* read(yield* firestore.getDoc(poll))).tags).toEqual(["a", "b"]);
+          yield* firestore.updateDoc(poll, { tags: FieldValue.arrayRemove("a") });
+          expect((yield* read(yield* firestore.getDoc(poll))).tags).toEqual(["b"]);
+        }),
+      ),
+    );
+
+    it.effect("adds only elements not yet there, and removes every equal one", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+          yield* options.seedRaw("counters/text", { count: 1, tags: ["a", "b", "a"] });
+
+          yield* firestore.updateDoc(text, { tags: FieldValue.arrayUnion("a", "c") });
+          expect((yield* read(yield* firestore.getDoc(text))).tags).toEqual(["a", "b", "a", "c"]);
+          yield* firestore.updateDoc(text, { tags: FieldValue.arrayRemove("a") });
+          expect((yield* read(yield* firestore.getDoc(text))).tags).toEqual(["b", "c"]);
+        }),
+      ),
+    );
+
+    it.effect("replaces a field holding no array with what a union or removal leaves", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+          yield* options.seedRaw("counters/missing", { count: 1, tags: "none" });
+          yield* options.seedRaw("counters/text", { count: 1, tags: "none" });
+
+          yield* firestore.updateDoc(missing, { tags: FieldValue.arrayUnion("a", "b") });
+          yield* firestore.updateDoc(text, { tags: FieldValue.arrayRemove("a") });
+
+          expect((yield* read(yield* firestore.getDoc(missing))).tags).toEqual(["a", "b"]);
+          expect((yield* read(yield* firestore.getDoc(text))).tags).toEqual([]);
+        }),
+      ),
+    );
+
+    it.effect("grows and shrinks an array of timestamps, matching elements by value", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+          yield* firestore.setDoc(poll, tally);
+
+          const later = at("2024-06-01T12:00:00.002Z");
+          yield* firestore.updateDoc(poll, { seenAt: FieldValue.arrayUnion(later) });
+          expect((yield* read(yield* firestore.getDoc(poll))).seenAt).toHaveLength(2);
+
+          // A removal matches what a union wrote, since both encode the same way.
+          yield* firestore.updateDoc(poll, {
+            seenAt: FieldValue.arrayRemove(at("2024-01-01T00:00:00.001Z")),
+          });
+          const data = yield* read(yield* firestore.getDoc(poll));
+          expect(data.seenAt.map(DateTime.toEpochMillis)).toEqual([DateTime.toEpochMillis(later)]);
+        }),
+      ),
+    );
+  });
 };
 
 /**
@@ -721,3 +930,88 @@ const greeting = UserPosts.id.make("hello");
 const again = UserPosts.id.make("again");
 const intro = UserPosts.id.make("intro");
 const launch = OrgPosts.id.make("launch");
+
+// A model of plain Effect schemas: nothing in it names how Firestore stores it.
+class Event extends FirestoreModel.Class<Event>("Event")({
+  title: Schema.String,
+  at: Schema.DateTimeUtc,
+  day: Schema.Date,
+  payload: Schema.Uint8Array,
+  note: Schema.Option(Schema.String),
+}) {}
+
+const Events = Collection.make("events", Event);
+const launchEvent = Events.doc(Events.id.make("launch"));
+
+const event = {
+  title: "Launch",
+  at: DateTime.makeUnsafe("2024-05-06T07:08:09.123Z"),
+  day: new Date("2001-02-03T04:05:06.789Z"),
+  payload: new Uint8Array([1, 2, 3]),
+  note: Option.some("on time"),
+};
+
+class Member extends FirestoreModel.Class<Member>("Member")({ name: Schema.String }) {}
+const Members = Collection.make("members", Member);
+const ada = Members.doc(Members.id.make("ada"));
+
+// The portable types Effect has no schema for, plus timestamps held either way.
+class Venue extends FirestoreModel.Class<Venue>("Venue")({
+  openedAt: FirestoreSchema.Timestamp,
+  where: FirestoreSchema.GeoPoint,
+  owner: FirestoreSchema.DocumentReference(Members),
+  createdAt: FirestoreModel.Timestamp(Schema.DateTimeUtc),
+  checkedAt: FirestoreModel.Timestamp(Schema.Date),
+}) {}
+
+const Venues = Collection.make("venues", Venue);
+const hall = Venues.doc(Venues.id.make("hall"));
+
+const venue = {
+  // Firestore keeps a timestamp to the microsecond.
+  openedAt: Timestamp.makeUnsafe(1_700_000_000, 123_456_000),
+  where: GeoPoint.makeUnsafe(52.52, 13.405),
+  owner: ada,
+  createdAt: DateTime.makeUnsafe("2024-05-06T07:08:09.123Z"),
+  checkedAt: new Date("2001-02-03T04:05:06.789Z"),
+};
+
+// Every sentinel, with plain Effect schemas for what each field reads as.
+class Tally extends FirestoreModel.Class<Tally>("Tally")({
+  title: Schema.String,
+  updatedAt: FirestoreModel.Timestamp(Schema.DateTimeUtc),
+  views: FirestoreModel.Number(Schema.Int),
+  nickname: FirestoreModel.Optional(Schema.String),
+  tags: FirestoreModel.Array(Schema.String),
+  seenAt: FirestoreModel.Array(Schema.DateTimeUtc),
+  address: FirestoreModel.Struct({
+    city: Schema.String,
+    note: FirestoreModel.Optional(Schema.String),
+  }),
+}) {}
+
+const Tallies = Collection.make("tallies", Tally);
+const poll = Tallies.doc(Tallies.id.make("poll"));
+
+const at = (iso: string) => DateTime.makeUnsafe(iso);
+
+const tally = {
+  title: "Poll",
+  updatedAt: at("2001-01-01T00:00:00.000Z"),
+  views: 5,
+  nickname: "polly",
+  tags: ["a"],
+  seenAt: [at("2024-01-01T00:00:00.001Z")],
+  address: { city: "Berlin", note: "by the river" },
+};
+
+// A counter the tests seed through `seedRaw` with fields no model would write,
+// to see what a sentinel makes of them.
+class Counter extends FirestoreModel.Class<Counter>("Counter")({
+  count: FirestoreModel.Number(Schema.Finite),
+  tags: FirestoreModel.Array(Schema.String),
+}) {}
+
+const Counters = Collection.make("counters", Counter);
+const missing = Counters.doc(Counters.id.make("missing"));
+const text = Counters.doc(Counters.id.make("text"));

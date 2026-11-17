@@ -1,5 +1,6 @@
 import { assert, describe, expect, it } from "@effect/vitest";
-import { Effect, Exit, Queue, Random, Schema, Stream } from "effect";
+import { DateTime, Effect, Exit, Queue, Random, Schema, Stream } from "effect";
+import { TestClock } from "effect/testing";
 import {
   Collection,
   DocumentSnapshot,
@@ -7,11 +8,16 @@ import {
   Firestore,
   FirestoreModel,
   type QuerySnapshot,
+  Timestamp,
 } from "@visiolab/effect-firebase/firestore";
 import { testFirestore } from "@visiolab/firestore-conformance";
 
 describe("Firestore.layerMemory, conformance", () => {
-  testFirestore(Firestore.layerMemory, { unsupported: ["transactions"] });
+  testFirestore(Firestore.layerMemory, {
+    seedRaw: (path, data) =>
+      Effect.flatMap(Firestore.MemoryDriver, (driver) => driver.set(path, data)),
+    unsupported: ["transactions"],
+  });
 });
 
 class Address extends FirestoreModel.Class<Address>("Address")({
@@ -26,6 +32,14 @@ class User extends FirestoreModel.Class<User>("User")({
 
 const Users = Collection.make("users", User);
 const alice = Users.doc(Users.id.make("alice"));
+
+class Visit extends FirestoreModel.Class<Visit>("Visit")({
+  at: FirestoreModel.Timestamp(Schema.DateTimeUtc),
+  seenAt: FirestoreModel.Timestamp(Schema.DateTimeUtc),
+}) {}
+
+const Visits = Collection.make("visits", Visit);
+const visit = Visits.doc(Visits.id.make("visit"));
 
 const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnapshot<C>) =>
   DocumentSnapshot.isExisting(snapshot) ? snapshot.data : Effect.die("missing");
@@ -275,5 +289,32 @@ describe("Firestore.layerMemory", () => {
       expect(ids[0]).not.toBe(ids[1]);
       expect(yield* add).toStrictEqual(ids);
     }),
+  );
+
+  it.effect("resolves a server timestamp to the time Clock tells at the commit", () =>
+    memory(
+      Effect.gen(function* () {
+        const firestore = yield* Firestore.Firestore;
+        const driver = yield* Firestore.MemoryDriver;
+        const created = Date.parse("2026-01-02T03:04:05.678Z");
+        const seen = Date.parse("2026-01-03T00:00:00.000Z");
+
+        yield* TestClock.setTime(created);
+        yield* firestore.setDoc(visit, {
+          at: FieldValue.serverTimestamp,
+          seenAt: FieldValue.serverTimestamp,
+        });
+        yield* TestClock.setTime(seen);
+        yield* firestore.updateDoc(visit, { seenAt: FieldValue.serverTimestamp });
+
+        expect(yield* driver.get("visits/visit")).toStrictEqual({
+          at: Timestamp.fromMillisUnsafe(created),
+          seenAt: Timestamp.fromMillisUnsafe(seen),
+        });
+        const data = yield* read(yield* firestore.getDoc(visit));
+        expect(DateTime.toEpochMillis(data.at)).toBe(created);
+        expect(DateTime.toEpochMillis(data.seenAt)).toBe(seen);
+      }),
+    ),
   );
 });
