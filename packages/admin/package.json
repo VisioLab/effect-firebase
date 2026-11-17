@@ -60,6 +60,7 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@visiolab/effect-firebase": "workspace:^",
+    "@visiolab/firestore-conformance": "workspace:*",
     "effect": "catalog:",
     "firebase-admin": "catalog:",
     "typescript": "catalog:",

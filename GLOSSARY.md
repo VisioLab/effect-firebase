@@ -18,6 +18,10 @@ _Avoid_: SDK Firestore, server Firestore
 A **Firestore** that also offers what only the client SDK can do.
 _Avoid_: SDK Firestore, web Firestore
 
+**In-memory Firestore**:
+A **Firestore** that keeps its documents in the running process instead of a database, standing in for either SDK when testing **Portable code**.
+_Avoid_: fake Firestore, mock Firestore, test Firestore, emulator
+
 **Portable code**:
 Code that asks only for **Firestore** and so runs against either SDK.
 _Avoid_: generic code, shared code

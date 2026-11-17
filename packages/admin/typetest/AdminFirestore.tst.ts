@@ -67,6 +67,13 @@ describe("AdminFirestore", () => {
     >();
   });
 
+  test("is not provided by the In-memory Firestore", () => {
+    const provided = Effect.provide(adminProgram, Firestore.layerMemory);
+    expect(provided).type.toBe<Effect.Effect<void, never, AdminFirestore.AdminFirestore>>();
+    // @ts-expect-error not assignable
+    void Effect.runPromise(provided); // oxlint-disable-line effecttsgo/missing-effect-context
+  });
+
   test("yields a service that is also a Firestore", () => {
     expect(Effect.service(AdminFirestore.AdminFirestore)).type.toBe<
       Effect.Effect<

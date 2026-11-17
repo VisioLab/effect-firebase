@@ -14,6 +14,8 @@
  *   {@link ClientFirestore.layer} in a browser or app. Each layer also provides
  *   its richer service, {@link AdminFirestore.AdminFirestore} or
  *   {@link ClientFirestore.ClientFirestore}, as the same object.
+ * - Unit test Portable code against the In-memory Firestore, with
+ *   {@link layerMemory}.
  * - Implement a backend of your own with {@link make}.
  *
  * @example Reading and writing a document
@@ -42,8 +44,8 @@
  * @stability unstable
  * @since 0.2.0
  */
-import { Context } from "effect";
-import type { Effect, Schema, Stream } from "effect";
+import { Context, Effect, Layer } from "effect";
+import type { HashMap, Option, Schema, Stream } from "effect";
 import type * as Result from "effect/Result";
 import type * as Collection from "./Collection.ts";
 import type * as CollectionGroup from "./CollectionGroup.ts";
@@ -52,6 +54,7 @@ import type * as FirestoreModel from "./FirestoreModel.ts";
 import type { FirestoreValue } from "./FirestoreValue.ts";
 import * as firestore from "./internal/firestore.ts";
 import type { FirestoreError, UndefinedCollectionError } from "./internal/firestoreError.ts";
+import * as internalMemory from "./internal/memory.ts";
 import * as internalStreamFromListener from "./internal/streamFromListener.ts";
 import * as internalTransactionFromCallback from "./internal/transactionFromCallback.ts";
 import type * as QuerySnapshot from "./QuerySnapshot.ts";
@@ -660,7 +663,8 @@ export interface With<
    * {@link Patch.replace} to write it whole.
    *
    * The document must exist: Firestore fails the update with a
-   * {@link FirestoreError} when it does not, and also rejects an empty patch.
+   * {@link FirestoreError} when it does not. An empty patch fails on the Admin
+   * SDK and changes nothing on the client SDK and the In-memory Firestore.
    *
    * Both modes encode the same fields at the same paths, so they require the
    * same services.
@@ -820,12 +824,14 @@ export interface With<
  *
  * **When to use**
  *
- * Ask for it in code that should run on any backend, the Admin SDK or the
- * client SDK. Its methods are documented on {@link With}.
+ * Ask for it in code that should run on any backend: the Admin SDK, the
+ * client SDK or the In-memory Firestore. Its methods are documented on
+ * {@link With}.
  *
  * @see {@link With} for each method, and for what a backend's richer service adds
  * @see {@link AdminFirestore.AdminFirestore} for the Admin SDK's richer service
  * @see {@link ClientFirestore.ClientFirestore} for the client SDK's richer service
+ * @see {@link layerMemory} for the In-memory Firestore, which provides it for unit tests
  *
  * @stability unstable
  * @category models
@@ -838,8 +844,8 @@ export interface Firestore extends With {
 /**
  * Service key for the portable {@link Firestore}.
  *
- * Provide it with {@link AdminFirestore.layer} or
- * {@link ClientFirestore.layer}.
+ * Provide it with {@link AdminFirestore.layer}, {@link ClientFirestore.layer}
+ * or, in unit tests, {@link layerMemory}.
  *
  * @stability unstable
  * @category services
@@ -1204,9 +1210,10 @@ export interface MakeOptions<
  *
  * **When to use**
  *
- * Use to implement a backend, such as a new SDK or an in-memory fake for
- * tests. Applications use a backend's layer instead, such as
- * {@link AdminFirestore.layer} or {@link ClientFirestore.layer}.
+ * Use to implement a backend, such as one for a new SDK. Applications use a
+ * backend's layer instead, such as {@link AdminFirestore.layer} or
+ * {@link ClientFirestore.layer}. To unit test Portable code, provide
+ * {@link layerMemory}, the In-memory Firestore, rather than building one.
  *
  * **Details**
  *
@@ -1232,46 +1239,33 @@ export interface MakeOptions<
  * {@link Firestore}, so providing a {@link Firestore} alone does not satisfy
  * code that asks for the richer one.
  *
- * @see {@link transactionFromCallback} to build the `runTransaction` hook from an SDK callback
- * @see {@link streamFromListener} to build the `streamDoc` and `streamDocs` hooks from an SDK listener
- *
- * @example An in-memory backend
+ * @example Wiring a backend
  * ```ts
- * import { Effect, Layer, Stream } from "effect";
+ * import { Effect, Layer } from "effect";
  * import { Firestore } from "@visiolab/effect-firebase/firestore";
  *
- * const documents = new Map<string, Firestore.DocumentData>();
+ * // A backend's SDK, already returning Firestore Values.
+ * declare const sdk: {
+ *   readonly get: (path: string) => Promise<Firestore.DocumentData | undefined>;
+ * };
+ * // The other hooks, written against the same SDK.
+ * declare const hooks: Omit<Firestore.MakeOptions, "getDoc">;
  *
- * const getDoc = (path: string) => Effect.sync(() => ({ data: documents.get(path) }));
- * const setDoc = (path: string, data: Firestore.DocumentData) =>
- *   Effect.sync(() => void documents.set(path, data));
- * const updateDoc = (path: string, data: Firestore.DocumentData) =>
- *   Effect.sync(() => void documents.set(path, { ...documents.get(path), ...data }));
- * const deleteDoc = (path: string) => Effect.sync(() => void documents.delete(path));
- * const getDocs = (selector: Firestore.CollectionSelector) =>
- *   Effect.sync(() => ({
- *     docs: [...documents]
- *       .filter(([path]) => selector._tag === "Collection" && path.startsWith(`${selector.path}/`))
- *       .map(([path, data]) => ({ path, data })),
- *   }));
+ * const getDoc = (path: string) =>
+ *   Effect.tryPromise({
+ *     try: () => sdk.get(path),
+ *     catch: (cause) => new Firestore.FirestoreError({ message: String(cause), cause }),
+ *   }).pipe(Effect.map((data) => ({ data })));
  *
- * const firestore = Firestore.make({
- *   getDoc,
- *   getDocs,
- *   setDoc,
- *   updateDoc,
- *   deleteDoc,
- *   addDoc: (path, data) => {
- *     const id = crypto.randomUUID();
- *     return Effect.as(setDoc(`${path}/${id}`, data), id);
- *   },
- *   streamDoc: (path) => Stream.fromEffect(getDoc(path)),
- *   streamDocs: (selector) => Stream.fromEffect(getDocs(selector)),
- *   runTransaction: { run: (body) => body({ getDoc, setDoc, updateDoc, deleteDoc }) },
- * });
- *
- * const FirestoreInMemory = Layer.succeed(Firestore.Firestore, firestore);
+ * const FirestoreLive = Layer.succeed(Firestore.Firestore, Firestore.make({ ...hooks, getDoc }));
  * ```
+ *
+ * @see {@link transactionFromCallback} to build the `runTransaction` hook from an SDK callback
+ * @see {@link streamFromListener} to build the `streamDoc` and `streamDocs` hooks from an SDK listener
+ * @see {@link makeMemory} for the In-memory Firestore, a backend built with `make`
+ * @see {@link layerMemory} for the In-memory Firestore as a layer, for unit tests
+ * @see {@link AdminFirestore.layer} for the Admin SDK's backend
+ * @see {@link ClientFirestore.layer} for the client SDK's backend
  *
  * @stability unstable
  * @category constructors
@@ -1497,3 +1491,211 @@ export interface StreamFromListenerOptions<S, A> {
 export const streamFromListener: <S, A>(
   options: StreamFromListenerOptions<S, A>,
 ) => Stream.Stream<A, FirestoreError> = internalStreamFromListener.streamFromListener;
+
+/**
+ * Direct access to the documents of an In-memory Firestore, as raw Firestore
+ * Values with no model.
+ *
+ * **When to use**
+ *
+ * Use in a test to seed documents before the code under test reads them,
+ * including data no model would write, and to inspect what that code wrote.
+ * Read and write through {@link Firestore} to go through the models instead.
+ *
+ * **Details**
+ *
+ * {@link layerMemory} provides it next to {@link Firestore}, over the same
+ * documents. Each write through it is a commit of its own, as a write through
+ * {@link Firestore} is, so it wakes live listeners as a write from another
+ * client would.
+ *
+ * @example Seeding and inspecting raw documents
+ * ```ts
+ * import { Effect, Schema } from "effect";
+ * import { Collection, Firestore, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ *
+ * class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
+ *
+ * const Users = Collection.make("users", User);
+ *
+ * const program = Effect.gen(function* () {
+ *   const firestore = yield* Firestore.Firestore;
+ *   const driver = yield* Firestore.MemoryDriver;
+ *
+ *   // Data the model refuses, to see how the code under test copes with it.
+ *   yield* driver.set("users/alice", { name: 42 });
+ *
+ *   yield* firestore.setDoc(Users.doc(Users.id.make("bob")), { name: "Bob" });
+ *   return yield* driver.get("users/bob"); // Option.some({ name: "Bob" })
+ * }).pipe(Effect.provide(Firestore.layerMemory));
+ * ```
+ *
+ * @see {@link layerMemory} for the layer that provides it
+ * @see {@link makeMemory} for building it together with its {@link Firestore}
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.4.0
+ */
+export interface MemoryDriver {
+  /** Reads the data stored at the document path `path`, or none where there is none. */
+  readonly get: (path: string) => Effect.Effect<Option.Option<DocumentData>>;
+  /**
+   * Stores `data` at the document path `path`, replacing whatever was there.
+   * Dies on a sentinel, such as {@link FieldValue.serverTimestamp}, as stored
+   * data never holds one, and on a value that isn't a Firestore Value.
+   */
+  readonly set: (path: string, data: DocumentData) => Effect.Effect<void>;
+  /** Removes the document at `path`, succeeding where there is none. */
+  readonly delete: (path: string) => Effect.Effect<void>;
+  /** Every stored document, by its path, as it stands when this runs. */
+  readonly documents: Effect.Effect<HashMap.HashMap<string, DocumentData>>;
+}
+
+/**
+ * Service key for the {@link MemoryDriver} of an In-memory Firestore.
+ *
+ * Provide it with {@link layerMemory}.
+ *
+ * @stability unstable
+ * @category services
+ * @since 0.4.0
+ */
+export const MemoryDriver = Context.Service<MemoryDriver>(
+  "@visiolab/effect-firebase/firestore/Firestore/MemoryDriver",
+);
+
+/**
+ * Builds an In-memory Firestore: a {@link Firestore} that keeps its documents
+ * in the running process, and the {@link MemoryDriver} over the same
+ * documents.
+ *
+ * **When to use**
+ *
+ * Use to build the two yourself, for example to provide them under keys of
+ * your own. In tests, provide {@link layerMemory} instead.
+ *
+ * **Details**
+ *
+ * Each run starts with no documents. Writes are encoded and reads decoded
+ * through the collection's model, as on the SDK backends, since it is built
+ * with {@link make}.
+ *
+ * - `setDoc` replaces the whole document.
+ * - `serverTimestamp` resolves to Effect's `Clock` at commit, so `TestClock`
+ *   pins it.
+ * - `addDoc` picks a 20-character id of letters and digits, drawn from
+ *   Effect's `Random`, so a seeded `Random` makes it deterministic. It only
+ *   creates, as on the SDKs: an id that is taken, as when two calls run under
+ *   the same seed, fails with a {@link FirestoreError} whose `code` is
+ *   `"already-exists"`.
+ * - `updateDoc` writes each dotted key as a field path, and fails with a
+ *   {@link FirestoreError} whose `code` is `"not-found"` on a missing document.
+ * - `deleteDoc` succeeds on a missing document.
+ * - `getDocs` on a collection reads only the documents directly in it, not
+ *   those in its subcollections. On a Collection Group it reads every
+ *   document under the group's collection id, and fails with an
+ *   {@link UndefinedCollectionError} on one at a path the group doesn't
+ *   define, as the SDK backends do.
+ * - `streamDoc` and `streamDocs` emit what they cover when they start, and
+ *   again after each commit that changes it, but not after one that leaves
+ *   it unchanged. They never complete on their own, and detach when
+ *   interrupted. A commit is one write through {@link Firestore} or
+ *   {@link MemoryDriver}, or a whole transaction.
+ * - `runTransaction` runs optimistically, with no lock. The body reads
+ *   committed data, and its writes are buffered; a read after a write fails
+ *   with a {@link FirestoreError}. At commit, when no document the body read
+ *   has changed since, every write applies at once, so listeners see one
+ *   change. When one has, including through {@link MemoryDriver}, the body
+ *   runs again, up to `maxAttempts` (5 by default), and then fails with a
+ *   {@link FirestoreError} whose `code` is `"aborted"`. A body that fails
+ *   applies nothing.
+ *
+ * @example Building an In-memory Firestore
+ * ```ts
+ * import { Effect } from "effect";
+ * import { Firestore } from "@visiolab/effect-firebase/firestore";
+ *
+ * const program = Effect.gen(function* () {
+ *   const { firestore, driver } = yield* Firestore.makeMemory;
+ *   yield* driver.set("users/alice", { name: "Alice" });
+ *   return firestore;
+ * });
+ * ```
+ *
+ * @see {@link layerMemory} for the same as a layer
+ * @see {@link MemoryDriver} for seeding and inspecting raw documents
+ * @see {@link make} for building a backend of your own from hooks
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.4.0
+ */
+export const makeMemory: Effect.Effect<{
+  readonly firestore: Firestore;
+  readonly driver: MemoryDriver;
+}> = Effect.map(internalMemory.makeStore, (store) => ({
+  firestore: make(internalMemory.hooks(store)),
+  driver: internalMemory.driver(store),
+}));
+
+/**
+ * Provides an In-memory Firestore: the portable {@link Firestore}, keeping its
+ * documents in the running process, and the {@link MemoryDriver} over them.
+ *
+ * **When to use**
+ *
+ * Use to unit test Portable code without the Firebase emulator. Code that asks
+ * for {@link AdminFirestore.AdminFirestore} or
+ * {@link ClientFirestore.ClientFirestore} needs that SDK's layer.
+ *
+ * **Details**
+ *
+ * Each build of the layer starts with no documents, so a test that provides
+ * it gets a database of its own, while tests sharing one build, as with
+ * `it.layer`, share its documents.
+ *
+ * It only provides the portable {@link Firestore}: its reads and listens take
+ * no further options, and its snapshots carry no extra. It requires no
+ * services: `addDoc` ids come from Effect's `Random` and `serverTimestamp`
+ * from its `Clock`, read where a write needs them, so a seeded `Random` and
+ * `TestClock` pin them.
+ *
+ * @example Testing Portable code in memory
+ * ```ts
+ * import { Effect, Random, Schema } from "effect";
+ * import { Collection, Firestore, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ *
+ * class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
+ *
+ * const Users = Collection.make("users", User);
+ *
+ * const signUp = (name: string) =>
+ *   Effect.gen(function* () {
+ *     const firestore = yield* Firestore.Firestore;
+ *     return yield* firestore.addDoc(Users.collection(), { name });
+ *   });
+ *
+ * const test = Effect.gen(function* () {
+ *   const driver = yield* Firestore.MemoryDriver;
+ *   const ref = yield* signUp("Alice");
+ *   return yield* driver.get(ref.path); // Option.some({ name: "Alice" })
+ * }).pipe(Effect.provide(Firestore.layerMemory), Random.withSeed("ids"));
+ * ```
+ *
+ * @see {@link makeMemory} for what it does, and for building it yourself
+ * @see {@link MemoryDriver} for seeding and inspecting raw documents
+ * @see {@link Firestore} for the portable service it provides
+ * @see {@link AdminFirestore.layer} for the Admin SDK's layer
+ * @see {@link ClientFirestore.layer} for the client SDK's layer
+ * @see {@link make} for building a backend of your own from hooks
+ *
+ * @stability unstable
+ * @category layers
+ * @since 0.4.0
+ */
+export const layerMemory: Layer.Layer<Firestore | MemoryDriver> = Layer.effectContext(
+  Effect.map(makeMemory, ({ firestore, driver }) =>
+    Context.make(Firestore, firestore).pipe(Context.add(MemoryDriver, driver)),
+  ),
+);

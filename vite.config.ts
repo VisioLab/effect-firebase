@@ -18,7 +18,8 @@ export default defineConfig({
       {
         // Test helpers are exported between test files, not published, so
         // they have no stability of their own to guard.
-        files: ["packages/*/tests/**", "packages/*/typetest/**"],
+        // The conformance suite is a test helper of the same kind.
+        files: ["packages/*/tests/**", "packages/*/typetest/**", "tools/firestore-conformance/**"],
         rules: { "effecttsgo/api-stability-leak": "off" },
       },
     ],
@@ -26,7 +27,9 @@ export default defineConfig({
   test: {
     // Run each package under its own config, so a root `vp test` picks up each
     // package's `test` settings, such as the emulator `env` and `globalSetup`.
-    projects: ["packages/*"],
+    // The conformance suite is listed by name rather than as `tools/*`, which
+    // would also pick up any stray folder there.
+    projects: ["packages/*", "tools/firestore-conformance"],
   },
   run: {
     cache: true,

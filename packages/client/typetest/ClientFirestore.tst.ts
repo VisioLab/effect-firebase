@@ -64,6 +64,13 @@ describe("ClientFirestore", () => {
     >();
   });
 
+  test("is not provided by the In-memory Firestore", () => {
+    const provided = Effect.provide(clientProgram, Firestore.layerMemory);
+    expect(provided).type.toBe<Effect.Effect<void, never, ClientFirestore.ClientFirestore>>();
+    // @ts-expect-error not assignable
+    void Effect.runPromise(provided); // oxlint-disable-line effecttsgo/missing-effect-context
+  });
+
   test("yields a service that is also a Firestore", () => {
     expect(Effect.service(ClientFirestore.ClientFirestore)).type.toBe<
       Effect.Effect<
