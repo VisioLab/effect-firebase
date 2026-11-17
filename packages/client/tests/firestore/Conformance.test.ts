@@ -1,8 +1,10 @@
 import { describe } from "@effect/vitest";
-import { Layer } from "effect";
+import { Effect, Layer } from "effect";
+import { doc, type DocumentData, setDoc } from "firebase/firestore";
 import { testFirestore } from "@visiolab/firestore-conformance";
 import * as App from "../../src/app/App.ts";
 import * as ClientFirestore from "../../src/firestore/ClientFirestore.ts";
+import * as ClientFirestoreValue from "../../src/firestore/ClientFirestoreValue.ts";
 import { clear, emulator } from "./emulator.ts";
 
 const projectId = "demo-client-conformance";
@@ -15,5 +17,15 @@ const layer = ClientFirestore.layer({ emulator }).pipe(
 );
 
 describe("ClientFirestore, against the emulator, conformance", () => {
-  testFirestore(layer);
+  testFirestore(layer, {
+    seedRaw: (path, data) =>
+      Effect.flatMap(ClientFirestore.ClientFirestore, ({ instance }) =>
+        Effect.promise(() =>
+          setDoc(
+            doc(instance, path),
+            ClientFirestoreValue.toClient(data, instance) as DocumentData,
+          ),
+        ),
+      ),
+  });
 });

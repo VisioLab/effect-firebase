@@ -1,5 +1,5 @@
 import { assert, describe, expect, it } from "@effect/vitest";
-import { DateTime, Effect, Equal, Fiber, Layer, Option, Schema } from "effect";
+import { DateTime, Effect, Fiber, Layer, Option, Schema } from "effect";
 import { Firestore } from "@visiolab/effect-firebase/firestore/Firestore";
 import {
   Collection,
@@ -255,26 +255,12 @@ const Events = Collection.make("events", Event);
 describe("ClientFirestore, Firestore Values", () => {
   const freshFirestore = clear(projectId).pipe(Effect.andThen(Firestore));
 
-  const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnapshot<C>) =>
-    DocumentSnapshot.isExisting(snapshot) ? snapshot.data : Effect.die("missing");
-
   const event = new Event({
     at: DateTime.makeUnsafe("2026-10-22T12:34:56.789Z"),
     on: new Date("2001-02-03T04:05:06.007Z"),
     payload: new Uint8Array([1, 2, 3]),
     note: Option.some("hello"),
   });
-
-  it.effect("reads back a plain model it wrote", () =>
-    Effect.gen(function* () {
-      const firestore = yield* freshFirestore;
-      const ref = Events.doc(Events.id.make("e"));
-
-      yield* firestore.setDoc(ref, event);
-
-      expect(yield* read(yield* firestore.getDoc(ref))).toEqual(event);
-    }).pipe(Effect.provide(layer)),
-  );
 
   it.effect("stores times and bytes as the SDK's own types", () =>
     Effect.gen(function* () {
@@ -356,9 +342,6 @@ describe("ClientFirestore, FirestoreSchema values", () => {
   const freshFirestore = clear(projectId).pipe(Effect.andThen(Firestore));
   const hall = Venues.doc(Venues.id.make("hall"));
 
-  const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnapshot<C>) =>
-    DocumentSnapshot.isExisting(snapshot) ? snapshot.data : Effect.die("missing");
-
   const venue = {
     // Firestore keeps a timestamp to the microsecond.
     openedAt: Timestamp.makeUnsafe(1_700_000_000, 123_456_000),
@@ -387,41 +370,6 @@ describe("ClientFirestore, FirestoreSchema values", () => {
       expect((raw["owner"] as DocumentReference).path).toBe("members/ada");
       expect(raw["createdAt"]).toBeInstanceOf(SdkTimestamp);
       expect(raw["checkedAt"]).toBeInstanceOf(SdkTimestamp);
-    }).pipe(Effect.provide(layer)),
-  );
-
-  it.effect("read back equal to what was written", () =>
-    Effect.gen(function* () {
-      const firestore = yield* freshFirestore;
-
-      yield* firestore.setDoc(hall, venue);
-      const data = yield* read(yield* firestore.getDoc(hall));
-
-      expect(Equal.equals(data.openedAt, venue.openedAt)).toBe(true);
-      expect(Equal.equals(data.where, venue.where)).toBe(true);
-      expect(Equal.equals(data.owner, ada)).toBe(true);
-      expect(data.owner.collection).toBe(Members);
-      expect(DateTime.toEpochMillis(data.createdAt)).toBe(DateTime.toEpochMillis(venue.createdAt));
-      expect(data.checkedAt.getTime()).toBe(venue.checkedAt.getTime());
-    }).pipe(Effect.provide(layer)),
-  );
-
-  it.effect("take a server timestamp on create, read back as the schema holds it", () =>
-    Effect.gen(function* () {
-      const firestore = yield* fresh(projectId);
-
-      const before = Date.now();
-      yield* firestore.setDoc(hall, {
-        ...venue,
-        createdAt: FieldValue.serverTimestamp,
-        checkedAt: FieldValue.serverTimestamp,
-      });
-      const data = yield* read(yield* firestore.getDoc(hall, { source: "server" }));
-
-      expect(DateTime.isDateTime(data.createdAt)).toBe(true);
-      expect(DateTime.toEpochMillis(data.createdAt)).toBeGreaterThan(before - 60_000);
-      expect(data.checkedAt).toBeInstanceOf(Date);
-      expect(data.checkedAt.getTime()).toBeGreaterThan(before - 60_000);
     }).pipe(Effect.provide(layer)),
   );
 });
@@ -543,70 +491,16 @@ describe("ClientFirestore, sentinels", () => {
     address: { city: "Berlin", note: "by the river" },
   };
 
-  const read = Effect.gen(function* () {
-    const firestore = yield* ClientFirestore.ClientFirestore;
-    const snapshot = yield* firestore.getDoc(poll, { source: "server" });
-    return DocumentSnapshot.isExisting(snapshot)
-      ? yield* snapshot.data
-      : yield* Effect.die("missing");
-  });
-
   const seeded = fresh(projectId).pipe(Effect.tap((firestore) => firestore.setDoc(poll, tally)));
 
-  it.effect("take a server timestamp on update", () =>
-    Effect.gen(function* () {
-      const firestore = yield* seeded;
-
-      const before = Date.now();
-      yield* firestore.updateDoc(poll, { updatedAt: FieldValue.serverTimestamp });
-
-      expect(DateTime.toEpochMillis((yield* read).updatedAt)).toBeGreaterThan(before - 60_000);
-    }).pipe(Effect.provide(layer)),
-  );
-
-  it.effect("move a number up by an increment and down by a decrement", () =>
-    Effect.gen(function* () {
-      const firestore = yield* seeded;
-
-      yield* firestore.updateDoc(poll, { views: FieldValue.increment(3) });
-      yield* firestore.updateDoc(poll, { views: FieldValue.decrement(2) });
-
-      expect((yield* read).views).toBe(6);
-    }).pipe(Effect.provide(layer)),
-  );
-
-  it.effect("delete a field, at the top level and inside a struct", () =>
+  // That a union and a removal match by value is in the conformance suite.
+  it.effect("store the elements an array union adds as the client SDK's own timestamps", () =>
     Effect.gen(function* () {
       const firestore = yield* seeded;
 
       yield* firestore.updateDoc(poll, {
-        nickname: FieldValue.deleteField,
-        address: { note: FieldValue.deleteField },
+        seenAt: FieldValue.arrayUnion(at("2024-06-01T12:00:00.002Z")),
       });
-      const data = yield* read;
-
-      expect(data.nickname).toBeUndefined();
-      expect(data.address).toEqual({ city: "Berlin" });
-    }).pipe(Effect.provide(layer)),
-  );
-
-  it.effect("grow an array by a union and shrink it by a removal", () =>
-    Effect.gen(function* () {
-      const firestore = yield* seeded;
-
-      yield* firestore.updateDoc(poll, { tags: FieldValue.arrayUnion("b", "a") });
-      expect((yield* read).tags).toEqual(["a", "b"]);
-      yield* firestore.updateDoc(poll, { tags: FieldValue.arrayRemove("a") });
-      expect((yield* read).tags).toEqual(["b"]);
-    }).pipe(Effect.provide(layer)),
-  );
-
-  it.effect("grow and shrink an array of timestamps, stored as the client SDK's own", () =>
-    Effect.gen(function* () {
-      const firestore = yield* seeded;
-
-      const later = at("2024-06-01T12:00:00.002Z");
-      yield* firestore.updateDoc(poll, { seenAt: FieldValue.arrayUnion(later) });
       const raw = (yield* Effect.promise(() =>
         getDoc(doc(firestore.instance, "tallies/poll")),
       )).data();
@@ -614,14 +508,6 @@ describe("ClientFirestore, sentinels", () => {
       const stored = raw["seenAt"] as ReadonlyArray<unknown>;
       expect(stored).toHaveLength(2);
       for (const element of stored) expect(element).toBeInstanceOf(SdkTimestamp);
-
-      // A removal matches what a union wrote, since both encode the same way.
-      yield* firestore.updateDoc(poll, {
-        seenAt: FieldValue.arrayRemove(at("2024-01-01T00:00:00.001Z")),
-      });
-      expect((yield* read).seenAt.map(DateTime.toEpochMillis)).toEqual([
-        DateTime.toEpochMillis(later),
-      ]);
     }).pipe(Effect.provide(layer)),
   );
 });

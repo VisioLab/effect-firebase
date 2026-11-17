@@ -3,14 +3,16 @@
  * the hooks {@link Firestore.make} builds the portable service from.
  *
  * Every write goes through {@link commit}, which applies a batch of writes at
- * once, bumps the version of each path it touches and wakes the listeners.
- * Sentinels, Collection Group reads, listeners and transactions build on it.
+ * once, resolving their sentinels, bumps the version of each path it touches
+ * and wakes the listeners. Collection Group reads, listeners and transactions
+ * build on it.
  */
-import { Effect, Random, Stream } from "effect";
+import { Clock, Effect, Random, Stream } from "effect";
 import type * as Firestore from "../Firestore.ts";
 import * as fieldValue from "./fieldValue.ts";
 import { FirestoreError } from "./firestoreError.ts";
 import * as firestoreValueWalk from "./firestoreValueWalk.ts";
+import * as timestamp from "./timestamp.ts";
 
 type DocumentData = Firestore.DocumentData;
 
@@ -86,19 +88,71 @@ const containsSentinel = (value: unknown): boolean =>
     ? value.some(containsSentinel)
     : isMap(value) && Object.values(value).some(containsSentinel));
 
+/** What a `deleteField` resolves to: the field goes away. */
+const removed: unique symbol = Symbol("removed");
+
 /**
- * `data` with each value at a dotted field path written into it, creating maps
- * along the way and replacing whatever was there that isn't one.
+ * What `value` stores as, written over `before`, with every sentinel in it
+ * resolved at `now`. A map replaces what was there, so the sentinels inside
+ * it resolve over nothing.
  */
-const applyUpdate = (data: DocumentData, update: DocumentData): DocumentData => {
+const resolve = (value: unknown, before: unknown, now: number): unknown => {
+  if (fieldValue.isServerTimestamp(value)) return timestamp.fromMillisUnsafe(now);
+  if (fieldValue.isIncrement(value)) {
+    return typeof before === "number" ? before + value.by : value.by;
+  }
+  if (fieldValue.isArrayUnion(value)) {
+    return value.elements.reduce<ReadonlyArray<unknown>>(
+      (elements, element) =>
+        elements.some((present) => firestoreValueWalk.equals(present, element))
+          ? elements
+          : [...elements, element],
+      Array.isArray(before) ? before : [],
+    );
+  }
+  if (fieldValue.isArrayRemove(value)) {
+    return Array.isArray(before)
+      ? before.filter(
+          (element) => !value.elements.some((gone) => firestoreValueWalk.equals(gone, element)),
+        )
+      : [];
+  }
+  if (fieldValue.isDeleteField(value)) return removed;
+  if (isMap(value)) return resolveMap(value, now);
+  return value;
+};
+
+/** `map` with every sentinel inside it resolved over nothing. */
+const resolveMap = (
+  map: { readonly [field: string]: unknown },
+  now: number,
+): { readonly [field: string]: unknown } =>
+  Object.fromEntries(
+    Object.entries(map)
+      .map(([field, value]) => [field, resolve(value, undefined, now)] as const)
+      .filter(([, value]) => value !== removed),
+  );
+
+/**
+ * `data` with each value at a dotted field path written into it and its
+ * sentinels resolved at `now`, creating maps along the way and replacing
+ * whatever was there that isn't one. Deleting a field that isn't there
+ * changes nothing.
+ */
+const applyUpdate = (data: DocumentData, update: DocumentData, now: number): DocumentData => {
   const setAt = (
     target: { readonly [field: string]: unknown },
     [field, ...rest]: ReadonlyArray<string>,
     value: unknown,
   ): { readonly [field: string]: unknown } => {
     if (field === undefined) return target;
-    if (rest.length === 0) return { ...target, [field]: value };
+    if (rest.length === 0) {
+      const { [field]: before, ...others } = target;
+      const after = resolve(value, before, now);
+      return after === removed ? others : { ...target, [field]: after };
+    }
     const child = target[field];
+    if (!isMap(child) && fieldValue.isDeleteField(value)) return target;
     return { ...target, [field]: setAt(isMap(child) ? child : {}, rest, value) };
   };
   return Object.entries(update).reduce(
@@ -109,11 +163,13 @@ const applyUpdate = (data: DocumentData, update: DocumentData): DocumentData => 
 
 /**
  * What the document at each path written becomes, with every write of the
- * batch applied in order, or the error that refuses the whole batch.
+ * batch applied in order and its sentinels resolved at `now`, or the error
+ * that refuses the whole batch.
  */
 const stage = (
   store: Store,
   writes: ReadonlyArray<Write>,
+  now: number,
 ): Map<string, DocumentData | undefined> | FirestoreError => {
   const staged = new Map<string, DocumentData | undefined>();
   const current = (path: string) =>
@@ -121,7 +177,7 @@ const stage = (
   for (const write of writes) {
     switch (write._tag) {
       case "Set":
-        staged.set(write.path, write.data);
+        staged.set(write.path, resolveMap(write.data, now) as DocumentData);
         break;
       case "Update": {
         const before = current(write.path);
@@ -132,7 +188,7 @@ const stage = (
             cause: new Error(`No document to update: ${write.path}`),
           });
         }
-        staged.set(write.path, applyUpdate(before, write.data));
+        staged.set(write.path, applyUpdate(before, write.data, now));
         break;
       }
       case "Delete":
@@ -152,7 +208,8 @@ const stage = (
  *
  * Checking and applying happen in one synchronous step, so no other fiber
  * sees half a commit; a transaction's version check belongs in that step too.
- * Sentinels die for now.
+ * `Clock` is read before that step, so every `serverTimestamp` of a commit
+ * resolves to the same time.
  *
  * @internal
  */
@@ -160,11 +217,8 @@ export const commit = (
   store: Store,
   writes: ReadonlyArray<Write>,
 ): Effect.Effect<void, FirestoreError> =>
-  Effect.suspend(() => {
-    if (writes.some((write) => write._tag !== "Delete" && containsSentinel(write.data))) {
-      return Effect.die(notYetSupported("Sentinels"));
-    }
-    const staged = stage(store, writes);
+  Effect.flatMap(Clock.currentTimeMillis, (now) => {
+    const staged = stage(store, writes, now);
     if (staged instanceof FirestoreError) return Effect.fail(staged);
     for (const [path, data] of staged) {
       if (data === undefined) store.documents.delete(path);

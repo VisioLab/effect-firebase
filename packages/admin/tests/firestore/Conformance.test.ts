@@ -1,8 +1,10 @@
 import { describe } from "@effect/vitest";
-import { Layer } from "effect";
+import { Effect, Layer } from "effect";
+import type * as Admin from "firebase-admin/firestore";
 import { testFirestore } from "@visiolab/firestore-conformance";
 import * as App from "../../src/app/App.ts";
 import * as AdminFirestore from "../../src/firestore/AdminFirestore.ts";
+import * as AdminFirestoreValue from "../../src/firestore/AdminFirestoreValue.ts";
 import { clear } from "./emulator.ts";
 
 const projectId = "demo-admin-conformance";
@@ -15,5 +17,12 @@ const layer = AdminFirestore.layer().pipe(
 );
 
 describe("AdminFirestore, against the emulator, conformance", () => {
-  testFirestore(layer);
+  testFirestore(layer, {
+    seedRaw: (path, data) =>
+      Effect.flatMap(AdminFirestore.AdminFirestore, ({ instance }) =>
+        Effect.promise(() =>
+          instance.doc(path).set(AdminFirestoreValue.toAdmin(data, instance) as Admin.DocumentData),
+        ),
+      ),
+  });
 });
