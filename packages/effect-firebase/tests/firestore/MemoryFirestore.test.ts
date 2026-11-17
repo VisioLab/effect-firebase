@@ -1,5 +1,16 @@
 import { assert, describe, expect, it } from "@effect/vitest";
-import { DateTime, Effect, Exit, HashMap, Queue, Random, Ref, Schema, Stream } from "effect";
+import {
+  DateTime,
+  Effect,
+  Exit,
+  HashMap,
+  Option,
+  Queue,
+  Random,
+  Ref,
+  Schema,
+  Stream,
+} from "effect";
 import { TestClock } from "effect/testing";
 import * as Collection from "../../src/firestore/Collection.ts";
 import * as DocumentSnapshot from "../../src/firestore/DocumentSnapshot.ts";
@@ -114,8 +125,8 @@ describe("Firestore.layerMemory", () => {
         });
 
         const stored = { name: "Alice", address: { city: "Berlin", street: "Main" } };
-        expect(yield* driver.get("users/alice")).toStrictEqual(stored);
-        expect(yield* driver.get("users/bob")).toBeUndefined();
+        expect(yield* driver.get("users/alice")).toStrictEqual(Option.some(stored));
+        expect(yield* driver.get("users/bob")).toStrictEqual(Option.none());
         expect(HashMap.toEntries(yield* driver.documents)).toStrictEqual([["users/alice", stored]]);
       }),
     ),
@@ -203,10 +214,9 @@ describe("Firestore.layerMemory", () => {
         });
         yield* firestore.updateDoc(alice, { address: { city: "Paris" } });
 
-        expect(yield* driver.get("users/alice")).toStrictEqual({
-          name: "Alice",
-          address: { city: "Paris", street: "Main" },
-        });
+        expect(yield* driver.get("users/alice")).toStrictEqual(
+          Option.some({ name: "Alice", address: { city: "Paris", street: "Main" } }),
+        );
       }),
     ),
   );
@@ -424,10 +434,12 @@ describe("Firestore.layerMemory", () => {
         yield* TestClock.setTime(seen);
         yield* firestore.updateDoc(visit, { seenAt: FieldValue.serverTimestamp });
 
-        expect(yield* driver.get("visits/visit")).toStrictEqual({
-          at: Timestamp.fromMillisUnsafe(created),
-          seenAt: Timestamp.fromMillisUnsafe(seen),
-        });
+        expect(yield* driver.get("visits/visit")).toStrictEqual(
+          Option.some({
+            at: Timestamp.fromMillisUnsafe(created),
+            seenAt: Timestamp.fromMillisUnsafe(seen),
+          }),
+        );
         const data = yield* read(yield* firestore.getDoc(visit));
         expect(DateTime.toEpochMillis(data.at)).toBe(created);
         expect(DateTime.toEpochMillis(data.seenAt)).toBe(seen);

@@ -11,6 +11,7 @@ import {
   Clock,
   Data,
   Effect,
+  Equivalence,
   HashMap,
   Option,
   Order,
@@ -169,26 +170,23 @@ const written = (
   state: State,
   write: Write,
   now: number,
-): Result.Result<DocumentData | undefined, FirestoreError> => {
-  switch (write._tag) {
-    case "Set":
-      return Result.succeed(resolveMap(write.data, now));
-    case "Update": {
-      const before = dataAt(state, write.path);
-      return before === undefined
-        ? Result.fail(
+): Result.Result<DocumentData | undefined, FirestoreError> =>
+  Write.$match(write, {
+    Set: ({ data }) => Result.succeed(resolveMap(data, now)),
+    Update: ({ path, data }) =>
+      Option.match(HashMap.get(state.documents, path), {
+        onNone: () =>
+          Result.fail(
             new FirestoreError({
-              message: `Failed to update the document "${write.path}"`,
+              message: `Failed to update the document "${path}"`,
               code: "not-found",
-              cause: new Error(`No document to update: ${write.path}`),
+              cause: new Error(`No document to update: ${path}`),
             }),
-          )
-        : Result.succeed(applyUpdate(before, write.data, now));
-    }
-    case "Delete":
-      return Result.succeed(undefined);
-  }
-};
+          ),
+        onSome: (before) => Result.succeed(applyUpdate(before, data, now)),
+      }),
+    Delete: () => Result.succeed(undefined),
+  });
 
 /**
  * `state` with every write of the batch applied in order, its sentinels
@@ -261,9 +259,9 @@ class Conflict extends Data.TaggedError(ConflictTag) {}
 
 /** Fails with a {@link Conflict} when a path in `reads` is no longer at the version recorded for it. */
 const unchangedSince =
-  (reads: ReadonlyMap<string, number>) =>
+  (reads: HashMap.HashMap<string, number>) =>
   (state: State): Result.Result<void, Conflict> =>
-    Array.from(reads).some(([path, version]) => versionOf(state, path) !== version)
+    HashMap.some(reads, (version, path) => versionOf(state, path) !== version)
       ? Result.fail(new Conflict())
       : Result.void;
 
@@ -293,7 +291,7 @@ const runTransaction = <A, E>(
   maxAttempts: number,
 ): Effect.Effect<A, E | FirestoreError> =>
   Effect.gen(function* () {
-    const reads = yield* Ref.make<ReadonlyMap<string, number>>(new Map());
+    const reads = yield* Ref.make(HashMap.empty<string, number>());
     const writes = yield* Ref.make<ReadonlyArray<Write>>([]);
     const buffer = (write: Write) => Ref.update(writes, (buffered) => [...buffered, write]);
     const a = yield* body({
@@ -302,7 +300,9 @@ const runTransaction = <A, E>(
           if ((yield* Ref.get(writes)).length > 0) return yield* readAfterWrite(path);
           const state = yield* SubscriptionRef.get(store);
           yield* Ref.update(reads, (recorded) =>
-            recorded.has(path) ? recorded : new Map(recorded).set(path, versionOf(state, path)),
+            HashMap.has(recorded, path)
+              ? recorded
+              : HashMap.set(recorded, path, versionOf(state, path)),
           );
           yield* roundTrip;
           return { data: dataAt(state, path) };
@@ -375,15 +375,19 @@ const docOf = (state: State, path: string): Firestore.DocumentRead => ({
   data: dataAt(state, path),
 });
 
-const sameDoc = (self: Firestore.DocumentRead, that: Firestore.DocumentRead): boolean =>
-  firestoreValueWalk.equals(self.data, that.data);
+const sameData: Equivalence.Equivalence<DocumentData | undefined> = Equivalence.make(
+  firestoreValueWalk.equals,
+);
 
-const sameDocs = (self: Firestore.QueryRead, that: Firestore.QueryRead): boolean =>
-  self.docs.length === that.docs.length &&
-  self.docs.every(
-    (doc, i) =>
-      doc.path === that.docs[i]!.path && firestoreValueWalk.equals(doc.data, that.docs[i]!.data),
-  );
+const sameDoc: Equivalence.Equivalence<Firestore.DocumentRead> = Equivalence.mapInput(
+  sameData,
+  (read) => read.data,
+);
+
+const sameDocs: Equivalence.Equivalence<Firestore.QueryRead> = Equivalence.mapInput(
+  Equivalence.Array(Equivalence.Struct({ path: Equivalence.String, data: sameData })),
+  (read) => read.docs,
+);
 
 /**
  * A live listener on what `select` picks from the state: it emits that when
@@ -394,7 +398,7 @@ const sameDocs = (self: Firestore.QueryRead, that: Firestore.QueryRead): boolean
 const listen = <A>(
   store: Store,
   select: (state: State) => A,
-  same: (self: A, that: A) => boolean,
+  same: Equivalence.Equivalence<A>,
 ): Stream.Stream<A> =>
   SubscriptionRef.changes(store).pipe(
     Stream.buffer({ capacity: 1, strategy: "sliding" }),
@@ -431,7 +435,8 @@ export const hooks = (store: Store): Firestore.MakeOptions => {
  * @internal
  */
 export const driver = (store: Store): Firestore.MemoryDriver => ({
-  get: (path) => Effect.map(SubscriptionRef.get(store), (state) => dataAt(state, path)),
+  get: (path) =>
+    Effect.map(SubscriptionRef.get(store), (state) => HashMap.get(state.documents, path)),
   set: (path, data) =>
     Effect.gen(function* () {
       // Sentinels are Firestore Values, so `isFirestoreValue` alone lets them through.

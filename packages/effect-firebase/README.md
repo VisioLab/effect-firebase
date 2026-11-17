@@ -72,7 +72,7 @@ Code that only asks for the portable `Firestore` runs against the In-memory Fire
 
 ```ts
 import { expect, it } from "@effect/vitest";
-import { Effect, Random, Schema } from "effect";
+import { Effect, Option, Random, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import {
   Collection,
@@ -122,11 +122,13 @@ it.effect("records a visit", () =>
     yield* TestClock.setTime(Date.parse("2026-01-02T03:04:05Z"));
     yield* recordVisit("alice");
 
-    expect(yield* driver.get("users/alice")).toStrictEqual({
-      name: "Alice",
-      visits: 2,
-      seenAt: Timestamp.fromMillisUnsafe(Date.parse("2026-01-02T03:04:05Z")),
-    });
+    expect(yield* driver.get("users/alice")).toStrictEqual(
+      Option.some({
+        name: "Alice",
+        visits: 2,
+        seenAt: Timestamp.fromMillisUnsafe(Date.parse("2026-01-02T03:04:05Z")),
+      }),
+    );
   }).pipe(Effect.provide(Firestore.layerMemory)),
 );
 

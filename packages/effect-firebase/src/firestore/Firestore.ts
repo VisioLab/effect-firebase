@@ -45,7 +45,7 @@
  * @since 0.2.0
  */
 import { Context, Effect, Layer } from "effect";
-import type { HashMap, Schema, Stream } from "effect";
+import type { HashMap, Option, Schema, Stream } from "effect";
 import type * as Result from "effect/Result";
 import type * as Collection from "./Collection.ts";
 import type * as CollectionGroup from "./CollectionGroup.ts";
@@ -1525,7 +1525,7 @@ export const streamFromListener: <S, A>(
  *   yield* driver.set("users/alice", { name: 42 });
  *
  *   yield* firestore.setDoc(Users.doc(Users.id.make("bob")), { name: "Bob" });
- *   return yield* driver.get("users/bob"); // { name: "Bob" }
+ *   return yield* driver.get("users/bob"); // Option.some({ name: "Bob" })
  * }).pipe(Effect.provide(Firestore.layerMemory));
  * ```
  *
@@ -1537,8 +1537,8 @@ export const streamFromListener: <S, A>(
  * @since 0.4.0
  */
 export interface MemoryDriver {
-  /** Reads the data stored at the document path `path`, or `undefined` where there is none. */
-  readonly get: (path: string) => Effect.Effect<DocumentData | undefined>;
+  /** Reads the data stored at the document path `path`, or none where there is none. */
+  readonly get: (path: string) => Effect.Effect<Option.Option<DocumentData>>;
   /**
    * Stores `data` at the document path `path`, replacing whatever was there.
    * Dies on a sentinel, such as {@link FieldValue.serverTimestamp}, as stored
@@ -1675,7 +1675,7 @@ export const makeMemory: Effect.Effect<{
  * const test = Effect.gen(function* () {
  *   const driver = yield* Firestore.MemoryDriver;
  *   const ref = yield* signUp("Alice");
- *   return yield* driver.get(ref.path); // { name: "Alice" }
+ *   return yield* driver.get(ref.path); // Option.some({ name: "Alice" })
  * }).pipe(Effect.provide(Firestore.layerMemory), Random.withSeed("ids"));
  * ```
  *
