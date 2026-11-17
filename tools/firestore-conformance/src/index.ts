@@ -9,16 +9,19 @@
  */
 import { assert, describe, expect, it } from "@effect/vitest";
 import {
+  Array,
   Clock,
   Context,
   DateTime,
   Deferred,
   Effect,
   Equal,
+  Equivalence,
   Exit,
   Fiber,
   Layer,
   Option,
+  Order,
   Queue,
   Ref,
   Schema,
@@ -147,9 +150,12 @@ export const testFirestore = <E, R = never>(
 
           expect(added.id).not.toBe(hello);
           assert(QuerySnapshot.isQuerySnapshot(snapshot));
-          expect(snapshot.docs.map((doc) => doc.id).toSorted()).toEqual(
-            [hello, added.id].toSorted(),
-          );
+          expect(
+            Array.sort(
+              snapshot.docs.map((doc) => doc.id),
+              Order.String,
+            ),
+          ).toEqual(Array.sort([hello, added.id], Order.String));
         }),
       ),
     );
@@ -398,10 +404,10 @@ export const testFirestore = <E, R = never>(
 
           const snapshot = yield* firestore.getDocs(AllUserPosts);
 
-          const read = yield* Effect.forEach(snapshot.docs, (doc) =>
-            Effect.map(doc.data, (data) => ({ doc, data })),
+          const byPath = yield* Effect.forEach(
+            Array.sort(snapshot.docs, Order.mapInput(Order.String, pathOf)),
+            (doc) => Effect.map(doc.data, (data) => ({ doc, data })),
           );
-          const byPath = read.toSorted((a, b) => a.doc.ref.path.localeCompare(b.doc.ref.path));
 
           expect(byPath.map(({ doc }) => doc.ref.path)).toEqual([
             "users/alice/posts/again",
@@ -571,9 +577,11 @@ export const testFirestore = <E, R = never>(
 
           yield* firestore.updateDoc(UserPosts.doc(alice, greeting), { views: 3 });
           const updated = yield* eventually(snapshots, (snapshot) =>
-            Effect.map(viewsByPath(snapshot), (views) => views.join() === "3,2"),
+            Effect.map(viewsByPath(snapshot), (views) =>
+              Equivalence.Array(Equivalence.Number)(views, [3, 2]),
+            ),
           );
-          expect(updated.docs.map((doc) => doc.ref.path).toSorted()).toEqual([
+          expect(Array.sort(updated.docs.map(pathOf), Order.String)).toEqual([
             "users/alice/posts/hello",
             "users/bob/posts/intro",
           ]);
@@ -863,7 +871,7 @@ export const testFirestore = <E, R = never>(
 
             // Every one of them counted from what the one before it wrote,
             // which only holds where the ones that read too early ran again.
-            expect(results.toSorted((a, b) => a - b)).toEqual([1, 2, 3, 4]);
+            expect(Array.sort(results, Order.Number)).toEqual([1, 2, 3, 4]);
             expect(yield* valueOf(counter)).toBe(4);
             expect(yield* Ref.get(runs)).toBeGreaterThan(4);
           }),
@@ -1143,12 +1151,7 @@ const listening = <A, E>(stream: Stream.Stream<A, E>) =>
 const eventually = <A, E, E2>(
   snapshots: Queue.Dequeue<A, E>,
   holds: (snapshot: A) => Effect.Effect<boolean, E2>,
-): Effect.Effect<A, E | E2> =>
-  Effect.flatMap(Queue.take(snapshots), (snapshot) =>
-    Effect.flatMap(holds(snapshot), (held) =>
-      held ? Effect.succeed(snapshot) : eventually(snapshots, holds),
-    ),
-  );
+): Effect.Effect<A, E | E2> => Effect.repeat(Queue.take(snapshots), { until: holds });
 
 /** Whether a document snapshot holds a post with the `expected` fields. */
 const holdsPost =
@@ -1165,13 +1168,18 @@ interface Listed {
   readonly docs: ReadonlyArray<{ readonly ref: { readonly path: string } }>;
 }
 
+/** The path of a document in a query snapshot. */
+const pathOf = (doc: Listed["docs"][number]): string => doc.ref.path;
+
+const samePaths = Equivalence.Array(Equivalence.String);
+
 /** Whether a query snapshot holds exactly the documents at `paths`, in any order. */
 const holdsPaths = (paths: ReadonlyArray<string>) => (snapshot: Listed) =>
   Effect.succeed(
-    snapshot.docs
-      .map((doc) => doc.ref.path)
-      .toSorted()
-      .join() === paths.toSorted().join(),
+    samePaths(
+      Array.sort(Array.map(snapshot.docs, pathOf), Order.String),
+      Array.sort(paths, Order.String),
+    ),
   );
 
 /** The views of each post in a query snapshot, in the order of their paths. */
@@ -1181,9 +1189,8 @@ const viewsByPath = <E>(snapshot: {
     readonly data: Effect.Effect<Post, E>;
   }>;
 }) =>
-  Effect.forEach(
-    snapshot.docs.toSorted((a, b) => a.ref.path.localeCompare(b.ref.path)),
-    (doc) => Effect.map(doc.data, (post) => post.views),
+  Effect.forEach(Array.sort(snapshot.docs, Order.mapInput(Order.String, pathOf)), (doc) =>
+    Effect.map(doc.data, (post) => post.views),
   );
 
 /** The data of a document snapshot, decoded, dying when the document is missing. */

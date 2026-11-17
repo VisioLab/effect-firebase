@@ -79,6 +79,11 @@ const isMap = (u: unknown): u is DocumentData => firestoreValueWalk.isMap(u);
 
 const isArrayValue = (u: Value | undefined): u is ReadonlyArray<Value> => Array.isArray(u);
 
+/** Firestore Value equality, which `arrayUnion`, `arrayRemove` and listeners compare by. */
+const sameValue: Equivalence.Equivalence<Value | undefined> = Equivalence.make(
+  firestoreValueWalk.equals,
+);
+
 const isSentinel = (u: unknown): boolean =>
   fieldValue.isServerTimestamp(u) ||
   fieldValue.isIncrement(u) ||
@@ -106,22 +111,16 @@ const resolve = (value: Value, before: Value | undefined, now: number): Option.O
   }
   if (fieldValue.isArrayUnion(value)) {
     return Option.some(
-      value.elements.reduce<ReadonlyArray<Value>>(
-        (elements, element) =>
-          elements.some((present) => firestoreValueWalk.equals(present, element))
-            ? elements
-            : [...elements, element],
-        isArrayValue(before) ? before : [],
+      Array.reduce(value.elements, isArrayValue(before) ? before : [], (elements, element) =>
+        Array.containsWith<Value>(sameValue)(elements, element)
+          ? elements
+          : Array.append(elements, element),
       ),
     );
   }
   if (fieldValue.isArrayRemove(value)) {
     return Option.some(
-      isArrayValue(before)
-        ? before.filter(
-            (element) => !value.elements.some((gone) => firestoreValueWalk.equals(gone, element)),
-          )
-        : [],
+      isArrayValue(before) ? Array.differenceWith<Value>(sameValue)(before, value.elements) : [],
     );
   }
   if (isMap(value)) return Option.some(resolveMap(value, now));
@@ -380,17 +379,13 @@ const docOf = (state: State, path: string): Firestore.DocumentRead => ({
   data: dataAt(state, path),
 });
 
-const sameData: Equivalence.Equivalence<DocumentData | undefined> = Equivalence.make(
-  firestoreValueWalk.equals,
-);
-
 const sameDoc: Equivalence.Equivalence<Firestore.DocumentRead> = Equivalence.mapInput(
-  sameData,
+  sameValue,
   (read) => read.data,
 );
 
 const sameDocs: Equivalence.Equivalence<Firestore.QueryRead> = Equivalence.mapInput(
-  Equivalence.Array(Equivalence.Struct({ path: Equivalence.String, data: sameData })),
+  Equivalence.Array(Equivalence.Struct({ path: Equivalence.String, data: sameValue })),
   (read) => read.docs,
 );
 
