@@ -1,24 +1,23 @@
 import { assert, describe, expect, it } from "@effect/vitest";
-import { DateTime, Effect, Exit, Queue, Random, Ref, Schema } from "effect";
+import { DateTime, Effect, Exit, Queue, Random, Ref, Schema, Stream } from "effect";
 import { TestClock } from "effect/testing";
-import {
-  Collection,
-  DocumentSnapshot,
-  FieldValue,
-  Firestore,
-  FirestoreModel,
-  type QuerySnapshot,
-  Timestamp,
-} from "@visiolab/effect-firebase/firestore";
-import { listening, read, testFirestore } from "@visiolab/firestore-conformance";
+import * as Collection from "../../src/firestore/Collection.ts";
+import * as DocumentSnapshot from "../../src/firestore/DocumentSnapshot.ts";
+import * as FieldValue from "../../src/firestore/FieldValue.ts";
+import * as Firestore from "../../src/firestore/Firestore.ts";
+import * as FirestoreModel from "../../src/firestore/FirestoreModel.ts";
+import type * as QuerySnapshot from "../../src/firestore/QuerySnapshot.ts";
+import * as Timestamp from "../../src/firestore/Timestamp.ts";
 
-describe("Firestore.layerMemory, conformance", () => {
-  testFirestore(Firestore.layerMemory, {
-    seedRaw: (path, data) =>
-      Effect.flatMap(Firestore.MemoryDriver, (driver) => driver.set(path, data)),
-    abortCode: "aborted",
-  });
-});
+// The conformance suite runs against `Firestore.layerMemory` from
+// `tools/firestore-conformance`, since core never depends on that package.
+// These are the tests only the In-memory Firestore needs.
+
+const listening = <A, E>(stream: Stream.Stream<A, E>) =>
+  Stream.toQueue(stream, { capacity: "unbounded" });
+
+const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnapshot<C>) =>
+  DocumentSnapshot.isExisting(snapshot) ? snapshot.data : Effect.die("missing");
 
 class Address extends FirestoreModel.Class<Address>("Address")({
   city: Schema.String,

@@ -1135,7 +1135,7 @@ export const testFirestore = <E, R = never>(
  * Runs `stream` into a queue for the rest of the scope, so no snapshot is
  * dropped for arriving while the test was busy writing.
  */
-export const listening = <A, E>(stream: Stream.Stream<A, E>) =>
+const listening = <A, E>(stream: Stream.Stream<A, E>) =>
   Stream.toQueue(stream, { capacity: "unbounded" });
 
 /**
@@ -1189,7 +1189,7 @@ const viewsByPath = <E>(snapshot: {
   );
 
 /** The data of a document snapshot, decoded, dying when the document is missing. */
-export const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnapshot<C>) =>
+const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnapshot<C>) =>
   DocumentSnapshot.isExisting(snapshot) ? snapshot.data : Effect.die("missing");
 
 class Post extends FirestoreModel.Class<Post>("Post")({
