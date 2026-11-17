@@ -8,7 +8,7 @@
  * transactions check versions at commit.
  */
 import {
-  Array as Arr,
+  Array,
   Clock,
   Data,
   Effect,
@@ -77,6 +77,8 @@ const Write = Data.taggedEnum<Write>();
 
 const isMap = (u: unknown): u is DocumentData => firestoreValueWalk.isMap(u);
 
+const isArrayValue = (u: Value | undefined): u is ReadonlyArray<Value> => Array.isArray(u);
+
 const isSentinel = (u: unknown): boolean =>
   fieldValue.isServerTimestamp(u) ||
   fieldValue.isIncrement(u) ||
@@ -109,13 +111,13 @@ const resolve = (value: Value, before: Value | undefined, now: number): Option.O
           elements.some((present) => firestoreValueWalk.equals(present, element))
             ? elements
             : [...elements, element],
-        Array.isArray(before) ? before : [],
+        isArrayValue(before) ? before : [],
       ),
     );
   }
   if (fieldValue.isArrayRemove(value)) {
     return Option.some(
-      Array.isArray(before)
+      isArrayValue(before)
         ? before.filter(
             (element) => !value.elements.some((gone) => firestoreValueWalk.equals(gone, element)),
           )
@@ -370,7 +372,7 @@ const docsOf = (state: State, selector: Firestore.CollectionSelector): Firestore
     HashMap.filter((_, path) => covers(selector, path)),
     HashMap.map((data, path) => ({ path, data })),
     HashMap.toValues,
-    Arr.sort(byPath),
+    Array.sort(byPath),
   ),
 });
 
