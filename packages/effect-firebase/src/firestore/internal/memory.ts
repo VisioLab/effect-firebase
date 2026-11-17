@@ -8,6 +8,7 @@
  * transactions check versions at commit.
  */
 import {
+  Array as Arr,
   Clock,
   Data,
   Effect,
@@ -365,10 +366,12 @@ const covers = (selector: Firestore.CollectionSelector, path: string): boolean =
 
 /** The documents `selector` covers, in the order of their paths. */
 const docsOf = (state: State, selector: Firestore.CollectionSelector): Firestore.QueryRead => ({
-  docs: Array.from(state.documents)
-    .filter(([path]) => covers(selector, path))
-    .map(([path, data]) => ({ path, data }))
-    .toSorted(byPath),
+  docs: state.documents.pipe(
+    HashMap.filter((_, path) => covers(selector, path)),
+    HashMap.map((data, path) => ({ path, data })),
+    HashMap.toValues,
+    Arr.sort(byPath),
+  ),
 });
 
 const docOf = (state: State, path: string): Firestore.DocumentRead => ({
