@@ -7,9 +7,9 @@ import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import * as Collection from "@visiolab/effect-firebase/firestore/Collection";
 import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreModel";
 import * as DocumentTrigger from "@visiolab/effect-firebase/functions/DocumentTrigger";
+import { consoleLog, spansLog, triggersLog } from "@visiolab/functions-fixture/records";
 import * as Functions from "../../src/Functions.ts";
 import { readLines, waitForLine } from "../records.ts";
-import { consoleLog, spansLog, triggersLog } from "@visiolab/functions-fixture/records";
 
 const project = "demo-effect-firebase";
 

@@ -3,8 +3,8 @@ import { randomUUID } from "node:crypto";
 import { Effect } from "effect";
 import { getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
-import { waitForLine } from "../records.ts";
 import { triggersLog } from "@visiolab/functions-fixture/records";
+import { waitForLine } from "../records.ts";
 
 interface RecordedEvent {
   readonly trigger: string;

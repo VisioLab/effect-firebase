@@ -5,8 +5,8 @@ import { getApps as getAdminApps, initializeApp as initializeAdminApp } from "fi
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { deleteApp, initializeApp } from "firebase/app";
 import { connectFunctionsEmulator, getFunctions, httpsCallable } from "firebase/functions";
-import { waitForLine } from "./records.ts";
 import { triggersLog } from "@visiolab/functions-fixture/records";
+import { waitForLine } from "./records.ts";
 
 const [host = "127.0.0.1", port = "5001"] = (process.env["FUNCTIONS_EMULATOR_HOST"] ?? "").split(
   ":",

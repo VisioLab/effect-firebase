@@ -9,8 +9,8 @@ import {
   httpsCallable,
 } from "firebase/functions";
 import { readFileSync } from "node:fs";
-import * as Functions from "../../src/Functions.ts";
 import { serverLog } from "@visiolab/functions-fixture/records";
+import * as Functions from "../../src/Functions.ts";
 
 const [host = "127.0.0.1", port = "5001"] = (process.env["FUNCTIONS_EMULATOR_HOST"] ?? "").split(
   ":",
