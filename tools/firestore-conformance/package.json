@@ -1,0 +1,27 @@
+{
+  "name": "@visiolab/firestore-conformance",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The conformance suite every Firestore backend in the workspace runs.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "test": "vp test",
+    "check": "vp check"
+  },
+  "dependencies": {
+    "@effect/vitest": "catalog:",
+    "@visiolab/effect-firebase": "workspace:^",
+    "effect": "catalog:",
+    "vitest": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}
