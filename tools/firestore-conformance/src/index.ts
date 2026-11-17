@@ -213,6 +213,23 @@ export const testFirestore = <E, R = never>(
         }),
       ),
     );
+
+    it.effect("lists a collection in the order of its ids' UTF-8 bytes", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+          // UTF-16 puts the astral character first, UTF-8 the private-use one.
+          const astral = Posts.id.make("\u{10000}");
+          const privateUse = Posts.id.make("");
+
+          yield* firestore.setDoc(Posts.doc(astral), { title: "Astral", views: 1 });
+          yield* firestore.setDoc(Posts.doc(privateUse), { title: "Private use", views: 2 });
+          const snapshot = yield* firestore.getDocs(Posts.collection());
+
+          expect(snapshot.docs.map((doc) => doc.id)).toEqual([privateUse, astral]);
+        }),
+      ),
+    );
   });
 
   describe("on a collection of a union", () => {

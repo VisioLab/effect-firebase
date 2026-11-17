@@ -18,6 +18,7 @@ import {
   Order,
   Predicate,
   Random,
+  Record,
   Ref,
   Result,
   Stream,
@@ -58,8 +59,9 @@ export const makeStore: Effect.Effect<Store> = SubscriptionRef.make<State>({
 const versionOf = (state: State, path: string): number =>
   Option.getOrElse(HashMap.get(state.versions, path), () => 0);
 
+/** The data stored at `path`, copied, so a reader can't change the store through it. */
 const dataAt = (state: State, path: string): DocumentData | undefined =>
-  Option.getOrUndefined(HashMap.get(state.documents, path));
+  Option.getOrUndefined(Option.map(HashMap.get(state.documents, path), copyData));
 
 /**
  * One write of a commit. `Update` data is keyed by field path, segments joined
@@ -78,6 +80,19 @@ const Write = Data.taggedEnum<Write>();
 const isMap = (u: unknown): u is DocumentData => firestoreValueWalk.isMap(u);
 
 const isArrayValue = (u: Value | undefined): u is ReadonlyArray<Value> => Array.isArray(u);
+
+/**
+ * `value` with its maps, arrays and bytes copied, so that neither a writer
+ * nor a reader holds on to what is stored and changes it behind a commit.
+ */
+const copy = (value: Value): Value => {
+  if (value instanceof Uint8Array) return value.slice();
+  if (isArrayValue(value)) return Array.map(value, copy);
+  if (isMap(value)) return copyData(value);
+  return value;
+};
+
+const copyData = (data: DocumentData): DocumentData => Record.map(data, copy);
 
 /** Firestore Value equality, which `arrayUnion`, `arrayRemove` and listeners compare by. */
 const sameValue: Equivalence.Equivalence<Value | undefined> = Equivalence.make(
@@ -114,7 +129,7 @@ const resolve = (value: Value, before: Value | undefined, now: number): Option.O
       Array.reduce(value.elements, isArrayValue(before) ? before : [], (elements, element) =>
         Array.containsWith<Value>(sameValue)(elements, element)
           ? elements
-          : Array.append(elements, element),
+          : Array.append(elements, copy(element)),
       ),
     );
   }
@@ -124,7 +139,7 @@ const resolve = (value: Value, before: Value | undefined, now: number): Option.O
     );
   }
   if (isMap(value)) return Option.some(resolveMap(value, now));
-  return Option.some(value);
+  return Option.some(copy(value));
 };
 
 /** `map` with every sentinel inside it resolved over nothing. */
@@ -344,7 +359,13 @@ const newId: Effect.Effect<string> = Effect.map(
  * results of a query with no order of its own.
  */
 const byPath: Order.Order<Firestore.QueryDocumentRead> = Order.mapInput(
-  Order.Array(Order.String),
+  Order.Array(
+    // By code point, which is the order of UTF-8 bytes, where comparing strings
+    // goes by UTF-16 code units and puts characters beyond U+FFFF too early.
+    Order.mapInput(Order.Array(Order.Number), (segment: string) =>
+      Array.map(Array.fromIterable(segment), (character) => character.codePointAt(0) ?? 0),
+    ),
+  ),
   (doc) => doc.path.split("/"),
 );
 
@@ -369,7 +390,7 @@ const covers = (selector: Firestore.CollectionSelector, path: string): boolean =
 const docsOf = (state: State, selector: Firestore.CollectionSelector): Firestore.QueryRead => ({
   docs: state.documents.pipe(
     HashMap.filter((_, path) => covers(selector, path)),
-    HashMap.map((data, path) => ({ path, data })),
+    HashMap.map((data, path) => ({ path, data: copyData(data) })),
     HashMap.toValues,
     Array.sort(byPath),
   ),
@@ -407,6 +428,23 @@ const listen = <A>(
   );
 
 /**
+ * Fails when a document is stored at `path` already: `addDoc` only creates
+ * one, as on the SDKs, so a drawn id that is taken doesn't overwrite it.
+ */
+const absent =
+  (collectionPath: string, path: string) =>
+  (state: State): Result.Result<void, FirestoreError> =>
+    HashMap.has(state.documents, path)
+      ? Result.fail(
+          new FirestoreError({
+            message: `Failed to add a document to "${collectionPath}"`,
+            code: "already-exists",
+            cause: new Error(`Document already exists: ${path}`),
+          }),
+        )
+      : Result.void;
+
+/**
  * The hooks of the In-memory Firestore over `store`.
  *
  * @internal
@@ -420,7 +458,9 @@ export const hooks = (store: Store): Firestore.MakeOptions => {
     updateDoc: (path, data) => commit(store, [Write.Update({ path, data })]),
     deleteDoc: (path) => commit(store, [Write.Delete({ path })]),
     addDoc: (path, data) =>
-      Effect.tap(newId, (id) => commit(store, [Write.Set({ path: `${path}/${id}`, data })])),
+      Effect.tap(newId, (id) =>
+        commit(store, [Write.Set({ path: `${path}/${id}`, data })], absent(path, `${path}/${id}`)),
+      ),
     streamDoc: (path) => listen(store, (state) => docOf(state, path), sameDoc),
     streamDocs: (selector) => listen(store, (state) => docsOf(state, selector), sameDocs),
     runTransaction: {
@@ -436,7 +476,9 @@ export const hooks = (store: Store): Firestore.MakeOptions => {
  */
 export const driver = (store: Store): Firestore.MemoryDriver => ({
   get: (path) =>
-    Effect.map(SubscriptionRef.get(store), (state) => HashMap.get(state.documents, path)),
+    Effect.map(SubscriptionRef.get(store), (state) =>
+      Option.map(HashMap.get(state.documents, path), copyData),
+    ),
   set: (path, data) =>
     Effect.gen(function* () {
       // Sentinels are Firestore Values, so `isFirestoreValue` alone lets them through.
@@ -453,5 +495,7 @@ export const driver = (store: Store): Firestore.MemoryDriver => ({
       yield* Effect.orDie(commit(store, [Write.Set({ path, data })]));
     }),
   delete: (path) => Effect.orDie(commit(store, [Write.Delete({ path })])),
-  documents: Effect.map(SubscriptionRef.get(store), (state) => state.documents),
+  documents: Effect.map(SubscriptionRef.get(store), (state) =>
+    HashMap.map(state.documents, copyData),
+  ),
 });

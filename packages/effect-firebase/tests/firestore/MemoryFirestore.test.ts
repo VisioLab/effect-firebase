@@ -418,6 +418,45 @@ describe("Firestore.layerMemory", () => {
     }),
   );
 
+  it.effect("refuses to add a document under an id already taken, and keeps the one there", () =>
+    memory(
+      Effect.gen(function* () {
+        const firestore = yield* Firestore.Firestore;
+        // Each seeded run starts the same sequence, so both draw the same id.
+        const first = yield* firestore
+          .addDoc(Users.collection(), berlin)
+          .pipe(Random.withSeed("same"));
+        const error = yield* Effect.flip(
+          firestore
+            .addDoc(Users.collection(), { name: "Bob", address: { city: "Paris", street: "High" } })
+            .pipe(Random.withSeed("same")),
+        );
+
+        assert(error instanceof Firestore.FirestoreError);
+        expect(error.code).toBe("already-exists");
+        expect((yield* read(yield* firestore.getDoc(first))).name).toBe("Alice");
+      }),
+    ),
+  );
+
+  it.effect("keeps stored bytes apart from the arrays written and read", () =>
+    memory(
+      Effect.gen(function* () {
+        const driver = yield* Firestore.MemoryDriver;
+        const written = new Uint8Array([1, 2]);
+
+        yield* driver.set("files/a", { bytes: written });
+        written[0] = 9;
+        const read = Option.getOrThrow(yield* driver.get("files/a"));
+        (read["bytes"] as Uint8Array)[1] = 9;
+
+        expect(yield* driver.get("files/a")).toStrictEqual(
+          Option.some({ bytes: new Uint8Array([1, 2]) }),
+        );
+      }),
+    ),
+  );
+
   it.effect("resolves a server timestamp to the time Clock tells at the commit", () =>
     memory(
       Effect.gen(function* () {

@@ -663,7 +663,8 @@ export interface With<
    * {@link Patch.replace} to write it whole.
    *
    * The document must exist: Firestore fails the update with a
-   * {@link FirestoreError} when it does not, and also rejects an empty patch.
+   * {@link FirestoreError} when it does not. An empty patch fails on the Admin
+   * SDK and changes nothing on the client SDK and the In-memory Firestore.
    *
    * Both modes encode the same fields at the same paths, so they require the
    * same services.
@@ -1584,7 +1585,10 @@ export const MemoryDriver = Context.Service<MemoryDriver>(
  * - `serverTimestamp` resolves to Effect's `Clock` at commit, so `TestClock`
  *   pins it.
  * - `addDoc` picks a 20-character id of letters and digits, drawn from
- *   Effect's `Random`, so a seeded `Random` makes it deterministic.
+ *   Effect's `Random`, so a seeded `Random` makes it deterministic. It only
+ *   creates, as on the SDKs: an id that is taken, as when two calls run under
+ *   the same seed, fails with a {@link FirestoreError} whose `code` is
+ *   `"already-exists"`.
  * - `updateDoc` writes each dotted key as a field path, and fails with a
  *   {@link FirestoreError} whose `code` is `"not-found"` on a missing document.
  * - `deleteDoc` succeeds on a missing document.
