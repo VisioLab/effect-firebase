@@ -30,10 +30,8 @@ const failureOf = (name: string, data: unknown) =>
       }),
       (functions) => Effect.promise(() => deleteApp(functions.app)),
     );
-    const error = yield* Effect.flip(
-      Effect.tryPromise(() => httpsCallable(functions, name)(data)).pipe(
-        Effect.mapError((error) => error.cause),
-      ),
+    const { cause: error } = yield* Effect.flip(
+      Effect.tryPromise(() => httpsCallable(functions, name)(data)),
     );
     if (!(error instanceof FunctionsError)) return yield* Effect.die(error);
     return { code: error.code, message: error.message, details: error.details };

@@ -31,7 +31,10 @@ const event = (raw: unknown) =>
     snapshot: DocumentSnapshot.existing(ref, raw),
   });
 
-class Failed extends Schema.TaggedError<Failed>()("Failed", {}) {}
+class Failed extends Schema.TaggedError<Failed, { readonly brand: unique symbol }>()(
+  "Failed",
+  {},
+) {}
 
 const serve = (
   live: Layer.Layer<DocumentTrigger.HandlerFor<typeof OnPostCreated>>,

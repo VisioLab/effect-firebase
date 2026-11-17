@@ -107,11 +107,8 @@ const writtenEvent = conversion(changeOf(sideOf), DocumentTrigger.writtenEvent);
 const logFailure = (message: string) => (cause: Cause.Cause<unknown>) =>
   Effect.logError(message, cause);
 
-/**
- * `DocumentTrigger.serve` of one trigger, with its requirements erased, since
- * the public signatures check that `live` meets them.
- */
-type Serve = Effect.Effect<(event: unknown) => Effect.Effect<void, unknown>, never, unknown>;
+/** What `DocumentTrigger.serve` of one trigger serves each event with. */
+type Serve = (event: unknown) => Effect.Effect<void, unknown>;
 
 /**
  * What an `onDocument*` provider returns, by the change it runs on.
@@ -141,7 +138,7 @@ export const deploy = <R, E>(
   options: object = {},
 ): Export => {
   const deployment = Member.call(group, trigger, DocumentTrigger.deployment);
-  const serve = Member.call<Serve>(group, trigger, DocumentTrigger.serve);
+  const serve = Member.serve<Serve, R>(group, trigger, DocumentTrigger.serve);
   const run = Runtime.make(live, {
     span: `DocumentTrigger.${deployment.name}`,
     attributes: { "faas.name": deployment.name, "faas.trigger": "datasource" },

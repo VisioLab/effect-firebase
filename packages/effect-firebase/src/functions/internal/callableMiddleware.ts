@@ -1,5 +1,6 @@
 /** @internal */
 import { Context, type Effect, type Schema } from "effect";
+import type { unhandled } from "effect/Types";
 
 /** @internal */
 export const TypeId = "~@visiolab/effect-firebase/functions/CallableMiddleware";
@@ -15,14 +16,16 @@ export interface Key extends Context.Key<never, Implementation> {
 }
 
 /**
- * A middleware's implementation as the chain runs it.
+ * A middleware's implementation as the chain runs it. It may catch what
+ * `effect` fails with, and fail with errors of its own, which the chain
+ * doesn't know the types of.
  *
  * @internal
  */
-export type Implementation = (
-  effect: Effect.Effect<unknown, unknown>,
+export type Implementation = <E>(
+  effect: Effect.Effect<unknown, E>,
   options: { readonly callable: unknown },
-) => Effect.Effect<unknown, unknown>;
+) => Effect.Effect<unknown, E | unhandled>;
 
 /**
  * The middleware attached to a Callable, as a union, from its phantom

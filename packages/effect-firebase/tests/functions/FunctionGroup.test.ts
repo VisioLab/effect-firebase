@@ -73,8 +73,8 @@ describe("FunctionGroup", () => {
         Callable.toLayer(Find, () => Effect.fail(new CallableError.NotFound())),
       );
       const [grouped, alone] = yield* Effect.all([
-        Effect.flip(call(Callable.serve(Lookups, "find"))),
-        Effect.flip(call(Callable.serve(Find))),
+        Effect.flip(Effect.asVoid(call(Callable.serve(Lookups, "find")))),
+        Effect.flip(Effect.asVoid(call(Callable.serve(Find)))),
       ]).pipe(Effect.provide(Live));
       expect(grouped.callable).toBe("lookups-find");
       expect(grouped.reason).toMatchObject({ _tag: "ResponseError", code: "not-found" });

@@ -1,5 +1,6 @@
 /** @internal */
 import { Context, Effect, Layer, Pipeable } from "effect";
+import type { unhandled } from "effect/Types";
 import type * as Collection from "../../firestore/Collection.ts";
 import type * as DocumentSnapshot from "../../firestore/DocumentSnapshot.ts";
 import * as FirebaseFunction from "./firebaseFunction.ts";
@@ -41,11 +42,12 @@ export const isDocumentTrigger = (u: unknown): u is Fields =>
 
 /**
  * A handler as it sits in the context: the services it was built with are
- * already provided, so it needs only those of the event.
+ * already provided, so it needs only those of the event. A trigger declares
+ * no errors, so what it fails with has no known type.
  *
  * @internal
  */
-export type HandlerService = (event: unknown) => Effect.Effect<void, unknown>;
+export type HandlerService = (event: unknown) => Effect.Effect<void, unhandled>;
 
 /**
  * What `toLayer` takes, with the types its signature has already checked

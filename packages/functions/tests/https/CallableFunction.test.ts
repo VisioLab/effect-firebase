@@ -65,10 +65,8 @@ describe("CallableFunction", () => {
   it.effect("sends a declared error as its code, a readable message and the encoded error", () =>
     Effect.gen(function* () {
       const fail = httpsCallable(yield* functions, "fail");
-      const error = yield* Effect.flip(
-        Effect.tryPromise(() => fail({ with: "NameTaken" })).pipe(
-          Effect.mapError((error) => error.cause),
-        ),
+      const { cause: error } = yield* Effect.flip(
+        Effect.tryPromise(() => fail({ with: "NameTaken" })),
       );
       expect(error).toBeInstanceOf(FunctionsError);
       expect(error).toMatchObject({
@@ -82,10 +80,8 @@ describe("CallableFunction", () => {
   it.effect("answers a Payload that doesn't decode with invalid-argument and no details", () =>
     Effect.gen(function* () {
       const greet = httpsCallable(yield* functions, "greet");
-      const error = yield* Effect.flip(
-        Effect.tryPromise(() => greet({ name: 1, at: "yesterday" })).pipe(
-          Effect.mapError((error) => error.cause),
-        ),
+      const { cause: error } = yield* Effect.flip(
+        Effect.tryPromise(() => greet({ name: 1, at: "yesterday" })),
       );
       expect(error).toMatchObject({ code: "functions/invalid-argument", details: undefined });
     }).pipe(Effect.scoped),
@@ -94,10 +90,8 @@ describe("CallableFunction", () => {
   it.effect("answers a defect with a bare internal, and logs its Cause", () =>
     Effect.gen(function* () {
       const fail = httpsCallable(yield* functions, "fail");
-      const error = yield* Effect.flip(
-        Effect.tryPromise(() => fail({ with: "defect" })).pipe(
-          Effect.mapError((error) => error.cause),
-        ),
+      const { cause: error } = yield* Effect.flip(
+        Effect.tryPromise(() => fail({ with: "defect" })),
       );
       expect(error).toMatchObject({
         code: "functions/internal",
@@ -116,11 +110,12 @@ describe("CallableFunction", () => {
         const flaky = httpsCallable(yield* functions, "flaky");
         // A warm instance from an earlier run has built the Layer already, so
         // the failed first build shows only in the count it answers with.
-        const first = yield* Effect.result(
-          Effect.tryPromise(() => flaky()).pipe(Effect.mapError((error) => error.cause)),
-        );
+        const first = yield* Effect.result(Effect.tryPromise(() => flaky()));
         if (first._tag === "Failure") {
-          expect(first.failure).toMatchObject({ code: "functions/internal", details: undefined });
+          expect(first.failure.cause).toMatchObject({
+            code: "functions/internal",
+            details: undefined,
+          });
         }
         const result = yield* Effect.promise(() => flaky());
         expect(result.data).toEqual({ builds: 2 });

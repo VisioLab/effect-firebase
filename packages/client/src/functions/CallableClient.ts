@@ -35,6 +35,7 @@
  * @since 0.3.0
  */
 import { Effect, Schema } from "effect";
+import type { unhandled } from "effect/Types";
 import * as Callable from "@visiolab/effect-firebase/functions/Callable";
 import * as CallableError from "@visiolab/effect-firebase/functions/CallableError";
 import * as FunctionGroup from "@visiolab/effect-firebase/functions/FunctionGroup";
@@ -114,10 +115,9 @@ const method = (
     const data = yield* encode(payload).pipe(
       Effect.mapError((cause) => fail(new CallableError.EncodeError({ cause }))),
     );
-    const result = yield* Effect.tryPromise({
-      try: () => call(data),
-      catch: (error) => error,
-    }).pipe(Effect.catch(decodeFailure));
+    const result = yield* Effect.tryPromise(() => call(data)).pipe(
+      Effect.catch((error) => decodeFailure(error.cause)),
+    );
     return yield* decode(result.data).pipe(
       Effect.mapError((cause) => fail(new CallableError.DecodeError({ cause }))),
     );
@@ -125,9 +125,12 @@ const method = (
 
   /**
    * Turns what the SDK threw into the declared error it carries, or into a
-   * `CallableError`.
+   * `CallableError`. The types of the declared errors are erased here, and
+   * {@link Method} restores them.
    */
-  const decodeFailure = (error: unknown): Effect.Effect<never, unknown> => {
+  const decodeFailure = (
+    error: unknown,
+  ): Effect.Effect<never, CallableError.CallableError | unhandled> => {
     if (!(error instanceof Sdk.FunctionsError)) {
       return Effect.fail(fail(new CallableError.TransportError({ cause: error })));
     }
@@ -156,7 +159,7 @@ const method = (
       );
     }
     return Schema.decodeUnknownEffect(
-      Schema.toCodecJson(Schema.Union(candidates) as unknown as Schema.Codec<unknown>),
+      Schema.toCodecJson(Schema.Union(candidates) as unknown as Schema.Codec<unhandled>),
     )(error.details).pipe(
       Effect.mapError((cause) => fail(new CallableError.DecodeError({ cause }))),
       Effect.flatMap(Effect.fail),
