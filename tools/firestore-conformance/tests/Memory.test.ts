@@ -1,5 +1,5 @@
 import { assert, describe, expect, it } from "@effect/vitest";
-import { DateTime, Effect, Exit, Queue, Random, Ref, Schema, Stream } from "effect";
+import { DateTime, Effect, Exit, Queue, Random, Ref, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import {
   Collection,
@@ -10,7 +10,7 @@ import {
   type QuerySnapshot,
   Timestamp,
 } from "@visiolab/effect-firebase/firestore";
-import { testFirestore } from "@visiolab/firestore-conformance";
+import { listening, read, testFirestore } from "@visiolab/firestore-conformance";
 
 describe("Firestore.layerMemory, conformance", () => {
   testFirestore(Firestore.layerMemory, {
@@ -41,19 +41,12 @@ class Visit extends FirestoreModel.Class<Visit>("Visit")({
 const Visits = Collection.make("visits", Visit);
 const visit = Visits.doc(Visits.id.make("visit"));
 
-const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnapshot<C>) =>
-  DocumentSnapshot.isExisting(snapshot) ? snapshot.data : Effect.die("missing");
-
 const memory = <A, E>(effect: Effect.Effect<A, E, Firestore.Firestore | Firestore.MemoryDriver>) =>
   Effect.provide(effect, Firestore.layerMemory);
 
 const Contacts = Users.subcollection("contacts", User);
 
 const berlin = { name: "Alice", address: { city: "Berlin", street: "Main" } };
-
-/** Runs `stream` into a queue for the rest of the scope. */
-const listening = <A, E>(stream: Stream.Stream<A, E>) =>
-  Stream.toQueue(stream, { capacity: "unbounded" });
 
 /**
  * Lets every other fiber run, so a snapshot a commit emitted reaches its
@@ -151,6 +144,23 @@ describe("Firestore.layerMemory", () => {
 
         const exit = yield* Effect.exit(
           driver.set("users/alice", { name: "Alice", seenAt: FieldValue.serverTimestamp }),
+        );
+
+        assert(Exit.isFailure(exit));
+        expect(Exit.hasDies(exit)).toBe(true);
+        expect((yield* driver.documents).size).toBe(0);
+      }),
+    ),
+  );
+
+  it.effect("dies when the driver is handed a value outside the Firestore Value union", () =>
+    memory(
+      Effect.gen(function* () {
+        const driver = yield* Firestore.MemoryDriver;
+
+        const exit = yield* Effect.exit(
+          // A Date is not a Firestore Value; Timestamp is.
+          driver.set("users/alice", { name: "Alice", seenAt: new Date() as never }),
         );
 
         assert(Exit.isFailure(exit));
