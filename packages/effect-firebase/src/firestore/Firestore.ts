@@ -823,12 +823,14 @@ export interface With<
  *
  * **When to use**
  *
- * Ask for it in code that should run on any backend, the Admin SDK or the
- * client SDK. Its methods are documented on {@link With}.
+ * Ask for it in code that should run on any backend: the Admin SDK, the
+ * client SDK or the In-memory Firestore. Its methods are documented on
+ * {@link With}.
  *
  * @see {@link With} for each method, and for what a backend's richer service adds
  * @see {@link AdminFirestore.AdminFirestore} for the Admin SDK's richer service
  * @see {@link ClientFirestore.ClientFirestore} for the client SDK's richer service
+ * @see {@link layerMemory} for the In-memory Firestore, which provides it for unit tests
  *
  * @stability unstable
  * @category models
@@ -841,8 +843,8 @@ export interface Firestore extends With {
 /**
  * Service key for the portable {@link Firestore}.
  *
- * Provide it with {@link AdminFirestore.layer} or
- * {@link ClientFirestore.layer}.
+ * Provide it with {@link AdminFirestore.layer}, {@link ClientFirestore.layer}
+ * or, in unit tests, {@link layerMemory}.
  *
  * @stability unstable
  * @category services
@@ -1506,9 +1508,6 @@ export const streamFromListener: <S, A>(
  * {@link Firestore} is, so it wakes live listeners as a write from another
  * client would.
  *
- * @see {@link layerMemory} for the layer that provides it
- * @see {@link makeMemory} for building it together with its {@link Firestore}
- *
  * @example Seeding and inspecting raw documents
  * ```ts
  * import { Effect, Schema } from "effect";
@@ -1529,6 +1528,9 @@ export const streamFromListener: <S, A>(
  *   return yield* driver.get("users/bob"); // { name: "Bob" }
  * }).pipe(Effect.provide(Firestore.layerMemory));
  * ```
+ *
+ * @see {@link layerMemory} for the layer that provides it
+ * @see {@link makeMemory} for building it together with its {@link Firestore}
  *
  * @stability unstable
  * @category models
@@ -1605,10 +1607,6 @@ export const MemoryDriver = Context.Service<MemoryDriver>(
  *   {@link FirestoreError} whose `code` is `"aborted"`. A body that fails
  *   applies nothing.
  *
- * @see {@link layerMemory} for the same as a layer
- * @see {@link MemoryDriver} for seeding and inspecting raw documents
- * @see {@link make} for building a backend of your own from hooks
- *
  * @example Building an In-memory Firestore
  * ```ts
  * import { Effect } from "effect";
@@ -1620,6 +1618,10 @@ export const MemoryDriver = Context.Service<MemoryDriver>(
  *   return firestore;
  * });
  * ```
+ *
+ * @see {@link layerMemory} for the same as a layer
+ * @see {@link MemoryDriver} for seeding and inspecting raw documents
+ * @see {@link make} for building a backend of your own from hooks
  *
  * @stability unstable
  * @category constructors
@@ -1655,12 +1657,6 @@ export const makeMemory: Effect.Effect<{
  * from its `Clock`, read where a write needs them, so a seeded `Random` and
  * `TestClock` pin them.
  *
- * @see {@link makeMemory} for what it does, and for building it yourself
- * @see {@link MemoryDriver} for seeding and inspecting raw documents
- * @see {@link AdminFirestore.layer} for the Admin SDK's layer
- * @see {@link ClientFirestore.layer} for the client SDK's layer
- * @see {@link make} for building a backend of your own from hooks
- *
  * @example Testing Portable code in memory
  * ```ts
  * import { Effect, Random, Schema } from "effect";
@@ -1682,6 +1678,13 @@ export const makeMemory: Effect.Effect<{
  *   return yield* driver.get(ref.path); // { name: "Alice" }
  * }).pipe(Effect.provide(Firestore.layerMemory), Random.withSeed("ids"));
  * ```
+ *
+ * @see {@link makeMemory} for what it does, and for building it yourself
+ * @see {@link MemoryDriver} for seeding and inspecting raw documents
+ * @see {@link Firestore} for the portable service it provides
+ * @see {@link AdminFirestore.layer} for the Admin SDK's layer
+ * @see {@link ClientFirestore.layer} for the client SDK's layer
+ * @see {@link make} for building a backend of your own from hooks
  *
  * @stability unstable
  * @category layers
