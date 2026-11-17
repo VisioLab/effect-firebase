@@ -852,13 +852,12 @@ export const testFirestore = <E, R = never>(
             const firestore = yield* fresh(0);
             const runs = yield* Ref.make(0);
 
-            const results = yield* Effect.all(
-              Array.from({ length: 4 }, () =>
-                firestore.runTransaction(
-                  Ref.update(runs, (n) => n + 1).pipe(Effect.andThen(increment)),
-                  { maxAttempts: 20 },
-                ),
+            const results = yield* Effect.replicateEffect(
+              firestore.runTransaction(
+                Ref.update(runs, (n) => n + 1).pipe(Effect.andThen(increment)),
+                { maxAttempts: 20 },
               ),
+              4,
               { concurrency: "unbounded" },
             );
 
@@ -880,10 +879,9 @@ export const testFirestore = <E, R = never>(
           Effect.gen(function* () {
             const firestore = yield* fresh(0);
 
-            const exits = yield* Effect.all(
-              Array.from({ length: 8 }, () =>
-                Effect.exit(firestore.runTransaction(increment, { maxAttempts: 1 })),
-              ),
+            const exits = yield* Effect.replicateEffect(
+              Effect.exit(firestore.runTransaction(increment, { maxAttempts: 1 })),
+              8,
               { concurrency: "unbounded" },
             );
 
