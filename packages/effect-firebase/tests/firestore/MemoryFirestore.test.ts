@@ -1,5 +1,5 @@
 import { assert, describe, expect, it } from "@effect/vitest";
-import { DateTime, Effect, Exit, Queue, Random, Ref, Schema, Stream } from "effect";
+import { DateTime, Effect, Exit, HashMap, Queue, Random, Ref, Schema, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import * as Collection from "../../src/firestore/Collection.ts";
 import * as DocumentSnapshot from "../../src/firestore/DocumentSnapshot.ts";
@@ -116,7 +116,7 @@ describe("Firestore.layerMemory", () => {
         const stored = { name: "Alice", address: { city: "Berlin", street: "Main" } };
         expect(yield* driver.get("users/alice")).toStrictEqual(stored);
         expect(yield* driver.get("users/bob")).toBeUndefined();
-        expect(yield* driver.documents).toStrictEqual(new Map([["users/alice", stored]]));
+        expect(HashMap.toEntries(yield* driver.documents)).toStrictEqual([["users/alice", stored]]);
       }),
     ),
   );
@@ -131,7 +131,7 @@ describe("Firestore.layerMemory", () => {
         yield* driver.delete("users/alice");
 
         expect((yield* firestore.getDoc(alice))._tag).toBe("Missing");
-        expect((yield* driver.documents).size).toBe(0);
+        expect(HashMap.isEmpty(yield* driver.documents)).toBe(true);
       }),
     ),
   );
@@ -147,7 +147,7 @@ describe("Firestore.layerMemory", () => {
 
         assert(Exit.isFailure(exit));
         expect(Exit.hasDies(exit)).toBe(true);
-        expect((yield* driver.documents).size).toBe(0);
+        expect(HashMap.isEmpty(yield* driver.documents)).toBe(true);
       }),
     ),
   );
@@ -164,7 +164,7 @@ describe("Firestore.layerMemory", () => {
 
         assert(Exit.isFailure(exit));
         expect(Exit.hasDies(exit)).toBe(true);
-        expect((yield* driver.documents).size).toBe(0);
+        expect(HashMap.isEmpty(yield* driver.documents)).toBe(true);
       }),
     ),
   );
@@ -187,7 +187,7 @@ describe("Firestore.layerMemory", () => {
           return yield* driver.documents;
         }),
       );
-      expect(documents.size).toBe(0);
+      expect(HashMap.isEmpty(documents)).toBe(true);
     }),
   );
 

@@ -11,6 +11,7 @@ import {
   Clock,
   Data,
   Effect,
+  HashMap,
   Option,
   Order,
   Predicate,
@@ -39,8 +40,8 @@ type Value = FirestoreValue.FirestoreValue;
  * @internal
  */
 export interface State {
-  readonly documents: ReadonlyMap<string, DocumentData>;
-  readonly versions: ReadonlyMap<string, number>;
+  readonly documents: HashMap.HashMap<string, DocumentData>;
+  readonly versions: HashMap.HashMap<string, number>;
 }
 
 /** @internal */
@@ -48,11 +49,15 @@ export type Store = SubscriptionRef.SubscriptionRef<State>;
 
 /** @internal */
 export const makeStore: Effect.Effect<Store> = SubscriptionRef.make<State>({
-  documents: new Map(),
-  versions: new Map(),
+  documents: HashMap.empty(),
+  versions: HashMap.empty(),
 });
 
-const versionOf = (state: State, path: string): number => state.versions.get(path) ?? 0;
+const versionOf = (state: State, path: string): number =>
+  Option.getOrElse(HashMap.get(state.versions, path), () => 0);
+
+const dataAt = (state: State, path: string): DocumentData | undefined =>
+  Option.getOrUndefined(HashMap.get(state.documents, path));
 
 /**
  * One write of a commit. `Update` data is keyed by field path, segments joined
@@ -157,6 +162,35 @@ const applyUpdate = (data: DocumentData, update: DocumentData, now: number): Doc
 };
 
 /**
+ * What the document `write` touches becomes, its sentinels resolved at `now`:
+ * `undefined` when it is deleted, or the error that refuses the write.
+ */
+const written = (
+  state: State,
+  write: Write,
+  now: number,
+): Result.Result<DocumentData | undefined, FirestoreError> => {
+  switch (write._tag) {
+    case "Set":
+      return Result.succeed(resolveMap(write.data, now));
+    case "Update": {
+      const before = dataAt(state, write.path);
+      return before === undefined
+        ? Result.fail(
+            new FirestoreError({
+              message: `Failed to update the document "${write.path}"`,
+              code: "not-found",
+              cause: new Error(`No document to update: ${write.path}`),
+            }),
+          )
+        : Result.succeed(applyUpdate(before, write.data, now));
+    }
+    case "Delete":
+      return Result.succeed(undefined);
+  }
+};
+
+/**
  * `state` with every write of the batch applied in order, its sentinels
  * resolved at `now`, and the version of each path written bumped, or the
  * error that refuses the whole batch.
@@ -165,31 +199,20 @@ const stage = (
   state: State,
   writes: ReadonlyArray<Write>,
   now: number,
-): Result.Result<State, FirestoreError> => {
-  const documents = new Map(state.documents);
-  const versions = new Map(state.versions);
-  for (const write of writes) {
-    if (write._tag === "Update") {
-      const before = documents.get(write.path);
-      if (before === undefined) {
-        return Result.fail(
-          new FirestoreError({
-            message: `Failed to update the document "${write.path}"`,
-            code: "not-found",
-            cause: new Error(`No document to update: ${write.path}`),
-          }),
-        );
-      }
-      documents.set(write.path, applyUpdate(before, write.data, now));
-    } else if (write._tag === "Set") {
-      documents.set(write.path, resolveMap(write.data, now));
-    } else {
-      documents.delete(write.path);
-    }
-    versions.set(write.path, (versions.get(write.path) ?? 0) + 1);
-  }
-  return Result.succeed({ documents, versions });
-};
+): Result.Result<State, FirestoreError> =>
+  writes.reduce<Result.Result<State, FirestoreError>>(
+    (staged, write) =>
+      Result.flatMap(staged, (state) =>
+        Result.map(written(state, write, now), (data) => ({
+          documents:
+            data === undefined
+              ? HashMap.remove(state.documents, write.path)
+              : HashMap.set(state.documents, write.path, data),
+          versions: HashMap.set(state.versions, write.path, versionOf(state, write.path) + 1),
+        })),
+      ),
+    Result.succeed(state),
+  );
 
 /**
  * Applies `writes` as one commit: all of them or, when one is refused, none.
@@ -282,7 +305,7 @@ const runTransaction = <A, E>(
             recorded.has(path) ? recorded : new Map(recorded).set(path, versionOf(state, path)),
           );
           yield* roundTrip;
-          return { data: state.documents.get(path) };
+          return { data: dataAt(state, path) };
         }),
       setDoc: (path, data) => buffer(Write.Set({ path, data })),
       updateDoc: (path, data) => buffer(Write.Update({ path, data })),
@@ -349,7 +372,7 @@ const docsOf = (state: State, selector: Firestore.CollectionSelector): Firestore
 });
 
 const docOf = (state: State, path: string): Firestore.DocumentRead => ({
-  data: state.documents.get(path),
+  data: dataAt(state, path),
 });
 
 const sameDoc = (self: Firestore.DocumentRead, that: Firestore.DocumentRead): boolean =>
@@ -408,7 +431,7 @@ export const hooks = (store: Store): Firestore.MakeOptions => {
  * @internal
  */
 export const driver = (store: Store): Firestore.MemoryDriver => ({
-  get: (path) => Effect.map(SubscriptionRef.get(store), (state) => state.documents.get(path)),
+  get: (path) => Effect.map(SubscriptionRef.get(store), (state) => dataAt(state, path)),
   set: (path, data) =>
     Effect.gen(function* () {
       // Sentinels are Firestore Values, so `isFirestoreValue` alone lets them through.

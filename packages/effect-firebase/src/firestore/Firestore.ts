@@ -45,7 +45,7 @@
  * @since 0.2.0
  */
 import { Context, Effect, Layer } from "effect";
-import type { Schema, Stream } from "effect";
+import type { HashMap, Schema, Stream } from "effect";
 import type * as Result from "effect/Result";
 import type * as Collection from "./Collection.ts";
 import type * as CollectionGroup from "./CollectionGroup.ts";
@@ -1548,7 +1548,7 @@ export interface MemoryDriver {
   /** Removes the document at `path`, succeeding where there is none. */
   readonly delete: (path: string) => Effect.Effect<void>;
   /** Every stored document, by its path, as it stands when this runs. */
-  readonly documents: Effect.Effect<ReadonlyMap<string, DocumentData>>;
+  readonly documents: Effect.Effect<HashMap.HashMap<string, DocumentData>>;
 }
 
 /**
