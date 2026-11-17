@@ -1,5 +1,5 @@
 import { assert, describe, expect, it } from "@effect/vitest";
-import { DateTime, Effect, Exit, Queue, Random, Schema, Stream } from "effect";
+import { DateTime, Effect, Exit, Queue, Random, Ref, Schema, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import {
   Collection,
@@ -16,7 +16,7 @@ describe("Firestore.layerMemory, conformance", () => {
   testFirestore(Firestore.layerMemory, {
     seedRaw: (path, data) =>
       Effect.flatMap(Firestore.MemoryDriver, (driver) => driver.set(path, data)),
-    unsupported: ["transactions"],
+    abortCode: "aborted",
   });
 });
 
@@ -260,6 +260,114 @@ describe("Firestore.layerMemory", () => {
           expect(DocumentSnapshot.isMissing(yield* Queue.take(doc))).toBe(true);
           expect((yield* Queue.take(docs)).docs).toEqual([]);
         }).pipe(Effect.scoped),
+      ),
+    );
+
+    it.effect("sees the writes of a transaction as one change", () =>
+      memory(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore.Firestore;
+          const docs = yield* listening(firestore.streamDocs(Users.collection()));
+          expect((yield* Queue.take(docs)).docs).toEqual([]);
+          yield* settle;
+
+          yield* firestore.runTransaction(
+            Effect.gen(function* () {
+              const tx = yield* Firestore.Transaction;
+              yield* tx.setDoc(alice, berlin);
+              yield* tx.setDoc(Users.doc(Users.id.make("bob")), { ...berlin, name: "Bob" });
+            }),
+          );
+          yield* settle;
+
+          const snapshots = yield* Queue.clear(docs);
+          expect(snapshots.map((snapshot) => snapshot.docs.map((doc) => doc.id))).toEqual([
+            ["alice", "bob"],
+          ]);
+        }).pipe(Effect.scoped),
+      ),
+    );
+  });
+
+  describe("transactions", () => {
+    it.effect("runs the body again when the driver writes between its read and its commit", () =>
+      memory(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore.Firestore;
+          const driver = yield* Firestore.MemoryDriver;
+          yield* firestore.setDoc(alice, berlin);
+          const runs = yield* Ref.make(0);
+
+          yield* firestore.runTransaction(
+            Effect.gen(function* () {
+              const run = yield* Ref.updateAndGet(runs, (n) => n + 1);
+              const tx = yield* Firestore.Transaction;
+              const user = yield* read(yield* tx.getDoc(alice));
+              if (run === 1) {
+                yield* driver.set("users/alice", {
+                  name: "Alice",
+                  address: { city: "Rome", street: "Via" },
+                });
+              }
+              yield* tx.updateDoc(alice, { name: `Alice of ${user.address.city}` });
+            }),
+          );
+
+          expect(yield* Ref.get(runs)).toBe(2);
+          expect((yield* read(yield* firestore.getDoc(alice))).name).toBe("Alice of Rome");
+        }),
+      ),
+    );
+
+    it.effect("applies none of its writes when the commit refuses one", () =>
+      memory(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore.Firestore;
+          const bob = Users.doc(Users.id.make("bob"));
+
+          const error = yield* Effect.flip(
+            firestore.runTransaction(
+              Effect.gen(function* () {
+                const tx = yield* Firestore.Transaction;
+                yield* tx.setDoc(bob, { ...berlin, name: "Bob" });
+                yield* tx.updateDoc(alice, { name: "Alicia" });
+              }),
+            ),
+          );
+
+          assert(error instanceof Firestore.FirestoreError);
+          expect(error.code).toBe("not-found");
+          expect((yield* firestore.getDoc(bob))._tag).toBe("Missing");
+        }),
+      ),
+    );
+
+    it.effect("fails with code aborted once it runs out of attempts", () =>
+      memory(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore.Firestore;
+          const driver = yield* Firestore.MemoryDriver;
+          yield* firestore.setDoc(alice, berlin);
+          const runs = yield* Ref.make(0);
+
+          const error = yield* Effect.flip(
+            firestore.runTransaction(
+              Effect.gen(function* () {
+                const run = yield* Ref.updateAndGet(runs, (n) => n + 1);
+                const tx = yield* Firestore.Transaction;
+                yield* tx.getDoc(alice);
+                yield* driver.set("users/alice", { ...berlin, name: `Alice ${run}` });
+                yield* tx.updateDoc(alice, { name: "Mine" });
+              }),
+              { maxAttempts: 3 },
+            ),
+          );
+
+          assert(error instanceof Firestore.FirestoreError);
+          expect(error.code).toBe("aborted");
+          expect(yield* Ref.get(runs)).toBe(3);
+          expect((yield* read(yield* firestore.getDoc(alice))).name).toBe("Alice 3");
+        }),
       ),
     );
   });

@@ -18,6 +18,8 @@ const layer = ClientFirestore.layer({ emulator }).pipe(
 
 describe("ClientFirestore, against the emulator, conformance", () => {
   testFirestore(layer, {
+    // The very code the client SDK retries a conflict by.
+    abortCode: "aborted",
     seedRaw: (path, data) =>
       Effect.flatMap(ClientFirestore.ClientFirestore, ({ instance }) =>
         Effect.promise(() =>

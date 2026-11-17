@@ -18,6 +18,8 @@ const layer = AdminFirestore.layer().pipe(
 
 describe("AdminFirestore, against the emulator, conformance", () => {
   testFirestore(layer, {
+    // The very number the Admin SDK reads as ABORTED.
+    abortCode: 10,
     seedRaw: (path, data) =>
       Effect.flatMap(AdminFirestore.AdminFirestore, ({ instance }) =>
         Effect.promise(() =>

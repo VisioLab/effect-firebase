@@ -1603,9 +1603,15 @@ export const MemoryDriver = Context.Service<MemoryDriver>(
  *   again after each commit that changes it, but not after one that leaves
  *   it unchanged. They never complete on their own, and detach when
  *   interrupted. A commit is one write through {@link Firestore} or
- *   {@link MemoryDriver}.
- *
- * Transactions are not yet supported: they die with a defect saying so.
+ *   {@link MemoryDriver}, or a whole transaction.
+ * - `runTransaction` runs optimistically, with no lock. The body reads
+ *   committed data, and its writes are buffered; a read after a write fails
+ *   with a {@link FirestoreError}. At commit, when no document the body read
+ *   has changed since, every write applies at once, so listeners see one
+ *   change. When one has, including through {@link MemoryDriver}, the body
+ *   runs again, up to `maxAttempts` (5 by default), and then fails with a
+ *   {@link FirestoreError} whose `code` is `"aborted"`. A body that fails
+ *   applies nothing.
  *
  * @see {@link layerMemory} for the same as a layer
  * @see {@link make} for building a backend of your own from hooks

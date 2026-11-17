@@ -59,14 +59,6 @@ export type Write =
   | { readonly _tag: "Update"; readonly path: string; readonly data: DocumentData }
   | { readonly _tag: "Delete"; readonly path: string };
 
-/**
- * The defect a part of the In-memory Firestore that isn't built yet dies with.
- *
- * @internal
- */
-export const notYetSupported = (what: string): Error =>
-  new Error(`${what} are not yet supported by the In-memory Firestore`);
-
 /** A plain object whose keys are fields: a Firestore map. */
 const isMap = (u: unknown): u is { readonly [field: string]: unknown } => {
   if (typeof u !== "object" || u === null || Array.isArray(u)) return false;
@@ -202,22 +194,27 @@ const stage = (
 /**
  * Applies `writes` as one commit: all of them or, when one is refused, none.
  * It bumps the version of every path written and then wakes every listener
- * once.
+ * once. Succeeds with `false`, applying nothing, when a path in `reads` is no
+ * longer at the version recorded for it there.
  *
  * **Details**
  *
- * Checking and applying happen in one synchronous step, so no other fiber
- * sees half a commit; a transaction's version check belongs in that step too.
- * `Clock` is read before that step, so every `serverTimestamp` of a commit
- * resolves to the same time.
+ * Checking `reads` and applying happen in one synchronous step, so no other
+ * fiber sees half a commit, or commits in between. `Clock` is read before
+ * that step, so every `serverTimestamp` of a commit resolves to the same
+ * time.
  *
  * @internal
  */
 export const commit = (
   store: Store,
   writes: ReadonlyArray<Write>,
-): Effect.Effect<void, FirestoreError> =>
+  reads: ReadonlyMap<string, number> = new Map(),
+): Effect.Effect<boolean, FirestoreError> =>
   Effect.flatMap(Clock.currentTimeMillis, (now) => {
+    for (const [path, version] of reads) {
+      if (versionOf(store, path) !== version) return Effect.succeed(false);
+    }
     const staged = stage(store, writes, now);
     if (staged instanceof FirestoreError) return Effect.fail(staged);
     for (const [path, data] of staged) {
@@ -226,8 +223,81 @@ export const commit = (
       store.versions.set(path, versionOf(store, path) + 1);
     }
     for (const listener of store.listeners) listener();
-    return Effect.void;
+    return Effect.succeed(true);
   });
+
+/** How many times a transaction runs its body when the caller doesn't say, as on the SDKs. */
+const defaultMaxAttempts = 5;
+
+/**
+ * Runs `body` as an optimistic transaction over `store`, with no lock.
+ *
+ * **Details**
+ *
+ * Each attempt reads committed data, records the version of every document
+ * it reads, missing ones included, and buffers its writes. A read after a
+ * write fails as it does on the SDKs. When the body succeeds, {@link commit}
+ * checks those versions and applies every buffered write at once. When one
+ * changed, the body runs again, up to `maxAttempts` times, and then the
+ * transaction fails with `code: "aborted"`. A body that fails or dies applies
+ * nothing and isn't retried.
+ *
+ * A read yields to other fibers, as a read from a server would, so that
+ * transactions running at the same time interleave and can conflict.
+ */
+const runTransaction = <A, E>(
+  store: Store,
+  body: (operations: Firestore.TransactionOperations) => Effect.Effect<A, E>,
+  maxAttempts: number,
+): Effect.Effect<A, E | FirestoreError> => {
+  const attempt = (n: number): Effect.Effect<A, E | FirestoreError> =>
+    Effect.suspend(() => {
+      const reads = new Map<string, number>();
+      const writes: Array<Write> = [];
+      const buffer = (write: Write) =>
+        Effect.sync(() => {
+          writes.push(write);
+        });
+      const operations: Firestore.TransactionOperations = {
+        getDoc: (path) =>
+          writes.length > 0
+            ? Effect.fail(
+                new FirestoreError({
+                  message: `Failed to read the document "${path}"`,
+                  code: "invalid-argument",
+                  cause: new Error(
+                    "Firestore transactions require all reads to be executed before all writes.",
+                  ),
+                }),
+              )
+            : Effect.sync(() => {
+                if (!reads.has(path)) reads.set(path, versionOf(store, path));
+                return { data: store.documents.get(path) };
+              }).pipe(Effect.tap(() => Effect.yieldNow)),
+        setDoc: (path, data) => buffer({ _tag: "Set", path, data }),
+        updateDoc: (path, data) => buffer({ _tag: "Update", path, data }),
+        deleteDoc: (path) => buffer({ _tag: "Delete", path }),
+      };
+      return Effect.flatMap(body(operations), (a) =>
+        Effect.flatMap(commit(store, writes, reads), (committed) =>
+          committed
+            ? Effect.succeed(a)
+            : n < maxAttempts
+              ? attempt(n + 1)
+              : Effect.fail(
+                  new FirestoreError({
+                    message: "Failed to run a transaction",
+                    code: "aborted",
+                    cause: new Error(
+                      `The documents the transaction read changed before it committed, ${n} times`,
+                    ),
+                  }),
+                ),
+        ),
+      );
+    });
+  return attempt(1);
+};
 
 /** The characters of an id Firestore picks: letters and digits. */
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -317,7 +387,7 @@ const listen = <A>(
  * @internal
  */
 export const hooks = (store: Store): Firestore.MakeOptions => {
-  const write = (...writes: ReadonlyArray<Write>) => commit(store, writes);
+  const write = (...writes: ReadonlyArray<Write>) => Effect.asVoid(commit(store, writes));
   return {
     getDoc: (path) => Effect.sync(() => ({ data: store.documents.get(path) })),
     getDocs: (selector) =>
@@ -351,7 +421,9 @@ export const hooks = (store: Store): Firestore.MakeOptions => {
               doc.path === b.docs[i]!.path && firestoreValueWalk.equals(doc.data, b.docs[i]!.data),
           ),
       ),
-    runTransaction: { run: () => Effect.die(notYetSupported("Transactions")) },
+    runTransaction: {
+      run: (body, { maxAttempts = defaultMaxAttempts }) => runTransaction(store, body, maxAttempts),
+    },
   };
 };
 
@@ -370,8 +442,8 @@ export const driver = (store: Store): Firestore.MemoryDriver => ({
           )
         : !firestoreValueWalk.isFirestoreValue(data)
           ? Effect.die(new Error(`MemoryDriver.set takes Firestore Values, as at "${path}"`))
-          : Effect.orDie(commit(store, [{ _tag: "Set", path, data }])),
+          : Effect.orDie(Effect.asVoid(commit(store, [{ _tag: "Set", path, data }]))),
     ),
-  delete: (path) => Effect.orDie(commit(store, [{ _tag: "Delete", path }])),
+  delete: (path) => Effect.orDie(Effect.asVoid(commit(store, [{ _tag: "Delete", path }]))),
   documents: Effect.sync((): ReadonlyMap<string, DocumentData> => new Map(store.documents)),
 });
