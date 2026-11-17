@@ -11,7 +11,7 @@ import {
   NameTaken,
   PostFunctions,
   Users,
-} from "../../../functions/tests/fixture/src/contract.ts";
+} from "@visiolab/functions-fixture/contract";
 import { emulator } from "./emulator.ts";
 
 /** Functions in `region`, under a named app of its own. */

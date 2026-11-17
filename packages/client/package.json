@@ -66,6 +66,7 @@
     "@effect/vitest": "catalog:",
     "@visiolab/effect-firebase": "workspace:^",
     "@visiolab/firestore-conformance": "workspace:*",
+    "@visiolab/functions-fixture": "workspace:*",
     "effect": "catalog:",
     "firebase": "catalog:",
     "typescript": "catalog:",

@@ -75,9 +75,9 @@ jobs:
           key: firebase-emulators-${{ hashFiles('pnpm-workspace.yaml') }}
           restore-keys: firebase-emulators-
 
-      # The Functions emulator serves the functions package's test fixture,
-      # which `firebase.json` points at in its bundled form.
-      - run: vp run @visiolab/effect-firebase-functions#build-fixture
+      # The Functions emulator serves `@visiolab/functions-fixture`, which
+      # `firebase.json` points at in its bundled form.
+      - run: vp run @visiolab/functions-fixture#build
 
       - run: vp exec firebase emulators:exec --only firestore,auth,functions --project demo-effect-firebase "vp test"
 

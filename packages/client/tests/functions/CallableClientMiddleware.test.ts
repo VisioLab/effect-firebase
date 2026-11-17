@@ -5,7 +5,7 @@ import { connectAuthEmulator, getAuth, signInAnonymously, signOut } from "fireba
 import * as App from "../../src/app/App.ts";
 import * as CallableClient from "../../src/functions/CallableClient.ts";
 import * as ClientFunctions from "../../src/functions/ClientFunctions.ts";
-import { WhoAmI } from "../../../functions/tests/fixture/src/contract.ts";
+import { WhoAmI } from "@visiolab/functions-fixture/contract";
 import { emulator } from "./emulator.ts";
 
 // The project the emulator serves the fixture under. A named app keeps this

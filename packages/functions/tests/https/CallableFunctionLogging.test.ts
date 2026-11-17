@@ -1,17 +1,10 @@
 import { describe, expect, it } from "@effect/vitest";
 import { existsSync, readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { Effect } from "effect";
+import { consoleLog, serverLog, spansLog } from "@visiolab/functions-fixture/records";
 
 const emulatorHost = process.env["FUNCTIONS_EMULATOR_HOST"] ?? "127.0.0.1:5001";
 const project = "demo-effect-firebase";
-
-/** Where the fixture copies what the functions write to the console, one JSON line per write. */
-const consoleLog = fileURLToPath(new URL("../console.log", import.meta.url));
-/** Where the fixture's test Tracer writes the spans it ends, one JSON line each. */
-const spansLog = fileURLToPath(new URL("../spans.log", import.meta.url));
-/** Where the fixture's own logger, which `fail` provides in its Layer, writes. */
-const serverLog = fileURLToPath(new URL("../server.log", import.meta.url));
 
 const readLines = <A>(path: string): ReadonlyArray<A> =>
   existsSync(path)
