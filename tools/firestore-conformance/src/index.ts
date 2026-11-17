@@ -8,9 +8,10 @@
  * @packageDocumentation
  */
 import { assert, describe, expect, it } from "@effect/vitest";
-import { Effect, Layer, Schema, Stream } from "effect";
+import { Effect, Equal, Layer, Schema, Stream } from "effect";
 import {
   Collection,
+  CollectionGroup,
   DocumentSnapshot,
   FirestoreModel,
   Patch,
@@ -20,6 +21,7 @@ import {
   Firestore,
   FirestoreError,
   Transaction,
+  UndefinedCollectionError,
 } from "@visiolab/effect-firebase/firestore/Firestore";
 
 /**
@@ -337,6 +339,146 @@ export const testFirestore = <E>(layer: Layer.Layer<Firestore, E>, options: Opti
       ),
     );
   });
+
+  describe("collection and Collection Group reads", () => {
+    it.effect("reads only the documents directly in a collection, not in its subcollections", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+
+          yield* firestore.setDoc(Users.doc(alice), { name: "Alice" });
+          yield* firestore.setDoc(UserPosts.doc(alice, intro), { title: "Intro", views: 1 });
+
+          const users = yield* firestore.getDocs(Users.collection());
+          const posts = yield* firestore.getDocs(UserPosts.collection(alice));
+
+          expect(users.docs.map((doc) => doc.ref.path)).toEqual(["users/alice"]);
+          expect(posts.docs.map((doc) => doc.ref.path)).toEqual(["users/alice/posts/intro"]);
+        }),
+      ),
+    );
+
+    it.effect("reads every document of a Collection Group, across all of its parents", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+
+          yield* firestore.setDoc(UserPosts.doc(alice, greeting), { title: "Hello", views: 1 });
+          yield* firestore.setDoc(UserPosts.doc(alice, again), { title: "Again", views: 2 });
+          yield* firestore.setDoc(UserPosts.doc(bob, intro), { title: "Intro", views: 3 });
+
+          const snapshot = yield* firestore.getDocs(AllUserPosts);
+
+          const read = yield* Effect.forEach(snapshot.docs, (doc) =>
+            Effect.map(doc.data, (data) => ({ doc, data })),
+          );
+          const byPath = read.toSorted((a, b) => a.doc.ref.path.localeCompare(b.doc.ref.path));
+
+          expect(byPath.map(({ doc }) => doc.ref.path)).toEqual([
+            "users/alice/posts/again",
+            "users/alice/posts/hello",
+            "users/bob/posts/intro",
+          ]);
+          expect(byPath.map(({ doc }) => doc.ref.ancestors)).toEqual([[alice], [alice], [bob]]);
+          expect(byPath.map(({ doc }) => doc.id)).toEqual([again, greeting, intro]);
+          expect(Equal.equals(byPath[2].doc.ref, UserPosts.doc(bob, intro))).toBe(true);
+          expect(byPath.map(({ data }) => data)).toEqual([
+            { title: "Again", views: 2 },
+            { title: "Hello", views: 1 },
+            { title: "Intro", views: 3 },
+          ]);
+        }),
+      ),
+    );
+
+    it.effect("reads a Collection Group with nothing in it as a snapshot with no documents", () =>
+      run(
+        Effect.gen(function* () {
+          const firestore = yield* Firestore;
+
+          const snapshot = yield* firestore.getDocs(AllUserPosts);
+
+          expect(snapshot.docs).toEqual([]);
+        }),
+      ),
+    );
+
+    it.effect(
+      "fails on a document under the collection id at a path the group does not define",
+      () =>
+        run(
+          Effect.gen(function* () {
+            const firestore = yield* Firestore;
+
+            yield* firestore.setDoc(UserPosts.doc(alice, greeting), { title: "Hello", views: 1 });
+            yield* firestore.setDoc(Posts.doc(Posts.id.make("stray")), {
+              title: "Stray",
+              views: 0,
+            });
+
+            const error = yield* Effect.flip(firestore.getDocs(AllUserPosts));
+
+            expect(error).toBeInstanceOf(UndefinedCollectionError);
+            expect(error).toMatchObject({ path: "posts/stray", collectionId: "posts" });
+          }),
+        ),
+    );
+
+    it.effect(
+      "reads each document of a Collection Group as one of the collection it lives in",
+      () =>
+        run(
+          Effect.gen(function* () {
+            const firestore = yield* Firestore;
+
+            yield* firestore.setDoc(UserPosts.doc(alice, greeting), { title: "Hello", views: 1 });
+            yield* firestore.setDoc(OrgPosts.doc(acme, launch), {
+              headline: "Launch",
+              pinned: true,
+            });
+
+            const { docs } = yield* firestore.getDocs(AllPosts);
+
+            const userPosts = docs.filter(UserPosts.contains);
+            const orgPosts = docs.filter(OrgPosts.contains);
+
+            expect(userPosts.map((doc) => doc.ref.path)).toEqual(["users/alice/posts/hello"]);
+            expect(userPosts.map((doc) => doc.ref.ancestors)).toEqual([[alice]]);
+            expect(Equal.equals(userPosts[0].ref, UserPosts.doc(alice, greeting))).toBe(true);
+            expect(yield* userPosts[0].data).toEqual({ title: "Hello", views: 1 });
+
+            expect(orgPosts.map((doc) => doc.ref.path)).toEqual(["orgs/acme/posts/launch"]);
+            expect(orgPosts.map((doc) => doc.ref.ancestors)).toEqual([[acme]]);
+            expect(Equal.equals(orgPosts[0].ref, OrgPosts.doc(acme, launch))).toBe(true);
+            expect(yield* orgPosts[0].data).toEqual({ headline: "Launch", pinned: true });
+          }),
+        ),
+    );
+
+    it.effect(
+      "fails on a document under the collection id that no collection of the group defines",
+      () =>
+        run(
+          Effect.gen(function* () {
+            const firestore = yield* Firestore;
+
+            yield* firestore.setDoc(UserPosts.doc(alice, greeting), { title: "Hello", views: 1 });
+            yield* firestore.setDoc(
+              TeamPosts.doc(Teams.id.make("red"), TeamPosts.id.make("stray")),
+              {
+                title: "Stray",
+                views: 0,
+              },
+            );
+
+            const error = yield* Effect.flip(firestore.getDocs(AllPosts));
+
+            expect(error).toBeInstanceOf(UndefinedCollectionError);
+            expect(error).toMatchObject({ path: "teams/red/posts/stray", collectionId: "posts" });
+          }),
+        ),
+    );
+  });
 };
 
 const read = <C extends Collection.Any>(snapshot: DocumentSnapshot.DocumentSnapshot<C>) =>
@@ -371,3 +513,29 @@ const Tasks = Collection.make("tasks", FirestoreModel.Union([TaskV1, TaskV2]));
 // matches no member.
 const Strays = Collection.make("tasks", Post);
 const task = Tasks.doc(Tasks.id.make("task"));
+
+class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
+class Org extends FirestoreModel.Class<Org>("Org")({ name: Schema.String }) {}
+class OrgPost extends FirestoreModel.Class<OrgPost>("OrgPost")({
+  headline: Schema.String,
+  pinned: Schema.Boolean,
+}) {}
+
+const Users = Collection.make("users", User);
+const Orgs = Collection.make("orgs", Org);
+const UserPosts = Users.subcollection("posts", Post);
+const OrgPosts = Orgs.subcollection("posts", OrgPost);
+const AllUserPosts = CollectionGroup.make(UserPosts);
+const AllPosts = CollectionGroup.make(UserPosts, OrgPosts);
+// A `posts` under `teams`, which no Collection Group here defines. `Posts`, at
+// the root, is another.
+const Teams = Collection.make("teams", Org);
+const TeamPosts = Teams.subcollection("posts", Post);
+
+const alice = Users.id.make("alice");
+const bob = Users.id.make("bob");
+const acme = Orgs.id.make("acme");
+const greeting = UserPosts.id.make("hello");
+const again = UserPosts.id.make("again");
+const intro = UserPosts.id.make("intro");
+const launch = OrgPosts.id.make("launch");
