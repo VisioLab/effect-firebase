@@ -323,23 +323,30 @@ const byPath = (a: Firestore.QueryDocumentRead, b: Firestore.QueryDocumentRead):
   return as.length - bs.length;
 };
 
-/** The documents directly in the collection at `path`, not in its subcollections. */
-const inCollection = (store: Store, path: string): ReadonlyArray<Firestore.QueryDocumentRead> => {
-  const prefix = `${path}/`;
-  return Array.from(store.documents)
-    .filter(([doc]) => doc.startsWith(prefix) && !doc.slice(prefix.length).includes("/"))
-    .map(([doc, data]) => ({ path: doc, data }))
-    .toSorted(byPath);
+/**
+ * Whether the document at `path` is one `selector` covers.
+ *
+ * **Details**
+ *
+ * A collection covers the documents directly in it, not those in its
+ * subcollections. A collection group covers the documents of every
+ * collection whose last segment is its id, under any parent document.
+ * Matching each one to a collection the group defines is left to
+ * {@link Firestore.make}, which fails on one it doesn't.
+ */
+const covers = (selector: Firestore.CollectionSelector, path: string): boolean => {
+  if (selector._tag === "CollectionGroup") return path.split("/").at(-2) === selector.id;
+  const prefix = `${selector.path}/`;
+  return path.startsWith(prefix) && !path.slice(prefix.length).includes("/");
 };
 
-/**
- * The documents of every collection whose last segment is `id`, under any
- * parent document. Matching each one to a collection the group defines is
- * left to {@link Firestore.make}, which fails on one it doesn't.
- */
-const inCollectionGroup = (store: Store, id: string): ReadonlyArray<Firestore.QueryDocumentRead> =>
+/** The documents `selector` covers, in the order of their paths. */
+const docsOf = (
+  store: Store,
+  selector: Firestore.CollectionSelector,
+): ReadonlyArray<Firestore.QueryDocumentRead> =>
   Array.from(store.documents)
-    .filter(([doc]) => doc.split("/").at(-2) === id)
+    .filter(([doc]) => covers(selector, doc))
     .map(([doc, data]) => ({ path: doc, data }))
     .toSorted(byPath);
 
@@ -390,10 +397,7 @@ export const hooks = (store: Store): Firestore.MakeOptions => {
   const write = (...writes: ReadonlyArray<Write>) => Effect.asVoid(commit(store, writes));
   return {
     getDoc: (path) => Effect.sync(() => ({ data: store.documents.get(path) })),
-    getDocs: (selector) =>
-      selector._tag === "Collection"
-        ? Effect.sync(() => ({ docs: inCollection(store, selector.path) }))
-        : Effect.sync(() => ({ docs: inCollectionGroup(store, selector.id) })),
+    getDocs: (selector) => Effect.sync(() => ({ docs: docsOf(store, selector) })),
     setDoc: (path, data) => write({ _tag: "Set", path, data }),
     updateDoc: (path, data) => write({ _tag: "Update", path, data }),
     deleteDoc: (path) => write({ _tag: "Delete", path }),
@@ -408,12 +412,7 @@ export const hooks = (store: Store): Firestore.MakeOptions => {
     streamDocs: (selector) =>
       listen(
         store,
-        () => ({
-          docs:
-            selector._tag === "Collection"
-              ? inCollection(store, selector.path)
-              : inCollectionGroup(store, selector.id),
-        }),
+        () => ({ docs: docsOf(store, selector) }),
         (a, b) =>
           a.docs.length === b.docs.length &&
           a.docs.every(
@@ -436,6 +435,7 @@ export const driver = (store: Store): Firestore.MemoryDriver => ({
   get: (path) => Effect.sync(() => store.documents.get(path)),
   set: (path, data) =>
     Effect.suspend(() =>
+      // Sentinels are Firestore Values, so `isFirestoreValue` alone lets them through.
       containsSentinel(data)
         ? Effect.die(
             new Error(`MemoryDriver.set stores raw data, so it takes no sentinel, as at "${path}"`),
