@@ -1630,10 +1630,10 @@ export const MemoryDriver = Context.Service<MemoryDriver>(
 export const makeMemory: Effect.Effect<{
   readonly firestore: Firestore;
   readonly driver: MemoryDriver;
-}> = Effect.sync(() => {
-  const store = internalMemory.makeStore();
-  return { firestore: make(internalMemory.hooks(store)), driver: internalMemory.driver(store) };
-});
+}> = Effect.map(internalMemory.makeStore, (store) => ({
+  firestore: make(internalMemory.hooks(store)),
+  driver: internalMemory.driver(store),
+}));
 
 /**
  * Provides an In-memory Firestore: the portable {@link Firestore}, keeping its

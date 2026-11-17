@@ -1,52 +1,57 @@
 /**
- * The In-memory Firestore: a store of documents in the running process, and
- * the hooks {@link Firestore.make} builds the portable service from.
+ * The In-memory Firestore: its documents held in a `SubscriptionRef`, and the
+ * hooks {@link Firestore.make} builds the portable service from.
  *
- * Every write goes through {@link commit}, which applies a batch of writes at
- * once, resolving their sentinels, bumps the version of each path it touches
- * and wakes the listeners. Listeners and transactions build on it.
+ * Every write goes through {@link commit}, which applies a batch of writes as
+ * one atomic change of the state, resolving their sentinels and bumping the
+ * version of each path it touches. Listeners stream the state's changes, and
+ * transactions check versions at commit.
  */
-import { Clock, Effect, Random, Result, Stream } from "effect";
+import {
+  Clock,
+  Data,
+  Effect,
+  Option,
+  Order,
+  Random,
+  Ref,
+  Result,
+  Stream,
+  SubscriptionRef,
+} from "effect";
 import type * as Firestore from "../Firestore.ts";
+import type * as FirestoreValue from "../FirestoreValue.ts";
 import * as fieldValue from "./fieldValue.ts";
 import { FirestoreError } from "./firestoreError.ts";
 import * as firestoreValueWalk from "./firestoreValueWalk.ts";
-import { streamFromListener } from "./streamFromListener.ts";
 import * as timestamp from "./timestamp.ts";
 
 type DocumentData = Firestore.DocumentData;
+type Value = FirestoreValue.FirestoreValue;
 
 /**
- * The documents of one In-memory Firestore, keyed by full path.
+ * The documents of one In-memory Firestore, keyed by full path, and how many
+ * commits have written each path, deletes included, so a deleted document
+ * never comes back at a version it had before. A path never written is at
+ * version 0.
  *
  * @internal
  */
-export interface Store {
-  readonly documents: Map<string, DocumentData>;
-  /**
-   * How many commits have written each path, deletes included, so a deleted
-   * document never comes back at a version it had before. A path never
-   * written is at version 0.
-   */
-  readonly versions: Map<string, number>;
-  /** Called after each commit, with nothing: each listener reads what it covers. */
-  readonly listeners: Set<() => void>;
+export interface State {
+  readonly documents: ReadonlyMap<string, DocumentData>;
+  readonly versions: ReadonlyMap<string, number>;
 }
 
 /** @internal */
-export const makeStore = (): Store => ({
+export type Store = SubscriptionRef.SubscriptionRef<State>;
+
+/** @internal */
+export const makeStore: Effect.Effect<Store> = SubscriptionRef.make<State>({
   documents: new Map(),
   versions: new Map(),
-  listeners: new Set(),
 });
 
-/**
- * The version of the document at `path`, which every commit that writes it
- * bumps.
- *
- * @internal
- */
-export const versionOf = (store: Store, path: string): number => store.versions.get(path) ?? 0;
+const versionOf = (state: State, path: string): number => state.versions.get(path) ?? 0;
 
 /**
  * One write of a commit. `Update` data is keyed by field path, segments joined
@@ -54,75 +59,69 @@ export const versionOf = (store: Store, path: string): number => store.versions.
  *
  * @internal
  */
-export type Write =
-  | { readonly _tag: "Set"; readonly path: string; readonly data: DocumentData }
-  | { readonly _tag: "Update"; readonly path: string; readonly data: DocumentData }
-  | { readonly _tag: "Delete"; readonly path: string };
+export type Write = Data.TaggedEnum<{
+  Set: { readonly path: string; readonly data: DocumentData };
+  Update: { readonly path: string; readonly data: DocumentData };
+  Delete: { readonly path: string };
+}>;
 
-/** A plain object whose keys are fields: a Firestore map. */
-const isMap = (u: unknown): u is { readonly [field: string]: unknown } => {
-  if (typeof u !== "object" || u === null || Array.isArray(u)) return false;
-  const proto = Object.getPrototypeOf(u);
-  return proto === Object.prototype || proto === null;
-};
+const Write = Data.taggedEnum<Write>();
 
-const isSentinel = (u: unknown): boolean =>
-  fieldValue.isServerTimestamp(u) ||
-  fieldValue.isIncrement(u) ||
-  fieldValue.isDeleteField(u) ||
-  fieldValue.isArrayUnion(u) ||
-  fieldValue.isArrayRemove(u);
+/** A document a transaction read changed before the transaction committed. */
+class Conflict extends Data.Error {}
+
+const isConflict = (u: unknown): u is Conflict => u instanceof Conflict;
+
+const isMap = (u: unknown): u is DocumentData => firestoreValueWalk.isMap(u);
 
 /** Whether `value` holds a sentinel anywhere inside it. */
 const containsSentinel = (value: unknown): boolean =>
-  isSentinel(value) ||
+  fieldValue.isFieldValue(value) ||
   (Array.isArray(value)
     ? value.some(containsSentinel)
     : isMap(value) && Object.values(value).some(containsSentinel));
 
-/** What a `deleteField` resolves to: the field goes away. */
-const removed: unique symbol = Symbol("removed");
-
 /**
  * What `value` stores as, written over `before`, with every sentinel in it
- * resolved at `now`. A map replaces what was there, so the sentinels inside
- * it resolve over nothing.
+ * resolved at `now`, or nothing when it deletes the field. A map replaces
+ * what was there, so the sentinels inside it resolve over nothing.
  */
-const resolve = (value: unknown, before: unknown, now: number): unknown => {
-  if (fieldValue.isServerTimestamp(value)) return timestamp.fromMillisUnsafe(now);
+const resolve = (value: Value, before: Value | undefined, now: number): Option.Option<Value> => {
+  if (fieldValue.isDeleteField(value)) return Option.none();
+  if (fieldValue.isServerTimestamp(value)) return Option.some(timestamp.fromMillisUnsafe(now));
   if (fieldValue.isIncrement(value)) {
-    return typeof before === "number" ? before + value.by : value.by;
+    return Option.some(typeof before === "number" ? before + value.by : value.by);
   }
   if (fieldValue.isArrayUnion(value)) {
-    return value.elements.reduce<ReadonlyArray<unknown>>(
-      (elements, element) =>
-        elements.some((present) => firestoreValueWalk.equals(present, element))
-          ? elements
-          : [...elements, element],
-      Array.isArray(before) ? before : [],
+    return Option.some(
+      value.elements.reduce<ReadonlyArray<Value>>(
+        (elements, element) =>
+          elements.some((present) => firestoreValueWalk.equals(present, element))
+            ? elements
+            : [...elements, element],
+        Array.isArray(before) ? before : [],
+      ),
     );
   }
   if (fieldValue.isArrayRemove(value)) {
-    return Array.isArray(before)
-      ? before.filter(
-          (element) => !value.elements.some((gone) => firestoreValueWalk.equals(gone, element)),
-        )
-      : [];
+    return Option.some(
+      Array.isArray(before)
+        ? before.filter(
+            (element) => !value.elements.some((gone) => firestoreValueWalk.equals(gone, element)),
+          )
+        : [],
+    );
   }
-  if (fieldValue.isDeleteField(value)) return removed;
-  if (isMap(value)) return resolveMap(value, now);
-  return value;
+  if (isMap(value)) return Option.some(resolveMap(value, now));
+  return Option.some(value);
 };
 
 /** `map` with every sentinel inside it resolved over nothing. */
-const resolveMap = (
-  map: { readonly [field: string]: unknown },
-  now: number,
-): { readonly [field: string]: unknown } =>
+const resolveMap = (map: DocumentData, now: number): DocumentData =>
   Object.fromEntries(
-    Object.entries(map)
-      .map(([field, value]) => [field, resolve(value, undefined, now)] as const)
-      .filter(([, value]) => value !== removed),
+    Object.entries(map).flatMap(([field, value]) =>
+      Option.toArray(Option.map(resolve(value, undefined, now), (after) => [field, after])),
+    ),
   );
 
 /**
@@ -133,101 +132,121 @@ const resolveMap = (
  */
 const applyUpdate = (data: DocumentData, update: DocumentData, now: number): DocumentData => {
   const setAt = (
-    target: { readonly [field: string]: unknown },
+    target: DocumentData,
     [field, ...rest]: ReadonlyArray<string>,
-    value: unknown,
-  ): { readonly [field: string]: unknown } => {
+    value: Value,
+  ): DocumentData => {
     if (field === undefined) return target;
+    const { [field]: before, ...others } = target;
     if (rest.length === 0) {
-      const { [field]: before, ...others } = target;
-      const after = resolve(value, before, now);
-      return after === removed ? others : { ...target, [field]: after };
+      return Option.match(resolve(value, before, now), {
+        onNone: () => others,
+        onSome: (after) => ({ ...target, [field]: after }),
+      });
     }
-    const child = target[field];
-    if (!isMap(child) && fieldValue.isDeleteField(value)) return target;
-    return { ...target, [field]: setAt(isMap(child) ? child : {}, rest, value) };
+    if (!isMap(before) && fieldValue.isDeleteField(value)) return target;
+    return { ...target, [field]: setAt(isMap(before) ? before : {}, rest, value) };
   };
   return Object.entries(update).reduce(
     (next, [fieldPath, value]) => setAt(next, fieldPath.split("."), value),
-    data as { readonly [field: string]: unknown },
-  ) as DocumentData;
+    data,
+  );
 };
 
 /**
- * What the document at each path written becomes, with every write of the
- * batch applied in order and its sentinels resolved at `now`, or the error
- * that refuses the whole batch.
+ * `state` with every write of the batch applied in order, its sentinels
+ * resolved at `now`, and the version of each path written bumped, or the
+ * error that refuses the whole batch.
  */
 const stage = (
-  store: Store,
+  state: State,
   writes: ReadonlyArray<Write>,
   now: number,
-): Map<string, DocumentData | undefined> | FirestoreError => {
-  const staged = new Map<string, DocumentData | undefined>();
-  const current = (path: string) =>
-    staged.has(path) ? staged.get(path) : store.documents.get(path);
+): Result.Result<State, FirestoreError> => {
+  const documents = new Map(state.documents);
+  const versions = new Map(state.versions);
   for (const write of writes) {
-    switch (write._tag) {
-      case "Set":
-        staged.set(write.path, resolveMap(write.data, now) as DocumentData);
-        break;
-      case "Update": {
-        const before = current(write.path);
-        if (before === undefined) {
-          return new FirestoreError({
+    if (write._tag === "Update") {
+      const before = documents.get(write.path);
+      if (before === undefined) {
+        return Result.fail(
+          new FirestoreError({
             message: `Failed to update the document "${write.path}"`,
             code: "not-found",
             cause: new Error(`No document to update: ${write.path}`),
-          });
-        }
-        staged.set(write.path, applyUpdate(before, write.data, now));
-        break;
+          }),
+        );
       }
-      case "Delete":
-        staged.set(write.path, undefined);
-        break;
+      documents.set(write.path, applyUpdate(before, write.data, now));
+    } else if (write._tag === "Set") {
+      documents.set(write.path, resolveMap(write.data, now));
+    } else {
+      documents.delete(write.path);
     }
+    versions.set(write.path, (versions.get(write.path) ?? 0) + 1);
   }
-  return staged;
+  return Result.succeed({ documents, versions });
 };
 
 /**
  * Applies `writes` as one commit: all of them or, when one is refused, none.
- * It bumps the version of every path written and then wakes every listener
- * once. Succeeds with `false`, applying nothing, when a path in `reads` is no
+ * Fails with a {@link Conflict}, applying nothing, when a path in `reads` is no
  * longer at the version recorded for it there.
  *
  * **Details**
  *
- * Checking `reads` and applying happen in one synchronous step, so no other
- * fiber sees half a commit, or commits in between. `Clock` is read before
- * that step, so every `serverTimestamp` of a commit resolves to the same
- * time.
+ * The check and the writes are one `SubscriptionRef.modifySome`, so no other
+ * fiber commits in between, and listeners see the commit as one change, or
+ * none when it is refused. `Clock` is read before, so every `serverTimestamp`
+ * of a commit resolves to the same time.
+ */
+const commitChecked = (
+  store: Store,
+  writes: ReadonlyArray<Write>,
+  reads: ReadonlyMap<string, number>,
+): Effect.Effect<void, FirestoreError | Conflict> =>
+  Clock.currentTimeMillis.pipe(
+    Effect.flatMap((now) =>
+      SubscriptionRef.modifySome(store, (state) => {
+        const stale = Array.from(reads).some(
+          ([path, version]) => versionOf(state, path) !== version,
+        );
+        const next = stale ? Result.fail(new Conflict()) : stage(state, writes, now);
+        return [next, Result.getSuccess(next)] as const;
+      }),
+    ),
+    Effect.flatMap(Effect.fromResult),
+    Effect.asVoid,
+  );
+
+/**
+ * Applies `writes` as one commit: all of them or, when one is refused, none.
  *
  * @internal
  */
 export const commit = (
   store: Store,
   writes: ReadonlyArray<Write>,
-  reads: ReadonlyMap<string, number> = new Map(),
-): Effect.Effect<boolean, FirestoreError> =>
-  Effect.flatMap(Clock.currentTimeMillis, (now) => {
-    for (const [path, version] of reads) {
-      if (versionOf(store, path) !== version) return Effect.succeed(false);
-    }
-    const staged = stage(store, writes, now);
-    if (staged instanceof FirestoreError) return Effect.fail(staged);
-    for (const [path, data] of staged) {
-      if (data === undefined) store.documents.delete(path);
-      else store.documents.set(path, data);
-      store.versions.set(path, versionOf(store, path) + 1);
-    }
-    for (const listener of store.listeners) listener();
-    return Effect.succeed(true);
-  });
+): Effect.Effect<void, FirestoreError> =>
+  // With no reads to check, nothing can conflict.
+  Effect.catchIf(commitChecked(store, writes, new Map()), isConflict, Effect.die);
 
 /** How many times a transaction runs its body when the caller doesn't say, as on the SDKs. */
 const defaultMaxAttempts = 5;
+
+/**
+ * Stands in for the round trip of a read to a server: other fibers run in the
+ * meantime, so transactions running at the same time interleave and can
+ * conflict.
+ */
+const roundTrip = Effect.yieldNow;
+
+const readAfterWrite = (path: string) =>
+  new FirestoreError({
+    message: `Failed to read the document "${path}"`,
+    code: "invalid-argument",
+    cause: new Error("Firestore transactions require all reads to be executed before all writes."),
+  });
 
 /**
  * Runs `body` as an optimistic transaction over `store`, with no lock.
@@ -236,77 +255,59 @@ const defaultMaxAttempts = 5;
  *
  * Each attempt reads committed data, records the version of every document
  * it reads, missing ones included, and buffers its writes. A read after a
- * write fails as it does on the SDKs. When the body succeeds, {@link commit}
- * checks those versions and applies every buffered write at once. When one
- * changed, the body runs again, up to `maxAttempts` times, and then the
- * transaction fails with `code: "aborted"`. A body that fails or dies applies
- * nothing and isn't retried.
- *
- * A read yields to other fibers, as a read from a server would, so that
- * transactions running at the same time interleave and can conflict.
+ * write fails as it does on the SDKs. When the body succeeds, it commits the
+ * buffered writes, checking those versions. When one changed, the body runs
+ * again, up to `maxAttempts` times, and then the transaction fails with
+ * `code: "aborted"`. A body that fails or dies applies nothing and isn't
+ * retried.
  */
 const runTransaction = <A, E>(
   store: Store,
   body: (operations: Firestore.TransactionOperations) => Effect.Effect<A, E>,
   maxAttempts: number,
-): Effect.Effect<A, E | FirestoreError> => {
-  const attempt = (n: number): Effect.Effect<A, E | FirestoreError> =>
-    Effect.suspend(() => {
-      const reads = new Map<string, number>();
-      const writes: Array<Write> = [];
-      const buffer = (write: Write) =>
-        Effect.sync(() => {
-          writes.push(write);
-        });
-      const operations: Firestore.TransactionOperations = {
-        getDoc: (path) =>
-          writes.length > 0
-            ? Effect.fail(
-                new FirestoreError({
-                  message: `Failed to read the document "${path}"`,
-                  code: "invalid-argument",
-                  cause: new Error(
-                    "Firestore transactions require all reads to be executed before all writes.",
-                  ),
-                }),
-              )
-            : Effect.sync(() => {
-                if (!reads.has(path)) reads.set(path, versionOf(store, path));
-                return { data: store.documents.get(path) };
-              }).pipe(Effect.tap(() => Effect.yieldNow)),
-        setDoc: (path, data) => buffer({ _tag: "Set", path, data }),
-        updateDoc: (path, data) => buffer({ _tag: "Update", path, data }),
-        deleteDoc: (path) => buffer({ _tag: "Delete", path }),
-      };
-      return Effect.flatMap(body(operations), (a) =>
-        Effect.flatMap(commit(store, writes, reads), (committed) =>
-          committed
-            ? Effect.succeed(a)
-            : n < maxAttempts
-              ? attempt(n + 1)
-              : Effect.fail(
-                  new FirestoreError({
-                    message: "Failed to run a transaction",
-                    code: "aborted",
-                    cause: new Error(
-                      `The documents the transaction read changed before it committed, ${n} times`,
-                    ),
-                  }),
-                ),
-        ),
-      );
+): Effect.Effect<A, E | FirestoreError> =>
+  Effect.gen(function* () {
+    const reads = yield* Ref.make<ReadonlyMap<string, number>>(new Map());
+    const writes = yield* Ref.make<ReadonlyArray<Write>>([]);
+    const buffer = (write: Write) => Ref.update(writes, (buffered) => [...buffered, write]);
+    const a = yield* body({
+      getDoc: (path) =>
+        Effect.gen(function* () {
+          if ((yield* Ref.get(writes)).length > 0) return yield* readAfterWrite(path);
+          const state = yield* SubscriptionRef.get(store);
+          yield* Ref.update(reads, (recorded) =>
+            recorded.has(path) ? recorded : new Map(recorded).set(path, versionOf(state, path)),
+          );
+          yield* roundTrip;
+          return { data: state.documents.get(path) };
+        }),
+      setDoc: (path, data) => buffer(Write.Set({ path, data })),
+      updateDoc: (path, data) => buffer(Write.Update({ path, data })),
+      deleteDoc: (path) => buffer(Write.Delete({ path })),
     });
-  return attempt(1);
-};
+    yield* commitChecked(store, yield* Ref.get(writes), yield* Ref.get(reads));
+    return a;
+  }).pipe(
+    Effect.retry({ while: (error) => isConflict(error), times: maxAttempts - 1 }),
+    Effect.catchIf(isConflict, () =>
+      Effect.fail(
+        new FirestoreError({
+          message: "Failed to run a transaction",
+          code: "aborted",
+          cause: new Error(
+            `The documents the transaction read changed before it committed, ${maxAttempts} times`,
+          ),
+        }),
+      ),
+    ),
+  );
 
 /** The characters of an id Firestore picks: letters and digits. */
 const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
 /** A new 20-character document id, drawn from `Random`. */
 const newId: Effect.Effect<string> = Effect.map(
-  Effect.forEach(Array.from({ length: 20 }), () =>
-    Random.nextIntBetween(0, alphabet.length, { halfOpen: true }),
-  ),
+  Effect.replicateEffect(Random.nextIntBetween(0, alphabet.length, { halfOpen: true }), 20),
   (indexes) => indexes.map((i) => alphabet[i]).join(""),
 );
 
@@ -314,14 +315,10 @@ const newId: Effect.Effect<string> = Effect.map(
  * Orders documents by path, segment by segment, as Firestore orders the
  * results of a query with no order of its own.
  */
-const byPath = (a: Firestore.QueryDocumentRead, b: Firestore.QueryDocumentRead): number => {
-  const as = a.path.split("/");
-  const bs = b.path.split("/");
-  for (let i = 0; i < Math.min(as.length, bs.length); i++) {
-    if (as[i] !== bs[i]) return as[i]! < bs[i]! ? -1 : 1;
-  }
-  return as.length - bs.length;
-};
+const byPath: Order.Order<Firestore.QueryDocumentRead> = Order.mapInput(
+  Order.Array(Order.String),
+  (doc) => doc.path.split("/"),
+);
 
 /**
  * Whether the document at `path` is one `selector` covers.
@@ -341,52 +338,43 @@ const covers = (selector: Firestore.CollectionSelector, path: string): boolean =
 };
 
 /** The documents `selector` covers, in the order of their paths. */
-const docsOf = (
-  store: Store,
-  selector: Firestore.CollectionSelector,
-): ReadonlyArray<Firestore.QueryDocumentRead> =>
-  Array.from(store.documents)
-    .filter(([doc]) => covers(selector, doc))
-    .map(([doc, data]) => ({ path: doc, data }))
-    .toSorted(byPath);
+const docsOf = (state: State, selector: Firestore.CollectionSelector): Firestore.QueryRead => ({
+  docs: Array.from(state.documents)
+    .filter(([path]) => covers(selector, path))
+    .map(([path, data]) => ({ path, data }))
+    .toSorted(byPath),
+});
+
+const docOf = (state: State, path: string): Firestore.DocumentRead => ({
+  data: state.documents.get(path),
+});
+
+const sameDoc = (self: Firestore.DocumentRead, that: Firestore.DocumentRead): boolean =>
+  firestoreValueWalk.equals(self.data, that.data);
+
+const sameDocs = (self: Firestore.QueryRead, that: Firestore.QueryRead): boolean =>
+  self.docs.length === that.docs.length &&
+  self.docs.every(
+    (doc, i) =>
+      doc.path === that.docs[i]!.path && firestoreValueWalk.equals(doc.data, that.docs[i]!.data),
+  );
 
 /**
- * A live listener on what `read` covers: it emits that state when it starts,
- * and again after each commit that changes it, by `same`.
- *
- * **Details**
- *
- * Each run registers a callback in `store.listeners`, which every commit calls
- * once after applying all of its writes, so a listener never sees half of
- * one. The callback reads the state again and emits it only when it isn't
- * `same` as the last one emitted. The stream never completes on its own, and
- * interrupting it removes the callback. A reader that falls behind only sees
- * the latest state, as with an SDK listener.
+ * A live listener on what `select` picks from the state: it emits that when
+ * it starts, and again after each commit that changes it, by `same`. It never
+ * completes on its own, and interrupting it unsubscribes. A reader that falls
+ * behind only sees the latest state, as {@link Firestore.MakeOptions} asks.
  */
 const listen = <A>(
   store: Store,
-  read: () => A,
+  select: (state: State) => A,
   same: (self: A, that: A) => boolean,
-): Stream.Stream<A, FirestoreError> =>
-  streamFromListener<A, A>({
-    subscribe: (onNext) => {
-      let last = read();
-      onNext(last);
-      const listener = () => {
-        const next = read();
-        if (same(last, next)) return;
-        last = next;
-        onNext(next);
-      };
-      store.listeners.add(listener);
-      return () => {
-        store.listeners.delete(listener);
-      };
-    },
-    // An In-memory listener has nothing that could fail it.
-    onError: (cause) => new FirestoreError({ message: "Failed to listen", cause }),
-    map: Result.succeed,
-  });
+): Stream.Stream<A> =>
+  SubscriptionRef.changes(store).pipe(
+    Stream.buffer({ capacity: 1, strategy: "sliding" }),
+    Stream.map(select),
+    Stream.changesWith(same),
+  );
 
 /**
  * The hooks of the In-memory Firestore over `store`.
@@ -394,32 +382,17 @@ const listen = <A>(
  * @internal
  */
 export const hooks = (store: Store): Firestore.MakeOptions => {
-  const write = (...writes: ReadonlyArray<Write>) => Effect.asVoid(commit(store, writes));
+  const read = <A>(select: (state: State) => A) => Effect.map(SubscriptionRef.get(store), select);
   return {
-    getDoc: (path) => Effect.sync(() => ({ data: store.documents.get(path) })),
-    getDocs: (selector) => Effect.sync(() => ({ docs: docsOf(store, selector) })),
-    setDoc: (path, data) => write({ _tag: "Set", path, data }),
-    updateDoc: (path, data) => write({ _tag: "Update", path, data }),
-    deleteDoc: (path) => write({ _tag: "Delete", path }),
+    getDoc: (path) => read((state) => docOf(state, path)),
+    getDocs: (selector) => read((state) => docsOf(state, selector)),
+    setDoc: (path, data) => commit(store, [Write.Set({ path, data })]),
+    updateDoc: (path, data) => commit(store, [Write.Update({ path, data })]),
+    deleteDoc: (path) => commit(store, [Write.Delete({ path })]),
     addDoc: (path, data) =>
-      Effect.tap(newId, (id) => write({ _tag: "Set", path: `${path}/${id}`, data })),
-    streamDoc: (path) =>
-      listen(
-        store,
-        () => ({ data: store.documents.get(path) }),
-        (a, b) => firestoreValueWalk.equals(a.data, b.data),
-      ),
-    streamDocs: (selector) =>
-      listen(
-        store,
-        () => ({ docs: docsOf(store, selector) }),
-        (a, b) =>
-          a.docs.length === b.docs.length &&
-          a.docs.every(
-            (doc, i) =>
-              doc.path === b.docs[i]!.path && firestoreValueWalk.equals(doc.data, b.docs[i]!.data),
-          ),
-      ),
+      Effect.tap(newId, (id) => commit(store, [Write.Set({ path: `${path}/${id}`, data })])),
+    streamDoc: (path) => listen(store, (state) => docOf(state, path), sameDoc),
+    streamDocs: (selector) => listen(store, (state) => docsOf(state, selector), sameDocs),
     runTransaction: {
       run: (body, { maxAttempts = defaultMaxAttempts }) => runTransaction(store, body, maxAttempts),
     },
@@ -432,18 +405,22 @@ export const hooks = (store: Store): Firestore.MakeOptions => {
  * @internal
  */
 export const driver = (store: Store): Firestore.MemoryDriver => ({
-  get: (path) => Effect.sync(() => store.documents.get(path)),
+  get: (path) => Effect.map(SubscriptionRef.get(store), (state) => state.documents.get(path)),
   set: (path, data) =>
-    Effect.suspend(() =>
+    Effect.gen(function* () {
       // Sentinels are Firestore Values, so `isFirestoreValue` alone lets them through.
-      containsSentinel(data)
-        ? Effect.die(
-            new Error(`MemoryDriver.set stores raw data, so it takes no sentinel, as at "${path}"`),
-          )
-        : !firestoreValueWalk.isFirestoreValue(data)
-          ? Effect.die(new Error(`MemoryDriver.set takes Firestore Values, as at "${path}"`))
-          : Effect.orDie(Effect.asVoid(commit(store, [{ _tag: "Set", path, data }]))),
-    ),
-  delete: (path) => Effect.orDie(Effect.asVoid(commit(store, [{ _tag: "Delete", path }]))),
-  documents: Effect.sync((): ReadonlyMap<string, DocumentData> => new Map(store.documents)),
+      if (containsSentinel(data)) {
+        return yield* Effect.die(
+          new Error(`MemoryDriver.set stores raw data, so it takes no sentinel, as at "${path}"`),
+        );
+      }
+      if (!firestoreValueWalk.isFirestoreValue(data)) {
+        return yield* Effect.die(
+          new Error(`MemoryDriver.set takes Firestore Values, as at "${path}"`),
+        );
+      }
+      yield* Effect.orDie(commit(store, [Write.Set({ path, data })]));
+    }),
+  delete: (path) => Effect.orDie(commit(store, [Write.Delete({ path })])),
+  documents: Effect.map(SubscriptionRef.get(store), (state) => state.documents),
 });
