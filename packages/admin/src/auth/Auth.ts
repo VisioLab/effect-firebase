@@ -27,9 +27,9 @@
  * @since 0.1.0
  */
 import { Context, Effect, Layer, Schema } from "effect";
-import { FirebaseError } from "firebase-admin/app";
 import * as Admin from "firebase-admin/auth";
 import * as App from "../app/App.ts";
+import * as firebaseError from "../internal/firebaseError.ts";
 
 /**
  * Fails a call on {@link Auth} when the Admin SDK rejects it, with what it
@@ -55,7 +55,7 @@ export class AuthError extends Schema.TaggedError<AuthError, { readonly brand: u
 const authError = (message: string) => (cause: unknown) =>
   new AuthError({
     message,
-    code: cause instanceof FirebaseError ? cause.code : undefined,
+    code: firebaseError.codeOf(cause),
     cause,
   });
 

@@ -1,8 +1,8 @@
 import { Context, Effect, Result } from "effect";
 import * as Firestore from "@visiolab/effect-firebase/firestore/Firestore";
-import { FirebaseError } from "firebase-admin/app";
 import * as Admin from "firebase-admin/firestore";
 import * as App from "../../app/App.ts";
+import * as firebaseError from "../../internal/firebaseError.ts";
 import type * as AdminFirestore from "../AdminFirestore.ts";
 import * as firestoreValue from "./firestoreValue.ts";
 
@@ -38,7 +38,7 @@ const firestoreError = (message: string) => (cause: unknown) =>
     // Firestore answers over gRPC, whose statuses are numbered rather than
     // named, so a code only comes back for the failures the Admin SDK raises
     // itself.
-    code: cause instanceof FirebaseError ? cause.code : undefined,
+    code: firebaseError.codeOf(cause),
     cause,
   });
 

@@ -46,9 +46,15 @@ catalogs:
     # helpers (ADR 0002), which semver does not cover. The range trusts patch
     # releases to leave them alone.
     effect: ~4.1.0
-    firebase: ^13.0.0
-    firebase-admin: ^14.5.0
-    firebase-functions: ^7.4.0
+    # Each floor is the oldest release CI runs the emulator tests on, in the
+    # `test-floor` job, which pins the dev versions above to these floors.
+    # The Client package reads the HTTP status the SDK appends to a Callable
+    # error's message, which firebase 12.18 is the first 12.x to send.
+    firebase: ^12.18.0 || ^13
+    # App adopts an app initialized elsewhere by calling `initializeApp` again,
+    # which throws for a name already taken before 13.5.
+    firebase-admin: ^13.5.0 || ^14
+    firebase-functions: ^7
 overrides:
   vite@*: "catalog:"
   vitest@*: "catalog:"
