@@ -28,10 +28,24 @@ import {
  *
  * **Details**
  *
- * Holds nothing yet. Add an option only when a shared test genuinely can't hold
- * for one backend, the way Effect's `testLayer` suites take their options.
+ * Add an option only when a shared test genuinely can't hold for one backend,
+ * the way Effect's `testLayer` suites take their options.
  */
-export interface Options {}
+export interface Options {
+  /**
+   * What the backend can't do yet, whose tests the suite skips.
+   *
+   * Only the In-memory Firestore sets it while it is being built: its
+   * listeners land with #248 and its transactions with #249, which drop them
+   * from here.
+   */
+  readonly unsupported?: ReadonlyArray<Capability> | undefined;
+}
+
+/**
+ * Something a shared test needs that a backend may not offer yet.
+ */
+export type Capability = "listeners" | "transactions";
 
 /**
  * Registers the conformance tests against `layer`, inside the caller's
@@ -53,12 +67,13 @@ export interface Options {}
  * });
  * ```
  */
-export const testFirestore = <E>(
-  layer: Layer.Layer<Firestore, E>,
-  _options: Options = {},
-): void => {
+export const testFirestore = <E>(layer: Layer.Layer<Firestore, E>, options: Options = {}): void => {
   const run = <A, E2>(effect: Effect.Effect<A, E2, Firestore>) =>
     effect.pipe(Effect.provide(layer));
+
+  /** `it.effect`, skipped on a backend that can't do all of `needs` yet. */
+  const needing = (...needs: ReadonlyArray<Capability>) =>
+    it.effect.skipIf(needs.some((need) => options.unsupported?.includes(need) === true));
 
   describe("single documents", () => {
     it.effect("reads back what it wrote", () =>
@@ -162,50 +177,52 @@ export const testFirestore = <E>(
   });
 
   describe("on a collection of a union", () => {
-    it.effect("writes each member, reads it back as that member, and switches it with a set", () =>
-      run(
-        Effect.gen(function* () {
-          const firestore = yield* Firestore;
+    needing("transactions")(
+      "writes each member, reads it back as that member, and switches it with a set",
+      () =>
+        run(
+          Effect.gen(function* () {
+            const firestore = yield* Firestore;
 
-          yield* firestore.setDoc(task, { version: 1, title: "t", state: { status: "pending" } });
-          const first = yield* read(yield* firestore.getDoc(task));
-          assert(first instanceof TaskV1);
-          expect(first.state).toStrictEqual({ status: "pending" });
+            yield* firestore.setDoc(task, { version: 1, title: "t", state: { status: "pending" } });
+            const first = yield* read(yield* firestore.getDoc(task));
+            assert(first instanceof TaskV1);
+            expect(first.state).toStrictEqual({ status: "pending" });
 
-          yield* firestore.setDoc(task, {
-            version: 2,
-            title: "t",
-            state: { status: "done", uri: "gs://x" },
-            priority: 1,
-          });
-          const second = yield* firestore.runTransaction(
-            Effect.gen(function* () {
-              const tx = yield* Transaction;
-              return yield* read(yield* tx.getDoc(task));
-            }),
-          );
-          assert(second.version === 2);
-          expect(second).toBeInstanceOf(TaskV2);
-          expect(second.state).toStrictEqual({ status: "done", uri: "gs://x" });
-          expect(second.priority).toBe(1);
+            yield* firestore.setDoc(task, {
+              version: 2,
+              title: "t",
+              state: { status: "done", uri: "gs://x" },
+              priority: 1,
+            });
+            const second = yield* firestore.runTransaction(
+              Effect.gen(function* () {
+                const tx = yield* Transaction;
+                return yield* read(yield* tx.getDoc(task));
+              }),
+            );
+            assert(second.version === 2);
+            expect(second).toBeInstanceOf(TaskV2);
+            expect(second.state).toStrictEqual({ status: "done", uri: "gs://x" });
+            expect(second.priority).toBe(1);
 
-          const added = yield* firestore.addDoc(Tasks.collection(), {
-            version: 1,
-            title: "a",
-            state: { status: "pending" },
-          });
-          const snapshot = yield* firestore.getDocs(Tasks.collection());
-          const members = yield* Effect.forEach(snapshot.docs, (doc) =>
-            Effect.map(doc.data, (data) => [doc.id, data.constructor] as const),
-          );
-          expect(new Map(members)).toStrictEqual(
-            new Map<string, unknown>([
-              [task.id, TaskV2],
-              [added.id, TaskV1],
-            ]),
-          );
-        }),
-      ),
+            const added = yield* firestore.addDoc(Tasks.collection(), {
+              version: 1,
+              title: "a",
+              state: { status: "pending" },
+            });
+            const snapshot = yield* firestore.getDocs(Tasks.collection());
+            const members = yield* Effect.forEach(snapshot.docs, (doc) =>
+              Effect.map(doc.data, (data) => [doc.id, data.constructor] as const),
+            );
+            expect(new Map(members)).toStrictEqual(
+              new Map<string, unknown>([
+                [task.id, TaskV2],
+                [added.id, TaskV1],
+              ]),
+            );
+          }),
+        ),
     );
 
     it.effect("updates a Shared Field whichever member the document holds", () =>
@@ -278,7 +295,7 @@ export const testFirestore = <E>(
       ),
     );
 
-    it.effect("streams the document and the collection, each read as its member", () =>
+    needing("listeners")("streams the document and the collection, each read as its member", () =>
       run(
         Effect.gen(function* () {
           const firestore = yield* Firestore;
