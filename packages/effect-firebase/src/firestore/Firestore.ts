@@ -14,6 +14,8 @@
  *   {@link ClientFirestore.layer} in a browser or app. Each layer also provides
  *   its richer service, {@link AdminFirestore.AdminFirestore} or
  *   {@link ClientFirestore.ClientFirestore}, as the same object.
+ * - Unit test Portable code against the In-memory Firestore, with
+ *   {@link layerMemory}.
  * - Implement a backend of your own with {@link make}.
  *
  * @example Reading and writing a document
@@ -1205,9 +1207,10 @@ export interface MakeOptions<
  *
  * **When to use**
  *
- * Use to implement a backend, such as a new SDK or an in-memory fake for
- * tests. Applications use a backend's layer instead, such as
- * {@link AdminFirestore.layer} or {@link ClientFirestore.layer}.
+ * Use to implement a backend, such as one for a new SDK. Applications use a
+ * backend's layer instead, such as {@link AdminFirestore.layer} or
+ * {@link ClientFirestore.layer}. To unit test Portable code, provide
+ * {@link layerMemory}, the In-memory Firestore, rather than building one.
  *
  * **Details**
  *
@@ -1233,46 +1236,33 @@ export interface MakeOptions<
  * {@link Firestore}, so providing a {@link Firestore} alone does not satisfy
  * code that asks for the richer one.
  *
- * @see {@link transactionFromCallback} to build the `runTransaction` hook from an SDK callback
- * @see {@link streamFromListener} to build the `streamDoc` and `streamDocs` hooks from an SDK listener
- *
- * @example An in-memory backend
+ * @example Wiring a backend
  * ```ts
- * import { Effect, Layer, Stream } from "effect";
+ * import { Effect, Layer } from "effect";
  * import { Firestore } from "@visiolab/effect-firebase/firestore";
  *
- * const documents = new Map<string, Firestore.DocumentData>();
+ * // A backend's SDK, already returning Firestore Values.
+ * declare const sdk: {
+ *   readonly get: (path: string) => Promise<Firestore.DocumentData | undefined>;
+ * };
+ * // The other hooks, written against the same SDK.
+ * declare const hooks: Omit<Firestore.MakeOptions, "getDoc">;
  *
- * const getDoc = (path: string) => Effect.sync(() => ({ data: documents.get(path) }));
- * const setDoc = (path: string, data: Firestore.DocumentData) =>
- *   Effect.sync(() => void documents.set(path, data));
- * const updateDoc = (path: string, data: Firestore.DocumentData) =>
- *   Effect.sync(() => void documents.set(path, { ...documents.get(path), ...data }));
- * const deleteDoc = (path: string) => Effect.sync(() => void documents.delete(path));
- * const getDocs = (selector: Firestore.CollectionSelector) =>
- *   Effect.sync(() => ({
- *     docs: [...documents]
- *       .filter(([path]) => selector._tag === "Collection" && path.startsWith(`${selector.path}/`))
- *       .map(([path, data]) => ({ path, data })),
- *   }));
+ * const getDoc = (path: string) =>
+ *   Effect.tryPromise({
+ *     try: () => sdk.get(path),
+ *     catch: (cause) => new Firestore.FirestoreError({ message: String(cause), cause }),
+ *   }).pipe(Effect.map((data) => ({ data })));
  *
- * const firestore = Firestore.make({
- *   getDoc,
- *   getDocs,
- *   setDoc,
- *   updateDoc,
- *   deleteDoc,
- *   addDoc: (path, data) => {
- *     const id = crypto.randomUUID();
- *     return Effect.as(setDoc(`${path}/${id}`, data), id);
- *   },
- *   streamDoc: (path) => Stream.fromEffect(getDoc(path)),
- *   streamDocs: (selector) => Stream.fromEffect(getDocs(selector)),
- *   runTransaction: { run: (body) => body({ getDoc, setDoc, updateDoc, deleteDoc }) },
- * });
- *
- * const FirestoreInMemory = Layer.succeed(Firestore.Firestore, firestore);
+ * const FirestoreLive = Layer.succeed(Firestore.Firestore, Firestore.make({ ...hooks, getDoc }));
  * ```
+ *
+ * @see {@link transactionFromCallback} to build the `runTransaction` hook from an SDK callback
+ * @see {@link streamFromListener} to build the `streamDoc` and `streamDocs` hooks from an SDK listener
+ * @see {@link makeMemory} for the In-memory Firestore, a backend built with `make`
+ * @see {@link layerMemory} for the In-memory Firestore as a layer, for unit tests
+ * @see {@link AdminFirestore.layer} for the Admin SDK's backend
+ * @see {@link ClientFirestore.layer} for the client SDK's backend
  *
  * @stability unstable
  * @category constructors
@@ -1589,6 +1579,8 @@ export const MemoryDriver = Context.Service<MemoryDriver>(
  * with {@link make}.
  *
  * - `setDoc` replaces the whole document.
+ * - `serverTimestamp` resolves to Effect's `Clock` at commit, so `TestClock`
+ *   pins it.
  * - `addDoc` picks a 20-character id of letters and digits, drawn from
  *   Effect's `Random`, so a seeded `Random` makes it deterministic.
  * - `updateDoc` writes each dotted key as a field path, and fails with a
@@ -1614,6 +1606,7 @@ export const MemoryDriver = Context.Service<MemoryDriver>(
  *   applies nothing.
  *
  * @see {@link layerMemory} for the same as a layer
+ * @see {@link MemoryDriver} for seeding and inspecting raw documents
  * @see {@link make} for building a backend of your own from hooks
  *
  * @example Building an In-memory Firestore
@@ -1658,12 +1651,15 @@ export const makeMemory: Effect.Effect<{
  *
  * It only provides the portable {@link Firestore}: its reads and listens take
  * no further options, and its snapshots carry no extra. It requires no
- * services: ids come from Effect's `Random`, read where a write needs it.
+ * services: `addDoc` ids come from Effect's `Random` and `serverTimestamp`
+ * from its `Clock`, read where a write needs them, so a seeded `Random` and
+ * `TestClock` pin them.
  *
  * @see {@link makeMemory} for what it does, and for building it yourself
  * @see {@link MemoryDriver} for seeding and inspecting raw documents
  * @see {@link AdminFirestore.layer} for the Admin SDK's layer
  * @see {@link ClientFirestore.layer} for the client SDK's layer
+ * @see {@link make} for building a backend of your own from hooks
  *
  * @example Testing Portable code in memory
  * ```ts

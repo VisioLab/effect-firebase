@@ -399,6 +399,7 @@ const both = (service: ClientFirestore & Firestore) =>
  *
  * @see {@link make} for why building the service cannot fail
  * @see {@link AdminFirestore.layer} for the Admin SDK's layer, for servers
+ * @see {@link Firestore.layerMemory} for the In-memory Firestore, to unit test Portable code
  *
  * @stability unstable
  * @category layers
