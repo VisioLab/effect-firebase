@@ -13,6 +13,7 @@ import {
   Effect,
   Option,
   Order,
+  Predicate,
   Random,
   Ref,
   Result,
@@ -66,11 +67,6 @@ export type Write = Data.TaggedEnum<{
 }>;
 
 const Write = Data.taggedEnum<Write>();
-
-/** A document a transaction read changed before the transaction committed. */
-class Conflict extends Data.Error {}
-
-const isConflict = (u: unknown): u is Conflict => u instanceof Conflict;
 
 const isMap = (u: unknown): u is DocumentData => firestoreValueWalk.isMap(u);
 
@@ -197,8 +193,8 @@ const stage = (
 
 /**
  * Applies `writes` as one commit: all of them or, when one is refused, none.
- * Fails with a {@link Conflict}, applying nothing, when a path in `reads` is no
- * longer at the version recorded for it there.
+ * Fails with what `check` fails with, applying nothing, when the state no
+ * longer holds what the commit counted on.
  *
  * **Details**
  *
@@ -206,37 +202,24 @@ const stage = (
  * fiber commits in between, and listeners see the commit as one change, or
  * none when it is refused. `Clock` is read before, so every `serverTimestamp`
  * of a commit resolves to the same time.
+ *
+ * @internal
  */
-const commitChecked = (
+export const commit = <E = never>(
   store: Store,
   writes: ReadonlyArray<Write>,
-  reads: ReadonlyMap<string, number>,
-): Effect.Effect<void, FirestoreError | Conflict> =>
+  check: (state: State) => Result.Result<void, E> = () => Result.void,
+): Effect.Effect<void, FirestoreError | E> =>
   Clock.currentTimeMillis.pipe(
     Effect.flatMap((now) =>
       SubscriptionRef.modifySome(store, (state) => {
-        const stale = Array.from(reads).some(
-          ([path, version]) => versionOf(state, path) !== version,
-        );
-        const next = stale ? Result.fail(new Conflict()) : stage(state, writes, now);
+        const next = Result.flatMap(check(state), () => stage(state, writes, now));
         return [next, Result.getSuccess(next)] as const;
       }),
     ),
     Effect.flatMap(Effect.fromResult),
     Effect.asVoid,
   );
-
-/**
- * Applies `writes` as one commit: all of them or, when one is refused, none.
- *
- * @internal
- */
-export const commit = (
-  store: Store,
-  writes: ReadonlyArray<Write>,
-): Effect.Effect<void, FirestoreError> =>
-  // With no reads to check, nothing can conflict.
-  Effect.catchIf(commitChecked(store, writes, new Map()), isConflict, Effect.die);
 
 /** How many times a transaction runs its body when the caller doesn't say, as on the SDKs. */
 const defaultMaxAttempts = 5;
@@ -247,6 +230,19 @@ const defaultMaxAttempts = 5;
  * conflict.
  */
 const roundTrip = Effect.yieldNow;
+
+const ConflictTag = "@visiolab/effect-firebase/firestore/memory/Conflict";
+
+/** A document a transaction read changed before the transaction committed. */
+class Conflict extends Data.TaggedError(ConflictTag) {}
+
+/** Fails with a {@link Conflict} when a path in `reads` is no longer at the version recorded for it. */
+const unchangedSince =
+  (reads: ReadonlyMap<string, number>) =>
+  (state: State): Result.Result<void, Conflict> =>
+    Array.from(reads).some(([path, version]) => versionOf(state, path) !== version)
+      ? Result.fail(new Conflict())
+      : Result.void;
 
 const readAfterWrite = (path: string) =>
   new FirestoreError({
@@ -292,11 +288,11 @@ const runTransaction = <A, E>(
       updateDoc: (path, data) => buffer(Write.Update({ path, data })),
       deleteDoc: (path) => buffer(Write.Delete({ path })),
     });
-    yield* commitChecked(store, yield* Ref.get(writes), yield* Ref.get(reads));
+    yield* commit(store, yield* Ref.get(writes), unchangedSince(yield* Ref.get(reads)));
     return a;
   }).pipe(
-    Effect.retry({ while: (error) => isConflict(error), times: maxAttempts - 1 }),
-    Effect.catchIf(isConflict, () =>
+    Effect.retry({ while: Predicate.isTagged(ConflictTag), times: maxAttempts - 1 }),
+    Effect.catchTag(ConflictTag, () =>
       Effect.fail(
         new FirestoreError({
           message: "Failed to run a transaction",
