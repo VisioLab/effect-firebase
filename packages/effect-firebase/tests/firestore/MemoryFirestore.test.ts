@@ -439,11 +439,15 @@ describe("Firestore.layerMemory", () => {
     ),
   );
 
-  it.effect("keeps stored bytes apart from the arrays written and read", () =>
+  it.effect.each([
+    ["a Uint8Array", (bytes: ReadonlyArray<number>) => new Uint8Array(bytes)],
+    // A Buffer is a Uint8Array whose slice is a view of the same memory.
+    ["a Buffer", (bytes: ReadonlyArray<number>) => Buffer.from(bytes)],
+  ] as const)("keeps stored bytes apart from %s written and read", ([, make]) =>
     memory(
       Effect.gen(function* () {
         const driver = yield* Firestore.MemoryDriver;
-        const written = new Uint8Array([1, 2]);
+        const written = make([1, 2]);
 
         yield* driver.set("files/a", { bytes: written });
         written[0] = 9;

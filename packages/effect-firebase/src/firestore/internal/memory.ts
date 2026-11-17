@@ -86,7 +86,8 @@ const isArrayValue = (u: Value | undefined): u is ReadonlyArray<Value> => Array.
  * nor a reader holds on to what is stored and changes it behind a commit.
  */
 const copy = (value: Value): Value => {
-  if (value instanceof Uint8Array) return value.slice();
+  // Not `slice`, which on a Node.js `Buffer` is a view of the same memory.
+  if (value instanceof Uint8Array) return new Uint8Array(value);
   if (isArrayValue(value)) return Array.map(value, copy);
   if (isMap(value)) return copyData(value);
   return value;
