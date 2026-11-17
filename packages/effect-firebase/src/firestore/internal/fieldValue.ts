@@ -117,12 +117,3 @@ export const isArrayRemove = (u: unknown): u is FieldValue.ArrayRemove<unknown> 
 /** @internal */
 export const arrayRemove = <A>(...elements: ReadonlyArray<A>): FieldValue.ArrayRemove<A> =>
   Object.assign(Object.create(ArrayRemoveProto) as typeof ArrayRemoveProto, { elements });
-
-/**
- * Whether `u` is a sentinel: a field value Firestore resolves when it commits
- * a write.
- *
- * @internal
- */
-export const isFieldValue = (u: unknown): boolean =>
-  isServerTimestamp(u) || isIncrement(u) || isDeleteField(u) || isArrayUnion(u) || isArrayRemove(u);

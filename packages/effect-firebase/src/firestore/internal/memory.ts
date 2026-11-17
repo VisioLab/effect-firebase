@@ -74,9 +74,16 @@ const isConflict = (u: unknown): u is Conflict => u instanceof Conflict;
 
 const isMap = (u: unknown): u is DocumentData => firestoreValueWalk.isMap(u);
 
+const isSentinel = (u: unknown): boolean =>
+  fieldValue.isServerTimestamp(u) ||
+  fieldValue.isIncrement(u) ||
+  fieldValue.isDeleteField(u) ||
+  fieldValue.isArrayUnion(u) ||
+  fieldValue.isArrayRemove(u);
+
 /** Whether `value` holds a sentinel anywhere inside it. */
 const containsSentinel = (value: unknown): boolean =>
-  fieldValue.isFieldValue(value) ||
+  isSentinel(value) ||
   (Array.isArray(value)
     ? value.some(containsSentinel)
     : isMap(value) && Object.values(value).some(containsSentinel));
