@@ -42,8 +42,8 @@
  * @stability unstable
  * @since 0.2.0
  */
-import { Context } from "effect";
-import type { Effect, Schema, Stream } from "effect";
+import { Context, Effect, Layer } from "effect";
+import type { Schema, Stream } from "effect";
 import type * as Result from "effect/Result";
 import type * as Collection from "./Collection.ts";
 import type * as CollectionGroup from "./CollectionGroup.ts";
@@ -52,6 +52,7 @@ import type * as FirestoreModel from "./FirestoreModel.ts";
 import type { FirestoreValue } from "./FirestoreValue.ts";
 import * as firestore from "./internal/firestore.ts";
 import type { FirestoreError, UndefinedCollectionError } from "./internal/firestoreError.ts";
+import * as internalMemory from "./internal/memory.ts";
 import * as internalStreamFromListener from "./internal/streamFromListener.ts";
 import * as internalTransactionFromCallback from "./internal/transactionFromCallback.ts";
 import type * as QuerySnapshot from "./QuerySnapshot.ts";
@@ -1497,3 +1498,185 @@ export interface StreamFromListenerOptions<S, A> {
 export const streamFromListener: <S, A>(
   options: StreamFromListenerOptions<S, A>,
 ) => Stream.Stream<A, FirestoreError> = internalStreamFromListener.streamFromListener;
+
+/**
+ * Direct access to the documents of an In-memory Firestore, as raw Firestore
+ * Values with no model.
+ *
+ * **When to use**
+ *
+ * Use in a test to seed documents before the code under test reads them,
+ * including data no model would write, and to inspect what that code wrote.
+ * Read and write through {@link Firestore} to go through the models instead.
+ *
+ * **Details**
+ *
+ * {@link layerMemory} provides it next to {@link Firestore}, over the same
+ * documents. Each write through it is a commit of its own, as a write through
+ * {@link Firestore} is.
+ *
+ * @see {@link layerMemory} for the layer that provides it
+ * @see {@link makeMemory} for building it together with its {@link Firestore}
+ *
+ * @example Seeding and inspecting raw documents
+ * ```ts
+ * import { Effect, Schema } from "effect";
+ * import { Collection, Firestore, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ *
+ * class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
+ *
+ * const Users = Collection.make("users", User);
+ *
+ * const program = Effect.gen(function* () {
+ *   const firestore = yield* Firestore.Firestore;
+ *   const driver = yield* Firestore.MemoryDriver;
+ *
+ *   // Data the model refuses, to see how the code under test copes with it.
+ *   yield* driver.set("users/alice", { name: 42 });
+ *
+ *   yield* firestore.setDoc(Users.doc(Users.id.make("bob")), { name: "Bob" });
+ *   return yield* driver.get("users/bob"); // { name: "Bob" }
+ * }).pipe(Effect.provide(Firestore.layerMemory));
+ * ```
+ *
+ * @stability unstable
+ * @category models
+ * @since 0.4.0
+ */
+export interface MemoryDriver {
+  /** Reads the data stored at the document path `path`, or `undefined` where there is none. */
+  readonly get: (path: string) => Effect.Effect<DocumentData | undefined>;
+  /**
+   * Stores `data` at the document path `path`, replacing whatever was there.
+   * Dies on a sentinel, such as {@link FieldValue.serverTimestamp}, as stored
+   * data never holds one, and on a value that isn't a Firestore Value.
+   */
+  readonly set: (path: string, data: DocumentData) => Effect.Effect<void>;
+  /** Removes the document at `path`, succeeding where there is none. */
+  readonly delete: (path: string) => Effect.Effect<void>;
+  /** Every stored document, by its path, as it stands when this runs. */
+  readonly documents: Effect.Effect<ReadonlyMap<string, DocumentData>>;
+}
+
+/**
+ * Service key for the {@link MemoryDriver} of an In-memory Firestore.
+ *
+ * Provide it with {@link layerMemory}.
+ *
+ * @stability unstable
+ * @category services
+ * @since 0.4.0
+ */
+export const MemoryDriver = Context.Service<MemoryDriver>(
+  "@visiolab/effect-firebase/firestore/Firestore/MemoryDriver",
+);
+
+/**
+ * Builds an In-memory Firestore: a {@link Firestore} that keeps its documents
+ * in the running process, and the {@link MemoryDriver} over the same
+ * documents.
+ *
+ * **When to use**
+ *
+ * Use to build the two yourself, for example to provide them under keys of
+ * your own. In tests, provide {@link layerMemory} instead.
+ *
+ * **Details**
+ *
+ * Each run starts with no documents. Writes are encoded and reads decoded
+ * through the collection's model, as on the SDK backends, since it is built
+ * with {@link make}.
+ *
+ * - `setDoc` replaces the whole document.
+ * - `addDoc` picks a 20-character id of letters and digits, drawn from
+ *   Effect's `Random`, so a seeded `Random` makes it deterministic.
+ * - `updateDoc` writes each dotted key as a field path, and fails with a
+ *   {@link FirestoreError} whose `code` is `"not-found"` on a missing document.
+ * - `deleteDoc` succeeds on a missing document.
+ *
+ * Sentinels, Collection Group reads, listeners and transactions are not yet
+ * supported: they die with a defect saying so.
+ *
+ * @see {@link layerMemory} for the same as a layer
+ * @see {@link make} for building a backend of your own from hooks
+ *
+ * @example Building an In-memory Firestore
+ * ```ts
+ * import { Effect } from "effect";
+ * import { Firestore } from "@visiolab/effect-firebase/firestore";
+ *
+ * const program = Effect.gen(function* () {
+ *   const { firestore, driver } = yield* Firestore.makeMemory;
+ *   yield* driver.set("users/alice", { name: "Alice" });
+ *   return firestore;
+ * });
+ * ```
+ *
+ * @stability unstable
+ * @category constructors
+ * @since 0.4.0
+ */
+export const makeMemory: Effect.Effect<{
+  readonly firestore: Firestore;
+  readonly driver: MemoryDriver;
+}> = Effect.sync(() => {
+  const store = internalMemory.makeStore();
+  return { firestore: make(internalMemory.hooks(store)), driver: internalMemory.driver(store) };
+});
+
+/**
+ * Provides an In-memory Firestore: the portable {@link Firestore}, keeping its
+ * documents in the running process, and the {@link MemoryDriver} over them.
+ *
+ * **When to use**
+ *
+ * Use to unit test Portable code without the Firebase emulator. Code that asks
+ * for {@link AdminFirestore.AdminFirestore} or
+ * {@link ClientFirestore.ClientFirestore} needs that SDK's layer.
+ *
+ * **Details**
+ *
+ * Each build of the layer starts with no documents, so a test that provides
+ * it gets a database of its own, while tests sharing one build, as with
+ * `it.layer`, share its documents.
+ *
+ * It only provides the portable {@link Firestore}: its reads and listens take
+ * no further options, and its snapshots carry no extra. It requires no
+ * services: ids come from Effect's `Random`, read where a write needs it.
+ *
+ * @see {@link makeMemory} for what it does, and for building it yourself
+ * @see {@link MemoryDriver} for seeding and inspecting raw documents
+ * @see {@link AdminFirestore.layer} for the Admin SDK's layer
+ * @see {@link ClientFirestore.layer} for the client SDK's layer
+ *
+ * @example Testing Portable code in memory
+ * ```ts
+ * import { Effect, Random, Schema } from "effect";
+ * import { Collection, Firestore, FirestoreModel } from "@visiolab/effect-firebase/firestore";
+ *
+ * class User extends FirestoreModel.Class<User>("User")({ name: Schema.String }) {}
+ *
+ * const Users = Collection.make("users", User);
+ *
+ * const signUp = (name: string) =>
+ *   Effect.gen(function* () {
+ *     const firestore = yield* Firestore.Firestore;
+ *     return yield* firestore.addDoc(Users.collection(), { name });
+ *   });
+ *
+ * const test = Effect.gen(function* () {
+ *   const driver = yield* Firestore.MemoryDriver;
+ *   const ref = yield* signUp("Alice");
+ *   return yield* driver.get(ref.path); // { name: "Alice" }
+ * }).pipe(Effect.provide(Firestore.layerMemory), Random.withSeed("ids"));
+ * ```
+ *
+ * @stability unstable
+ * @category layers
+ * @since 0.4.0
+ */
+export const layerMemory: Layer.Layer<Firestore | MemoryDriver> = Layer.effectContext(
+  Effect.map(makeMemory, ({ firestore, driver }) =>
+    Context.make(Firestore, firestore).pipe(Context.add(MemoryDriver, driver)),
+  ),
+);

@@ -7,7 +7,7 @@ import * as FirestoreModel from "@visiolab/effect-firebase/firestore/FirestoreMo
 import * as FirestoreSchema from "@visiolab/effect-firebase/firestore/FirestoreSchema";
 import * as Patch from "@visiolab/effect-firebase/firestore/Patch";
 import type * as QuerySnapshot from "@visiolab/effect-firebase/firestore/QuerySnapshot";
-import { Context, Effect, Schema, SchemaGetter, type Stream } from "effect";
+import { Context, Effect, Layer, Schema, SchemaGetter, type Stream } from "effect";
 import { describe, expect, test } from "tstyche";
 
 /** A service a document schema might encode through. */
@@ -793,5 +793,50 @@ describe("make", () => {
       // @ts-expect-error Type 'string' is not assignable to type 'FirestoreError'
       setDoc: () => Effect.fail("nope"), // oxlint-disable-line effecttsgo/missing-effect-error
     });
+  });
+});
+
+/**
+ * An SDK backend's richer Firestore, as Admin and client Firestore are: a
+ * {@link Firestore.With} with a type id of its own.
+ */
+interface RichFirestore extends Firestore.With<{ readonly source: "cache" }> {
+  readonly "~RichFirestore": "~RichFirestore";
+}
+const RichFirestore = Context.Service<RichFirestore>("test/RichFirestore");
+
+describe("Firestore.layerMemory", () => {
+  test("provides Firestore and MemoryDriver, and needs nothing", () => {
+    expect(Firestore.layerMemory).type.toBe<
+      Layer.Layer<Firestore.Firestore | Firestore.MemoryDriver>
+    >();
+  });
+
+  test("satisfies code that asks for Firestore and MemoryDriver", () => {
+    const program = Effect.gen(function* () {
+      yield* Firestore.Firestore;
+      yield* Firestore.MemoryDriver;
+    });
+    expect(Effect.provide(program, Firestore.layerMemory)).type.toBe<Effect.Effect<void>>();
+  });
+
+  test("does not satisfy code that asks for an SDK backend's richer Firestore", () => {
+    const provided = Effect.asVoid(Effect.service(RichFirestore)).pipe(
+      Effect.provide(Firestore.layerMemory),
+    );
+    expect(provided).type.toBe<Effect.Effect<void, never, RichFirestore>>();
+    // @ts-expect-error not assignable
+    void Effect.runPromise(provided); // oxlint-disable-line effecttsgo/missing-effect-context
+  });
+});
+
+describe("Firestore.makeMemory", () => {
+  test("builds a Firestore and its MemoryDriver", () => {
+    expect(Firestore.makeMemory).type.toBe<
+      Effect.Effect<{
+        readonly firestore: Firestore.Firestore;
+        readonly driver: Firestore.MemoryDriver;
+      }>
+    >();
   });
 });
