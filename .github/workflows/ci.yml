@@ -69,19 +69,16 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: true
 
-      # Swaps the dev versions in the default catalog, indented two spaces, for
-      # the floors. The peer ranges sit four spaces deep, so they stay as they
-      # are. The step fails unless exactly those three lines changed.
+      # Points each package's dev dependency at the floor in place of its
+      # catalog entry. The peer ranges stay as they are. Only these three and
+      # what they depend on are resolved again; the rest comes from the lockfile.
       - name: Install the floor SDKs
         if: matrix.sdk == 'floor'
         run: |
-          sed -i -E \
-            -e 's/^  firebase: .*/  firebase: ${{ matrix.firebase }}/' \
-            -e 's/^  firebase-admin: .*/  firebase-admin: ${{ matrix.firebase-admin }}/' \
-            -e 's/^  firebase-functions: .*/  firebase-functions: ${{ matrix.firebase-functions }}/' \
-            pnpm-workspace.yaml
-          test "$(git diff --numstat pnpm-workspace.yaml | cut -f1)" = 3
-          vp install --no-frozen-lockfile
+          vp exec pnpm update -r \
+            firebase@${{ matrix.firebase }} \
+            firebase-admin@${{ matrix.firebase-admin }} \
+            firebase-functions@${{ matrix.firebase-functions }}
           vp why firebase firebase-admin firebase-functions --depth 0
 
       # The Firestore emulator is a Java program, and firebase-tools asks for
