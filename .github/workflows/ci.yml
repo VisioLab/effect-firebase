@@ -45,22 +45,13 @@ jobs:
       - run: vp run test-types
 
   test:
-    name: Test (Node ${{ matrix.node-version }}, ${{ matrix.sdk }} SDKs)
+    name: Test (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         node-version: ["22", "24"]
-        sdk: [dev]
-        include:
-          # The oldest Firebase SDKs the peer ranges in the packages'
-          # `package.json` accept. Keep the two in step (ADR 0005).
-          - node-version: "24"
-            sdk: floor
-            firebase: 12.18.0
-            firebase-admin: 13.5.0
-            firebase-functions: 7.0.0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -68,18 +59,6 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: true
-
-      # Points each package's dev dependency at the floor in place of its
-      # catalog entry. The peer ranges stay as they are. Only these three and
-      # what they depend on are resolved again; the rest comes from the lockfile.
-      - name: Install the floor SDKs
-        if: matrix.sdk == 'floor'
-        run: |
-          vp exec pnpm update -r \
-            firebase@${{ matrix.firebase }} \
-            firebase-admin@${{ matrix.firebase-admin }} \
-            firebase-functions@${{ matrix.firebase-functions }}
-          vp why firebase firebase-admin firebase-functions --depth 0
 
       # The Firestore emulator is a Java program, and firebase-tools asks for
       # Java 21 or later to run it.

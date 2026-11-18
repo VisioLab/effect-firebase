@@ -2,7 +2,7 @@
 
 The published packages take `effect` and the Firebase SDKs as peer dependencies. Their ranges are written out in each package's `peerDependencies`, not drawn from a pnpm catalog, while the versions the repo develops and tests against stay in the default catalog. Dependabot reads every catalog entry, named catalogs included, as an ordinary dependency and raises it on each release, which would narrow what consumers may install a little further with every bump. It does not parse `peerDependencies` at all, so a range written there stays where it was put.
 
-Each Firebase range starts at the oldest release the emulator tests pass on, and the `floor` entry of CI's `test` matrix installs exactly those releases and runs the suite again. A floor sits above a major's `.0` only when that release fails:
+Each Firebase range starts at the oldest release the emulator tests passed on when the range was set, checked by hand: CI runs the suite on the dev versions only. A floor sits above a major's `.0` only when that release failed:
 
 - `firebase-admin` `^13.5.0 || ^14`: before 13.5, `initializeApp` throws for an app name already taken, and `App` calls it again to adopt an app the host initialized.
 - `firebase` `^12.18.0 || ^13`: the Client tells an answer from a failed request by the HTTP status the SDK appends to a Callable error's message, which `@firebase/functions` 0.14, first bundled in firebase 12.18, is the first to add.
@@ -19,4 +19,4 @@ Each Firebase range starts at the oldest release the emulator tests pass on, and
 ## Consequences
 
 - A range used by several packages, such as `effect` or `firebase-admin`, is written once per package, and changing it means editing each.
-- Raising or lowering a floor means changing the range and the matching version in the `floor` entry of `.github/workflows/ci.yml` together.
+- Nothing checks the floors after they are set. Code that needs a newer SDK than a range allows can land unnoticed, so a change that leans on a recent SDK feature should run the tests against the floors by hand and raise the range if they fail.
