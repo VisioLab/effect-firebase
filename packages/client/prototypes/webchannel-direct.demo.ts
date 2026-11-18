@@ -18,6 +18,7 @@ import {
   ChannelSchema,
   Console,
   Effect,
+  Option,
   Pull,
   Queue,
   Schema,
@@ -26,6 +27,7 @@ import {
   type Array as Arr,
 } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
+import * as WebChannelFrames from "./WebChannelFrames.ts";
 
 // ---------------------------------------------------------------------------
 // Transport: Channel.fromTransform
@@ -35,33 +37,16 @@ class TransportError extends Schema.TaggedError<TransportError>()("TransportErro
   cause: Schema.Defect(),
 }) {}
 
+const toTransportError = <A, R>(self: Effect.Effect<A, unknown, R>) =>
+  Effect.mapError(self, (error) =>
+    error instanceof TransportError ? error : new TransportError({ cause: error }),
+  );
+
 interface WebChannelOptions {
   readonly url: string;
   readonly urlParams: Record<string, string>;
   readonly initHeaders: Record<string, string>;
 }
-
-/** Splits `<len>\n<json>` frames out of response text, across network chunks. */
-const frames = <E, R>(self: Stream.Stream<string, E, R>) =>
-  self.pipe(
-    Stream.mapAccum(
-      () => "",
-      (buffer, text) => {
-        buffer += text;
-        const out: Array<Array<[number, Array<unknown>]>> = [];
-        for (;;) {
-          const newline = buffer.indexOf("\n");
-          if (newline === -1) break;
-          const length = Number(buffer.slice(0, newline));
-          if (buffer.length < newline + 1 + length) break;
-          out.push(JSON.parse(buffer.slice(newline + 1, newline + 1 + length)));
-          buffer = buffer.slice(newline + 1 + length);
-        }
-        return [buffer, out] as const;
-      },
-    ),
-    Stream.flattenIterable,
-  );
 
 const log = (line: string) => Console.log(`  \x1b[2m[webchannel] ${line}\x1b[0m`);
 
@@ -85,139 +70,139 @@ const webChannel = <IE = never>(
   HttpClient.HttpClient
 > =>
   Channel.fromTransform(
-    Effect.fnUntraced(
-      function* (
-        upstream: Pull.Pull<Arr.NonEmptyReadonlyArray<unknown>, IE, unknown>,
-        scope: Scope.Scope,
-      ) {
-        const http = (yield* HttpClient.HttpClient).pipe(HttpClient.filterStatusOk);
-        let rid = Math.floor(Math.random() * 100_000);
-        let aid = 0;
-        let ofs = 0;
-        let sid = "";
-        let gsessionid: string | undefined;
+    Effect.fnUntraced(function* (
+      upstream: Pull.Pull<Arr.NonEmptyReadonlyArray<unknown>, IE, unknown>,
+      scope: Scope.Scope,
+    ) {
+      const http = (yield* HttpClient.HttpClient).pipe(HttpClient.filterStatusOk);
+      let rid = Math.floor(Math.random() * 100_000);
+      let aid = 0;
+      let ofs = 0;
+      let sid = "";
+      let gsessionid: string | undefined;
 
-        const request = (method: "GET" | "POST", params: Record<string, string>) =>
-          HttpClientRequest.make(method)(options.url).pipe(
-            HttpClientRequest.setUrlParams({
-              VER: "8",
-              ...options.urlParams,
-              ...(sid ? { SID: sid } : {}),
-              ...(gsessionid ? { gsessionid } : {}),
-              ...params,
-              zx: Math.random().toString(36).slice(2, 14),
-              t: "1",
-            }),
-          );
-        const toTransportError = <A, R>(self: Effect.Effect<A, unknown, R>) =>
-          Effect.mapError(self, (error) =>
-            error instanceof TransportError ? error : new TransportError({ cause: error }),
-          );
-
-        // Handshake
-        const handshake = yield* http.execute(
-          request("POST", {
-            RID: String(rid++),
-            CVER: "22",
-            "X-HTTP-Session-Id": "gsessionid",
-          }).pipe(
-            HttpClientRequest.bodyUrlParams({
-              headers: Object.entries(options.initHeaders)
-                .map(([k, v]) => `${k}:${v}\r\n`)
-                .join(""),
-              count: "0",
-            }),
-          ),
+      const request = (method: "GET" | "POST", params: Record<string, string>) =>
+        HttpClientRequest.make(method)(options.url).pipe(
+          HttpClientRequest.setUrlParams({
+            VER: "8",
+            ...options.urlParams,
+            ...(sid ? { SID: sid } : {}),
+            ...(gsessionid ? { gsessionid } : {}),
+            ...params,
+            zx: Math.random().toString(36).slice(2, 14),
+            t: "1",
+          }),
         );
-        const [[, [tag, newSid]]] = yield* handshake.stream.pipe(
-          Stream.decodeText(),
-          frames,
-          Stream.runCollect,
-        );
-        if (tag !== "c" || typeof newSid !== "string") {
-          return yield* new TransportError({
-            cause: new Error(`Unexpected handshake: ${String(tag)}`),
-          });
-        }
-        sid = newSid;
-        gsessionid = handshake.headers["x-http-session-id"];
-        yield* log(`handshake  SID=${sid}`);
-
-        // Added before the fibers are forked, so it runs after they are interrupted.
-        // `Scope.addFinalizer` takes an Effect value, so suspend it: the RID
-        // must be read when the finalizer runs, not when it is added.
-        yield* Scope.addFinalizer(
-          scope,
-          Effect.suspend(() =>
-            log(`terminate  GET  RID=${rid}`).pipe(
-              Effect.andThen(
-                http.execute(request("GET", { RID: String(rid++), TYPE: "terminate" })),
-              ),
-            ),
-          ).pipe(Effect.timeout("2 seconds"), Effect.ignore),
-        );
-
-        // Bounded, so the back channel stops reading while downstream is slow.
-        const output = yield* Queue.bounded<unknown, TransportError | IE | Cause.Done>(64);
-
-        // Back channel: one GET at a time, reopened with the latest AID when
-        // the server ends it.
-        yield* Effect.gen(function* () {
-          yield* log(`back       GET  AID=${aid}`);
-          const response = yield* http.execute(
-            request("GET", { RID: "rpc", AID: String(aid), CI: "0", TYPE: "xmlhttp" }),
-          );
-          yield* response.stream.pipe(
-            Stream.decodeText(),
-            frames,
-            Stream.runForEach(([id, [message]]) => {
-              aid = id;
-              if (message === "noop") return Effect.void;
-              if (message === "stop" || message === "close") {
-                return Effect.fail(
-                  new TransportError({ cause: new Error(`Server sent ${message}`) }),
-                );
-              }
-              return Queue.offer(output, message);
-            }),
-          );
+      // Handshake
+      const handshake = yield* http.execute(
+        request("POST", {
+          RID: String(rid++),
+          CVER: "22",
+          "X-HTTP-Session-Id": "gsessionid",
         }).pipe(
-          Effect.forever,
-          toTransportError,
-          Effect.catch((error) => Queue.fail(output, error)),
-          Effect.forkIn(scope),
-        );
+          HttpClientRequest.bodyUrlParams({
+            headers: Object.entries(options.initHeaders)
+              .map(([k, v]) => `${k}:${v}\r\n`)
+              .join(""),
+            count: "0",
+          }),
+        ),
+      );
+      const reply = yield* handshake.stream.pipe(
+        Stream.decodeText(),
+        Stream.pipeThroughChannel(
+          WebChannelFrames.decodeSchemaString(WebChannelFrames.Handshake)(),
+        ),
+        Stream.runHead,
+      );
+      if (Option.isNone(reply)) {
+        return yield* new TransportError({ cause: new Error("Empty handshake reply") });
+      }
+      const [[, [, newSid]]] = reply.value;
+      sid = newSid;
+      gsessionid = handshake.headers["x-http-session-id"];
+      yield* log(`handshake  SID=${sid}`);
 
-        // Forward channel: each chunk pulled from upstream becomes one POST.
-        const send = (batch: Arr.NonEmptyReadonlyArray<unknown>) =>
-          Effect.gen(function* () {
-            const body: Record<string, string> = {
-              count: String(batch.length),
-              ofs: String(ofs),
-            };
-            batch.forEach((m, i) => (body[`req${i}___data__`] = JSON.stringify(m)));
-            yield* log(`forward    POST RID=${rid} AID=${aid} ofs=${ofs} count=${batch.length}`);
-            ofs += batch.length;
-            yield* http.execute(
-              request("POST", { RID: String(rid++), AID: String(aid) }).pipe(
-                HttpClientRequest.bodyUrlParams(body),
-              ),
+      // Added before the fibers are forked, so it runs after they are interrupted.
+      // `Scope.addFinalizer` takes an Effect value, so suspend it: the RID
+      // must be read when the finalizer runs, not when it is added.
+      yield* Scope.addFinalizer(
+        scope,
+        Effect.suspend(() =>
+          log(`terminate  GET  RID=${rid}`).pipe(
+            Effect.andThen(http.execute(request("GET", { RID: String(rid++), TYPE: "terminate" }))),
+          ),
+        ).pipe(Effect.timeout("2 seconds"), Effect.ignore),
+      );
+
+      // Bounded, so the back channel stops reading while downstream is slow.
+      const output = yield* Queue.bounded<unknown, TransportError | IE | Cause.Done>(64);
+
+      // Back channel: one GET at a time, reopened with the latest AID when
+      // the server ends it.
+      yield* Effect.gen(function* () {
+        yield* log(`back       GET  AID=${aid}`);
+        const response = yield* http.execute(
+          request("GET", { RID: "rpc", AID: String(aid), CI: "0", TYPE: "xmlhttp" }),
+        );
+        yield* response.stream.pipe(
+          Stream.decodeText(),
+          Stream.pipeThroughChannel(WebChannelFrames.decodeSchemaString(WebChannelFrames.Frame)()),
+          Stream.flattenIterable,
+          Stream.runForEach(([id, payload]) => {
+            aid = id;
+            if (Schema.is(WebChannelFrames.Noop)(payload)) return Effect.void;
+            if (Schema.is(WebChannelFrames.Stop)(payload)) {
+              return Effect.fail(
+                new TransportError({ cause: new Error(`Server sent ${payload[0]}`) }),
+              );
+            }
+            if (Schema.is(WebChannelFrames.Message)(payload)) {
+              return Queue.offer(output, payload[0]);
+            }
+            return Effect.fail(
+              new TransportError({ cause: new Error(`Unexpected payload in array ${id}`) }),
             );
-          }).pipe(toTransportError);
-
-        yield* upstream.pipe(
-          Effect.flatMap(send),
-          Effect.forever,
-          // Upstream ended. Nothing to tell the server, the session stays open.
-          Pull.catchDone(() => Effect.void),
-          Effect.catchCause((cause) => Queue.failCause(output, cause)),
-          Effect.forkIn(scope),
+          }),
         );
+      }).pipe(
+        Effect.forever,
+        toTransportError,
+        Effect.catch((error) => Queue.fail(output, error)),
+        Effect.forkIn(scope),
+      );
 
-        return Queue.takeAll(output);
-      },
-      Effect.catchTag("HttpClientError", (cause) => Effect.fail(new TransportError({ cause }))),
-    ),
+      // Forward channel: each chunk pulled from upstream becomes one POST.
+      const send = (batch: Arr.NonEmptyReadonlyArray<unknown>) =>
+        Effect.gen(function* () {
+          const body: Record<string, string> = {
+            count: String(batch.length),
+            ofs: String(ofs),
+          };
+          const encoded = yield* Schema.encodeUnknownEffect(
+            Schema.Array(Schema.fromJsonString(Schema.Unknown)),
+          )(batch);
+          encoded.forEach((json, i) => (body[`req${i}___data__`] = json));
+          yield* log(`forward    POST RID=${rid} AID=${aid} ofs=${ofs} count=${batch.length}`);
+          ofs += batch.length;
+          yield* http.execute(
+            request("POST", { RID: String(rid++), AID: String(aid) }).pipe(
+              HttpClientRequest.bodyUrlParams(body),
+            ),
+          );
+        }).pipe(toTransportError);
+
+      yield* upstream.pipe(
+        Effect.flatMap(send),
+        Effect.forever,
+        // Upstream ended. Nothing to tell the server, the session stays open.
+        Pull.catchDone(() => Effect.void),
+        Effect.catchCause((cause) => Queue.failCause(output, cause)),
+        Effect.forkIn(scope),
+      );
+
+      return Queue.takeAll(output);
+    }, toTransportError),
   );
 
 // ---------------------------------------------------------------------------
