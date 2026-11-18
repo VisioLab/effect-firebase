@@ -15,8 +15,8 @@ catalog:
   "@effect/tsgo": 0.63.0
   "@effect/vitest": ^4.1.0
   astro: ^7.4.5
-  # The version the packages are developed and tested against. Consumers get
-  # the range in `catalogs.peers` instead.
+  # The versions the packages are developed and tested against. Consumers get
+  # the peer ranges written in each package's `package.json` instead (ADR 0005).
   effect: 4.1.0
   firebase: ^13.0.0
   firebase-admin: ^14.5.0
@@ -39,23 +39,6 @@ catalogs:
   # its API reference, and TypeScript 7 no longer ships that API.
   website:
     typescript: 6.0.3
-  # Published peer ranges, apart from the exact versions above so a dev bump
-  # does not narrow what consumers may install.
-  peers:
-    # Patches only: toCodecFirestore builds on Effect's @internal SchemaAST
-    # helpers (ADR 0002), which semver does not cover. The range trusts patch
-    # releases to leave them alone.
-    effect: ~4.1.0
-    # Each floor is the oldest release CI runs the emulator tests on, in the
-    # `floor` entry of the `test` job's matrix, which installs these floors in
-    # place of the dev versions above.
-    # The Client package reads the HTTP status the SDK appends to a Callable
-    # error's message, which firebase 12.18 is the first 12.x to send.
-    firebase: ^12.18.0 || ^13
-    # App adopts an app initialized elsewhere by calling `initializeApp` again,
-    # which throws for a name already taken before 13.5.
-    firebase-admin: ^13.5.0 || ^14
-    firebase-functions: ^7
 overrides:
   vite@*: "catalog:"
   vitest@*: "catalog:"

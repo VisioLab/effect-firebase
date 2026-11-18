@@ -54,8 +54,8 @@ jobs:
         node-version: ["22", "24"]
         sdk: [dev]
         include:
-          # The oldest Firebase SDKs the published peer ranges accept, from
-          # `catalogs.peers` in `pnpm-workspace.yaml`. Keep the two in step.
+          # The oldest Firebase SDKs the peer ranges in the packages'
+          # `package.json` accept. Keep the two in step (ADR 0005).
           - node-version: "24"
             sdk: floor
             firebase: 12.18.0
