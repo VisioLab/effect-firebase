@@ -1,8 +1,8 @@
 {
   "functions": {
-    "source": "packages/functions/tests/fixture",
+    "source": "tools/functions-fixture",
     "runtime": "nodejs22",
-    "ignore": ["node_modules", "src"]
+    "ignore": ["node_modules", "src", "*.log"]
   },
   "emulators": {
     "singleProjectMode": false,

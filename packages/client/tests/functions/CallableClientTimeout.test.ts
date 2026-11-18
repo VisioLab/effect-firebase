@@ -5,7 +5,7 @@ import * as CallableError from "@visiolab/effect-firebase/functions/CallableErro
 import * as App from "../../src/app/App.ts";
 import * as CallableClient from "../../src/functions/CallableClient.ts";
 import * as ClientFunctions from "../../src/functions/ClientFunctions.ts";
-import { Sleep } from "../../../functions/tests/fixture/src/contract.ts";
+import { Sleep } from "@visiolab/functions-fixture/contract";
 import { FunctionsError } from "firebase/functions";
 import { emulator } from "./emulator.ts";
 

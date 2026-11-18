@@ -1,6 +1,6 @@
 /**
- * Reads what the fixture records next to the tests: files of JSON lines that
- * it appends to and never truncates.
+ * Reads what the fixture records at the paths `@visiolab/functions-fixture/records`
+ * exports: files of JSON lines that it appends to and never truncates.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { Data, type Duration, Effect, Schedule } from "effect";

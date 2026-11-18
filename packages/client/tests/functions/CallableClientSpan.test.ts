@@ -3,7 +3,7 @@ import { Effect, Layer, Tracer } from "effect";
 import * as App from "../../src/app/App.ts";
 import * as CallableClient from "../../src/functions/CallableClient.ts";
 import * as ClientFunctions from "../../src/functions/ClientFunctions.ts";
-import { Greet, Users } from "../../../functions/tests/fixture/src/contract.ts";
+import { Greet, Users } from "@visiolab/functions-fixture/contract";
 import { emulator } from "./emulator.ts";
 
 const FunctionsLive = ClientFunctions.layer({ emulator }).pipe(
