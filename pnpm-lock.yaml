@@ -212,8 +212,8 @@ catalogs:
       specifier: ^7.3.1
       version: 7.3.5
     '@astrojs/starlight':
-      specifier: ^0.42.8
-      version: 0.42.8
+      specifier: ^0.43.1
+      version: 0.43.1
     '@catppuccin/starlight':
       specifier: ^2.1.0
       version: 2.1.0
@@ -319,10 +319,10 @@ importers:
         version: 7.3.5(supports-color@7.2.0)
       '@astrojs/starlight':
         specifier: 'catalog:'
-        version: 0.42.8(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(astro@7.4.5(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@6.0.3))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1))(supports-color@7.2.0)(typescript@6.0.3)
+        version: 0.43.1(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(astro@7.4.5(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@6.0.3))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1))(supports-color@7.2.0)(typescript@6.0.3)
       '@catppuccin/starlight':
         specifier: 'catalog:'
-        version: 2.1.0(@astrojs/starlight@0.42.8(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(astro@7.4.5(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@6.0.3))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1))(supports-color@7.2.0)(typescript@6.0.3))(astro@7.4.5(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@6.0.3))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1))
+        version: 2.1.0(@astrojs/starlight@0.43.1(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(astro@7.4.5(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@6.0.3))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1))(supports-color@7.2.0)(typescript@6.0.3))(astro@7.4.5(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@6.0.3))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1))
       astro:
         specifier: 'catalog:'
         version: 7.4.5(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@6.0.3))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1)
@@ -641,8 +641,8 @@ packages:
   '@astrojs/sitemap@3.7.4':
     resolution: {integrity: sha512-LbKNC24bdUWcQf/pThB6qLlSqHojxGjZDURIzFocY8rlWnAn2t74nnhnK6S5x0NHriHoAduLEpVjRykmeGiVvA==}
 
-  '@astrojs/starlight@0.42.8':
-    resolution: {integrity: sha512-BGP8bmTbdky4OFCV9BNWZedLuzONyUtz754q+hie+li/2TQ5XJ6nvfO8fhRhIMcCpUEsA5Ynf4qTTFf/ft/3Pg==}
+  '@astrojs/starlight@0.43.1':
+    resolution: {integrity: sha512-GhTK+93UNejoQThnYbEkJAlRJiOtctxOCnFtLcUMSTraT75vzS1E89xdMtKOdKcUDD2wx+taJxsfrA3UBs0QgQ==}
     peerDependencies:
       '@astrojs/markdown-remark': ^7.3.0
       astro: ^7.2.10
@@ -2209,9 +2209,6 @@ packages:
 
   '@types/http-errors@2.0.5':
     resolution: {integrity: sha512-r8Tayk8HJnX0FztbZN7oVqGccWgw98T/0neJphO91KkmOzug1KkofZURD4UaD5uH8AqcFLfdPErnBod0u71/qg==}
-
-  '@types/js-yaml@4.0.9':
-    resolution: {integrity: sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg==}
 
   '@types/json-schema@7.0.15':
     resolution: {integrity: sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA==}
@@ -3965,8 +3962,9 @@ packages:
     resolution: {integrity: sha512-zPGsiS+dWoTZtZ4AtpA9Y+BdSFSNWvnouNlWNoUFyAM6xHOHmdCvqO3k8AIbdamCOv4gUFUVNPf6rJFfc4UiJw==}
     hasBin: true
 
-  i18next@26.7.1:
-    resolution: {integrity: sha512-cX+3RRVczel/V2kCMTACckSGSpqgtWYEA6beXNYVms7dOQiHojdPYHD26lT4IKimNeoGWrLvtPgjftbRvmZJVw==}
+  i18next@27.1.2:
+    resolution: {integrity: sha512-851D6dY9vuhn9hF0p5KpY7FPeYnm3P73tqyX2nxfsjeEYVg7Du0Fflw0rJtv7nFnZcDQS0+Hqn0UP6+SPx8mew==}
+    engines: {node: '>=22'}
     peerDependencies:
       typescript: ^5 || ^6 || ^7
     peerDependenciesMeta:
@@ -6411,14 +6409,13 @@ snapshots:
       sitemap: 9.0.1
       zod: 4.6.7
 
-  '@astrojs/starlight@0.42.8(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(astro@7.4.5(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@6.0.3))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1))(supports-color@7.2.0)(typescript@6.0.3)':
+  '@astrojs/starlight@0.43.1(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(astro@7.4.5(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@6.0.3))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1))(supports-color@7.2.0)(typescript@6.0.3)':
     dependencies:
       '@astrojs/markdown-satteri': 0.4.6
       '@astrojs/mdx': 8.1.2(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@astrojs/markdown-satteri@0.4.6)(astro@7.4.5(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@6.0.3))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1))
       '@astrojs/sitemap': 3.7.4
       '@pagefind/default-ui': 1.6.0
       '@types/hast': 3.0.5
-      '@types/js-yaml': 4.0.9
       '@types/mdast': 4.0.4
       astro: 7.4.5(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@6.0.3))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1)
       astro-expressive-code: 0.44.3(astro@7.4.5(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@6.0.3))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1))
@@ -6428,8 +6425,7 @@ snapshots:
       hast-util-to-html: 9.0.6
       hast-util-to-string: 3.0.1
       hastscript: 9.0.3
-      i18next: 26.7.1(typescript@6.0.3)
-      js-yaml: 4.3.2
+      i18next: 27.1.2(typescript@6.0.3)
       klona: 2.0.6
       magic-string: 1.4.3
       mdast-util-directive: 3.2.0(supports-color@7.2.0)
@@ -6442,6 +6438,7 @@ snapshots:
       unified: 11.0.5
       unist-util-visit: 5.2.0
       vfile: 6.0.3
+      yaml: 2.9.1
     optionalDependencies:
       '@astrojs/markdown-remark': 7.3.5(supports-color@7.2.0)
     transitivePeerDependencies:
@@ -6517,9 +6514,9 @@ snapshots:
     dependencies:
       fontkitten: 1.0.3
 
-  '@catppuccin/starlight@2.1.0(@astrojs/starlight@0.42.8(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(astro@7.4.5(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@6.0.3))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1))(supports-color@7.2.0)(typescript@6.0.3))(astro@7.4.5(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@6.0.3))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1))':
+  '@catppuccin/starlight@2.1.0(@astrojs/starlight@0.43.1(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(astro@7.4.5(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@6.0.3))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1))(supports-color@7.2.0)(typescript@6.0.3))(astro@7.4.5(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@6.0.3))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1))':
     dependencies:
-      '@astrojs/starlight': 0.42.8(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(astro@7.4.5(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@6.0.3))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1))(supports-color@7.2.0)(typescript@6.0.3)
+      '@astrojs/starlight': 0.43.1(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(astro@7.4.5(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@6.0.3))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1))(supports-color@7.2.0)(typescript@6.0.3)
       astro: 7.4.5(@astrojs/markdown-remark@7.3.5(supports-color@7.2.0))(@types/node@26.2.0)(@volar/typescript@2.4.30(typescript@6.0.3))(jiti@2.7.0)(typescript@6.0.3)(yaml@2.9.1)
 
   '@changesets/apply-release-plan@8.1.1':
@@ -7968,8 +7965,6 @@ snapshots:
       '@types/unist': 3.0.3
 
   '@types/http-errors@2.0.5': {}
-
-  '@types/js-yaml@4.0.9': {}
 
   '@types/json-schema@7.0.15': {}
 
@@ -10163,7 +10158,7 @@ snapshots:
 
   human-id@4.2.1: {}
 
-  i18next@26.7.1(typescript@6.0.3):
+  i18next@27.1.2(typescript@6.0.3):
     optionalDependencies:
       typescript: 6.0.3
 
