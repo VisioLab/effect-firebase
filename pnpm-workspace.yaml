@@ -14,7 +14,7 @@ catalog:
   "@changesets/cli": ^3.0.3
   "@effect/tsgo": 0.63.0
   "@effect/vitest": ^4.1.0
-  astro: ^7.4.5
+  astro: ^7.4.12
   # The versions the packages are developed and tested against. Consumers get
   # the peer ranges written in each package's `package.json` instead (ADR 0005).
   effect: 4.1.0
