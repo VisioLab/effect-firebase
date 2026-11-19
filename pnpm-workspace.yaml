@@ -33,7 +33,7 @@ catalog:
   typescript6: npm:typescript@6.0.3
   vite: npm:@voidzero-dev/vite-plus-core@1.4.0
   vite-plus: 1.4.0
-  vitest: 5.0.5
+  vitest: 5.1.0
 catalogs:
   # The website reads the packages through TypeScript's compiler API to build
   # its API reference, and TypeScript 7 no longer ships that API.
