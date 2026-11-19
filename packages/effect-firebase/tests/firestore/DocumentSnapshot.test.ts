@@ -159,3 +159,109 @@ describe("extra", () => {
     }),
   );
 });
+
+describe("decode", () => {
+  it.effect(
+    "reads an existing snapshot's data through the model, keeping what it was read at",
+    () =>
+      Effect.gen(function* () {
+        const raw = { name: "Alice", createdAt: Timestamp.makeUnsafe(1, 2) };
+        const decoded = yield* DocumentSnapshot.decode(
+          DocumentSnapshot.make(Users.doc(alice), raw),
+        );
+        assert(decoded._tag === "Existing");
+        expect(decoded.ref.path).toBe("users/alice");
+        expect(decoded.id).toBe("alice");
+        expect(decoded.raw).toBe(raw);
+        expect(decoded.data).toBeInstanceOf(User);
+        expect(decoded.data.name).toBe("Alice");
+      }),
+  );
+
+  it.effect("keeps a missing snapshot missing", () =>
+    Effect.gen(function* () {
+      const decoded = yield* DocumentSnapshot.decode(DocumentSnapshot.missing(Users.doc(alice)));
+      assert(decoded._tag === "Missing");
+      expect(decoded.ref.path).toBe("users/alice");
+      expect(decoded.id).toBe("alice");
+    }),
+  );
+
+  it.effect("fails with a schema error where the stored data does not match the model", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(
+        DocumentSnapshot.decode(DocumentSnapshot.existing(Users.doc(alice), { name: 42 })),
+      );
+      assert(Schema.isSchemaError(error));
+    }),
+  );
+
+  it.effect("keeps the extra a snapshot carries, such as the client's metadata", () =>
+    Effect.gen(function* () {
+      const extra = { metadata: { fromCache: true, hasPendingWrites: false } };
+      const existing = yield* DocumentSnapshot.decode(
+        DocumentSnapshot.existing(
+          Users.doc(alice),
+          { name: "Alice", createdAt: Timestamp.makeUnsafe(1, 2) },
+          extra,
+        ),
+      );
+      expect(existing).toHaveProperty("metadata", extra.metadata);
+      const missing = yield* DocumentSnapshot.decode(
+        DocumentSnapshot.missing(Users.doc(alice), extra),
+      );
+      expect(missing).toHaveProperty("metadata", extra.metadata);
+    }),
+  );
+
+  it.effect("shows the decoded data when it prints, with the extra it carries", () =>
+    Effect.gen(function* () {
+      const decoded = yield* DocumentSnapshot.decode(
+        DocumentSnapshot.existing(
+          Users.doc(alice),
+          { name: "Alice", createdAt: Timestamp.makeUnsafe(1, 2) },
+          { metadata: { fromCache: true, hasPendingWrites: false } },
+        ),
+      );
+      expect(decoded.toJSON()).toMatchObject({
+        _id: "DecodedDocumentSnapshot",
+        _tag: "Existing",
+        ref: "users/alice",
+        data: { name: "Alice" },
+        metadata: { fromCache: true, hasPendingWrites: false },
+      });
+    }),
+  );
+
+  it.effect("builds snapshots that are not lazy Document Snapshots, existing or missing", () =>
+    Effect.gen(function* () {
+      const existing = yield* DocumentSnapshot.decode(
+        DocumentSnapshot.existing(Users.doc(alice), {
+          name: "Alice",
+          createdAt: Timestamp.makeUnsafe(1, 2),
+        }),
+      );
+      const lazyMissing = DocumentSnapshot.missing(Users.doc(alice));
+      const missing = yield* DocumentSnapshot.decode(lazyMissing);
+      expect(DocumentSnapshot.isDocumentSnapshot(existing)).toBe(false);
+      expect(DocumentSnapshot.isDocumentSnapshot(missing)).toBe(false);
+      expect(missing).not.toBe(lazyMissing);
+    }),
+  );
+
+  it.effect("shows a decoded missing snapshot as decoded when it prints", () =>
+    Effect.gen(function* () {
+      const decoded = yield* DocumentSnapshot.decode(
+        DocumentSnapshot.missing(Users.doc(alice), {
+          metadata: { fromCache: true, hasPendingWrites: false },
+        }),
+      );
+      expect(decoded.toJSON()).toEqual({
+        _id: "DecodedDocumentSnapshot",
+        _tag: "Missing",
+        ref: "users/alice",
+        metadata: { fromCache: true, hasPendingWrites: false },
+      });
+    }),
+  );
+});

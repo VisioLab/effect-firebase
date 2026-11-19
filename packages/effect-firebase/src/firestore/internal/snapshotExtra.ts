@@ -29,6 +29,15 @@ export const attach = <A extends object>(self: A, extra: object | undefined): A 
 };
 
 /**
+ * The extra `self` was built with, or `undefined` when it was built without
+ * one, so that a snapshot derived from it, such as its decoded form, can carry
+ * the same.
+ *
+ * @internal
+ */
+export const extraOf = (self: object): object | undefined => (self as WithExtra)[ExtraKey];
+
+/**
  * How the extra `self` was built with prints: each of its fields as it would
  * print on its own, or nothing when it was built without one.
  *
