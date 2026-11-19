@@ -1,5 +1,15 @@
 # @visiolab/effect-firebase
 
+## 0.4.0
+
+### Minor Changes
+
+- [#198](https://github.com/VisioLab/effect-firebase/pull/198) [`c1a602b`](https://github.com/VisioLab/effect-firebase/commit/c1a602b5d082bf501de6cb6f1da21431d9c69a89) Thanks [@Kaeldehta](https://github.com/Kaeldehta)! - A model can hold a typed `FirestoreSchema.DocumentReference` into its own collection, into a subcollection of it, or into a collection whose model references it back. Name the target with a `Collection.Key` (`interface UsersKey extends Collection.Key<typeof Users> {}`) and write the field as `Schema.suspend((): FirestoreSchema.DocumentReference<UsersKey> => FirestoreSchema.DocumentReference(Users))`. The reference reads back as `Collection.DocumentReference<typeof Users>`. Fields that close no cycle are unchanged.
+
+- [#239](https://github.com/VisioLab/effect-firebase/pull/239) [`9976401`](https://github.com/VisioLab/effect-firebase/commit/9976401381140fb3cd0bcdd5f5eca619d59cbfa4) Thanks [@Kaeldehta](https://github.com/Kaeldehta)! - `Firestore`, `AdminFirestore` and `ClientFirestore` can delete a document with `firestore.deleteDoc(ref)`, and a transaction can queue a delete with `transaction.deleteDoc(ref)`. Deleting a document that is not there succeeds. A custom backend built with `Firestore.make` must now provide a `deleteDoc` hook, both in its options and in the operations its `runTransaction` hook hands to the body.
+
+- [#252](https://github.com/VisioLab/effect-firebase/pull/252) [`3452fb6`](https://github.com/VisioLab/effect-firebase/commit/3452fb6ca5c9310fbc75516d5d49c62c35ec8fdd) Thanks [@Kaeldehta](https://github.com/Kaeldehta)! - Unit test Portable code without the emulator by providing `Firestore.layerMemory`, the In-memory Firestore. It keeps documents in the running process, encodes and decodes through your models as the SDKs do, resolves sentinels at commit, serves Collection Groups, keeps listeners live and runs optimistic transactions. Each build of the layer starts empty. It also provides `Firestore.MemoryDriver`, to seed and inspect raw documents, and `serverTimestamp` and `addDoc` ids follow `TestClock` and a seeded `Random`. `Firestore.makeMemory` builds the same without a layer.
+
 ## 0.3.1
 
 ### Patch Changes

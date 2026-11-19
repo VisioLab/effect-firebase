@@ -1,5 +1,18 @@
 # @visiolab/effect-firebase-admin
 
+## 0.4.0
+
+### Minor Changes
+
+- [#256](https://github.com/VisioLab/effect-firebase/pull/256) [`5a0f108`](https://github.com/VisioLab/effect-firebase/commit/5a0f108f492bc8263f9b74a4b25792491e71a292) Thanks [@Kaeldehta](https://github.com/Kaeldehta)! - Supports firebase-admin 13.5 and later as well as 14: the peer range widens from `^14.5.0` to `^13.5.0 || ^14`. `AuthError` and `AdminFirestore`'s `FirestoreError` carry the Admin SDK's error `code` on both majors.
+
+- [#239](https://github.com/VisioLab/effect-firebase/pull/239) [`9976401`](https://github.com/VisioLab/effect-firebase/commit/9976401381140fb3cd0bcdd5f5eca619d59cbfa4) Thanks [@Kaeldehta](https://github.com/Kaeldehta)! - `Firestore`, `AdminFirestore` and `ClientFirestore` can delete a document with `firestore.deleteDoc(ref)`, and a transaction can queue a delete with `transaction.deleteDoc(ref)`. Deleting a document that is not there succeeds. A custom backend built with `Firestore.make` must now provide a `deleteDoc` hook, both in its options and in the operations its `runTransaction` hook hands to the body.
+
+### Patch Changes
+
+- Updated dependencies [[`c1a602b`](https://github.com/VisioLab/effect-firebase/commit/c1a602b5d082bf501de6cb6f1da21431d9c69a89), [`9976401`](https://github.com/VisioLab/effect-firebase/commit/9976401381140fb3cd0bcdd5f5eca619d59cbfa4), [`3452fb6`](https://github.com/VisioLab/effect-firebase/commit/3452fb6ca5c9310fbc75516d5d49c62c35ec8fdd)]:
+  - @visiolab/effect-firebase@0.4.0
+
 ## 0.3.1
 
 ### Patch Changes
