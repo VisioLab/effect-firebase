@@ -254,7 +254,7 @@ catalogs:
       specifier: ^7.2.5
       version: 7.2.5
     typescript:
-      specifier: ^7.0.2
+      specifier: 7.0.2
       version: 7.0.2
     typescript6:
       specifier: npm:typescript@6.0.3
