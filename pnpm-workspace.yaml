@@ -19,7 +19,7 @@ catalog:
   # the peer ranges written in each package's `package.json` instead (ADR 0005).
   effect: 4.1.0
   firebase: ^13.0.0
-  firebase-admin: ^14.5.0
+  firebase-admin: ^14.5.1
   firebase-functions: ^7.4.0
   firebase-tools: 15.34.0
   # The version vite-plus formats the repo with, which the website also
