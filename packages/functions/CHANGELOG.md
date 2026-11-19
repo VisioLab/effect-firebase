@@ -1,5 +1,17 @@
 # @visiolab/effect-firebase-functions
 
+## 0.4.0
+
+### Minor Changes
+
+- [#256](https://github.com/VisioLab/effect-firebase/pull/256) [`5a0f108`](https://github.com/VisioLab/effect-firebase/commit/5a0f108f492bc8263f9b74a4b25792491e71a292) Thanks [@Kaeldehta](https://github.com/Kaeldehta)! - Supports every firebase-functions 7 release: the peer range widens from `^7.4.0` to `^7`, and the firebase-admin range from `^14.5.0` to `^13.5.0 || ^14`. firebase-admin 14 needs firebase-functions 7.3 or later, as firebase-functions declares itself.
+
+### Patch Changes
+
+- Updated dependencies [[`5a0f108`](https://github.com/VisioLab/effect-firebase/commit/5a0f108f492bc8263f9b74a4b25792491e71a292), [`c1a602b`](https://github.com/VisioLab/effect-firebase/commit/c1a602b5d082bf501de6cb6f1da21431d9c69a89), [`9976401`](https://github.com/VisioLab/effect-firebase/commit/9976401381140fb3cd0bcdd5f5eca619d59cbfa4), [`3452fb6`](https://github.com/VisioLab/effect-firebase/commit/3452fb6ca5c9310fbc75516d5d49c62c35ec8fdd)]:
+  - @visiolab/effect-firebase-admin@0.4.0
+  - @visiolab/effect-firebase@0.4.0
+
 ## 0.3.1
 
 ### Patch Changes
