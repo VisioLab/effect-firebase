@@ -18,7 +18,7 @@ catalog:
   # The versions the packages are developed and tested against. Consumers get
   # the peer ranges written in each package's `package.json` instead (ADR 0005).
   effect: 4.1.0
-  firebase: ^13.0.0
+  firebase: ^13.4.0
   firebase-admin: ^14.5.1
   firebase-functions: ^7.4.0
   firebase-tools: 15.34.0
